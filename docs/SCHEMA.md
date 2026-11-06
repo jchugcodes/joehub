@@ -54,13 +54,13 @@ Privileged maintenance is the only writer of those meta tables. That means the m
 - `events`: `title`, `starts_at`, optional `ends_at`, `location`, `notes`.
 - `journal_entries`: `entry_date`, optional `title`, `body`, optional `mood`.
 - `bot_activity`: `bot_name`, `action`, `occurred_at`, optional `detail`.
-- `export_history`: `started_at`, optional `finished_at`, `status` (`running`, `succeeded`, `failed`), `export_dir`, optional `remote`, optional `push_status` (`pushed`, `refused`, `failed`), optional `publication_state` (`not_requested`, `pushed`, `refused`, `failed`, `incomplete`), optional `detail`. `succeeded` is recorded only after a snapshot has been published. `publication_state = incomplete` means a push landed without the final audit commit.
+- `export_history`: `started_at`, optional `finished_at`, `status` (`running`, `succeeded`, `failed`), `export_dir`, optional `remote`, optional `push_status` (`pushed`, `refused`, `failed`), optional `publication_state` (`not_requested`, `pushed`, `refused`, `failed`, `incomplete`), optional `detail`. `succeeded` is recorded only after a snapshot has been published. `publication_state = incomplete` means a push landed without the final audit commit. The remote copy of this table is not final until a later snapshot contains `pushed` and the publication journal has been cleared.
 
 ## Writers
 
 A caller presents a server-issued credential. The database stores only SHA-256. The only plaintext joehub writes is the operator token (`principals/operator.token`, mode 600). There is no lookup by principal name, and owner plaintext is not kept. Passing the string `Ledger`, `Scout`, or `Cato` does not authenticate. The human principal `operator` may write a domain table only after `delegations` has an unrevoked row for that human and that owner. Creating or revoking that row is an explicit, audited action and only the human credential can do it. A principal with kind `bot` is rejected. The dashboard password unlocks the human session; it does not by itself act as Ledger, Scout, or Cato.
 
-This is cooperative. On one shared OS user it does not enforce bot identity. `docs/TRUST_BOUNDARY.md` says so, and it needs Joe's acceptance. The separate-user writer daemon described there is not running.
+On one shared OS user this does not enforce bot identity. `docs/TRUST_BOUNDARY.md` names the missing kernel uid. The writer daemon enforces `SO_PEERCRED` only after the users in `docs/DEPLOYMENT_ACCESS.md` exist. It is not in effect on a shared uid.
 
 ## Writes, locks, and deletes
 

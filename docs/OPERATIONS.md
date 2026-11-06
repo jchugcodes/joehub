@@ -55,9 +55,9 @@ python scripts/export_data.py
 
 This reads every table in one snapshot, encrypts that set, and publishes it as a generation pointed at by `current`. Stable names such as `transactions.csv.age` and `export_history.csv.age` are replaced only after the generation is in place. The identity file is `$JOEHUB_KEY_DIR/age-identity.txt`. It is created with mode `600` when missing. The command prints the export directory, not the key.
 
-The command records an audited delegation from the operator to Cato, then writes `export_history` with the operator credential. The only token file is `$JOEHUB_KEY_DIR/principals/operator.token` (mode 600). Owner token files are not created. On one shared OS user that operator file is readable by every process. That is cooperative mode, not enforced bot identity. Read `docs/TRUST_BOUNDARY.md` before relying on it. Joe has to accept the limit.
+The command records an audited delegation from the operator to Cato, then writes `export_history` with the operator credential. The only token file is `$JOEHUB_KEY_DIR/principals/operator.token` (mode 600). Owner token files are not created. On one shared OS user that file is readable by every process. That is not enforced bot identity. The enforced path is the writer daemon in `docs/DEPLOYMENT_ACCESS.md`, and it is not in effect until those users exist. Read `docs/TRUST_BOUNDARY.md`.
 
-`export_history.status` stays `running` until that snapshot is published. A failed dump is `failed`. `publication_state` stays `incomplete` until the final push returns. A crash during that push leaves a journal at `$JOEHUB_EXPORT_DIR/.publication-journal.json`. The next export reconciles it and does not treat a local `pushed` mark as done while the journal is still open. The same OS user can open the SQLite file directly. `connect()` is not a boundary against that user.
+`export_history.status` stays `running` until that snapshot is published. A failed dump is `failed`. `publication_state` stays `incomplete` on the remote until the audit push of the `pushed` row returns. A crash during that push leaves a journal at `$JOEHUB_EXPORT_DIR/.publication-journal.json`. The next export holds the publication lock, pushes a snapshot of the `pushed` row, and only then clears the journal. Two exporters cannot replace that journal while the lock is held. The same OS user can open the SQLite file directly. `connect()` is not a boundary against that user.
 
 `WriteLayer` retries expired leases on a timer (`JOEHUB_RECOVERY_INTERVAL_SECONDS`, default 1 second). Set it to `0` to keep recovery to process start only. A human write is recovered only if that human's delegation is still unrevoked.
 
@@ -113,7 +113,7 @@ These are not done:
 - Off-computer key backup. The age identity and the writer tokens stay in `JOEHUB_KEY_DIR` on this machine.
 - Secure mobile access. The dashboard binds to localhost. A phone on another network is not a supported client.
 - Cutover enforcement. Nothing here switches a live system off an old store or blocks the previous writer.
-- Enforced bot identity. Cooperative mode is what runs. The separate-user writer daemon in `docs/TRUST_BOUNDARY.md` is not provisioned. Joe has to accept that a same-user process can bypass the writer.
+- Enforced bot identity on this computer. The writer daemon is implemented and refuses to listen without a distinct uid per principal. Those users are not provisioned. `docs/DEPLOYMENT_ACCESS.md` lists the changes. A shared uid cannot be made into a boundary by the daemon alone.
 
 Equivalent direct command, from the repository root after the editable install:
 

@@ -23,8 +23,9 @@ def perform(
     and requires an explicit human delegation, or an owner principal for its own tables.
     """
     settings = settings or load_settings()
+    layer = WriteLayer(settings)
     try:
-        result = WriteLayer(settings).write(
+        result = layer.write(
             credential=credential,
             table=table,
             operation=operation,
@@ -33,6 +34,8 @@ def perform(
         )
     except JoehubError as exc:
         return None, str(exc)
+    finally:
+        layer.close()
     return result, None
 
 

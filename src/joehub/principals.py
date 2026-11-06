@@ -1,14 +1,12 @@
 """Operator credential and principal rows.
 
-Cooperative mode only. The database stores SHA-256 digests. The only plaintext
-joehub writes is the human operator token, in one mode-600 file. There is no
-lookup that returns an owner or bot token by name, and owner plaintext is not
-kept on disk.
+The database stores SHA-256 digests. The only plaintext joehub writes is the
+human operator token, in one mode-600 file. There is no lookup that returns an
+owner or bot token by name, and owner plaintext is not kept on disk.
 
 On one shared OS user that file is readable by every process. It does not
-enforce bot identity. ``docs/TRUST_BOUNDARY.md`` is the accepted-limit note
-and the separate-user proposal. Joe has to accept the limit before this is
-treated as a real boundary.
+enforce bot identity. The socket daemon does not accept it. See
+``docs/TRUST_BOUNDARY.md``.
 """
 
 from __future__ import annotations
@@ -88,23 +86,34 @@ def operator_token(settings: Settings) -> str:
 
 def install_operator_token(settings: Settings, credential: str) -> None:
     """Atomically replace the operator token file. Callers must not log the value."""
-    path = operator_token_path(settings)
+    write_token_file(operator_token_path(settings), credential)
+
+
+def write_token_file(path: Path, credential: str) -> None:
+    """Atomically replace a token file and fsync it and its directory."""
+    if not isinstance(credential, str) or credential.strip() == "" or credential != credential.strip():
+        raise JoehubError("refusing to install an empty operator credential")
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(path.parent, 0o700)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(credential + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        os.write(fd, (credential + "\n").encode("utf-8"))
+        os.fsync(fd)
     except Exception:
+        os.close(fd)
         if temporary.exists():
             temporary.unlink()
         raise
+    os.close(fd)
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
     os.chmod(path, 0o600)
+    dir_fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def reprovision_principals(
@@ -152,6 +161,26 @@ def reprovision_principals(
     if minted is None:
         raise JoehubError("restored database has no operator principal")
     return minted
+
+
+def principal_by_name(settings: Settings, name: str) -> Principal | None:
+    """Load one principal row by its stored name. This does not authenticate anyone."""
+    conn = connect(settings.db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, name, kind, owner_name FROM principals WHERE name = ?",
+            (name,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return Principal(
+        id=str(row["id"]),
+        name=str(row["name"]),
+        kind=str(row["kind"]),
+        owner_name=None if row["owner_name"] is None else str(row["owner_name"]),
+    )
 
 
 def resolve_credential(settings: Settings, credential: object) -> Principal:

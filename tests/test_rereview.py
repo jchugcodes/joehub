@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import inspect
+import io
 import json
 import multiprocessing
 import sqlite3
@@ -12,8 +14,9 @@ import uuid
 from pathlib import Path
 
 import pytest
+import pyrage
 
-from joehub.backup import export_all, git_push, reconcile_interrupted_publication, restore_all
+from joehub.backup import export_all, git_push, load_or_create_identity, reconcile_interrupted_publication, restore_all
 from joehub.config import load_settings
 from joehub.db import _maintenance_connect, connect, list_tables, migrate
 from joehub.errors import ConfigError, PermanentWriteError, UnauthorizedError, ValidationError
@@ -489,14 +492,11 @@ def test_interrupted_final_push_is_reconciled(settings, tmp_path, monkeypatch):
         conn.close()
     journal = json.loads((settings.export_dir / ".publication-journal.json").read_text(encoding="utf-8"))
     assert journal["phase"] == "final_in_progress"
-    # The local row may already say pushed. That mark is not confirmed while
-    # the final-push journal is still open.
-    assert state in {"pushed", "incomplete"}
-    maint = _maintenance_connect(settings.db_path)
-    try:
-        maint.execute("UPDATE export_history SET publication_state = 'pushed'")
-    finally:
-        maint.close()
+    assert state == "pushed"
+    # The push that landed is the pre-audit snapshot. Its export_history row
+    # is not pushed. Reconcile has to publish the pushed row before it clears
+    # the journal.
+    assert _remote_publication_states(bare, settings) == ["incomplete"]
     seen: dict[str, str] = {}
 
     def spy(export_dir, remote, artifacts):
@@ -511,7 +511,7 @@ def test_interrupted_final_push_is_reconciled(settings, tmp_path, monkeypatch):
 
     monkeypatch.setattr("joehub.backup.git_push", spy)
     reconcile_interrupted_publication(settings, visibility_check=lambda _remote: "PRIVATE")
-    assert seen["during"] == "incomplete"
+    assert seen["during"] == "pushed"
     conn = connect(settings.db_path)
     try:
         assert conn.execute(
@@ -520,6 +520,7 @@ def test_interrupted_final_push_is_reconciled(settings, tmp_path, monkeypatch):
     finally:
         conn.close()
     assert not (settings.export_dir / ".publication-journal.json").exists()
+    assert _remote_publication_states(bare, settings) == ["pushed"]
     listed = subprocess.run(
         ["git", "--git-dir", str(bare), "log", "--oneline"],
         check=True,
@@ -527,6 +528,14 @@ def test_interrupted_final_push_is_reconciled(settings, tmp_path, monkeypatch):
         text=True,
     )
     assert "joehub" in listed.stdout
+
+
+def _remote_publication_states(bare: Path, settings) -> list[str]:
+    clone = bare.parent / f"clone-{uuid.uuid4().hex}"
+    subprocess.run(["git", "clone", str(bare), str(clone)], check=True, capture_output=True)
+    identity = load_or_create_identity(settings.age_identity_path)
+    plain = pyrage.decrypt((clone / "export_history.csv.age").read_bytes(), [identity]).decode()
+    return [row["publication_state"] for row in csv.DictReader(io.StringIO(plain))]
 
 
 def _migrate_child(path: str) -> str:

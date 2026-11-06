@@ -1,38 +1,37 @@
 # Trust boundary
 
-joehub does not enforce bot identity. The process that is running today is cooperative only. Joe has to accept that limit. Until the separate-user design below is actually provisioned, a program running as the same OS user as joehub can ignore every check in this repository.
+The locked rule is enforced owner write access. joehub does not enforce bot identity while every agent runs as one OS user. That is not a cooperative mode anyone can accept in place of the rule. It is a missing kernel credential. Joe reviews the privileged steps in `docs/DEPLOYMENT_ACCESS.md` before they are applied. Applying them is what turns the writer on. Starting the daemon without them does not.
+
+Real isolation is not achievable on one shared OS user.
 
 ## What is true on one shared OS user
 
-File mode `600` does not isolate Ledger, Scout, Cato, and the operator when they are the same Unix user. Any of those processes can read a mode-600 file, open the SQLite file, and write it with their own connection. `PRAGMA query_only` is not a boundary against that. Peer credentials on a Unix socket are not a boundary either: `SO_PEERCRED` returns the same uid for every peer.
+File mode `600` does not isolate Ledger, Scout, Cato, and the operator when they are the same Unix user. Any of those processes can read a mode-600 file, open the SQLite file, and write it with their own connection. `PRAGMA query_only` is not a boundary against that. `SO_PEERCRED` returns the same uid for every peer, so a uid map cannot tell them apart.
 
-So:
+A separate writer OS user is not enough on its own if the bots still share one uid:
 
-- There is no API that loads a principal token by name. Owner plaintext is not stored. The only token file joehub writes is the operator's, and every same-user process can read it.
-- `connect()` never returns a writable handle and has no writable switch. An authorizer on that handle denies writes even if `query_only` is turned off. Callers that do not use `connect()` are not affected.
-- The write layer, migrations, and restore open the database themselves. That maintenance connection is not an authorization boundary.
-- Presenting the string `Ledger`, `Scout`, or `Cato` does not authenticate. A human write requires the operator credential and an unrevoked `delegations` row. That check is cooperation between callers that go through `WriteLayer`. It is not enforced against another process.
+- They can read any credential file that uid can read, including a file the writer hoped was private to one bot.
+- A per-principal socket or directory is owned by a uid. One uid owns all of them, and any of those processes can connect or read.
+- A host-mediated credential injected into the environment, a file, or a memfd is readable by another process of that uid through the file itself, `/proc/<pid>/environ`, or `/proc/<pid>/mem`. It is not an identity the process cannot forge.
+- A user namespace the bot creates for itself still presents that same host uid to a daemon outside the namespace.
 
-Real isolation is not achievable on one shared OS user. Treating the current checks as enforced bot identity would be false.
+The missing platform capability is a distinct kernel uid for each principal (operator, Ledger, Scout, and Cato), different from the writer uid. An equivalent would be some other kernel credential that `SO_PEERCRED` or an LSM exposes and that another process of the same uid cannot present. This machine does not have that for the agents. No design in the list above supplies it.
 
-## Proposal, not running
+## What the writer service enforces once those uids exist
 
-This is the boundary that would actually separate writers. It is not implemented and it is not in effect.
+`joehub.writer_service` is the enforced path. It is implemented. It is not in effect on a shared uid, and it refuses to listen unless all of the following are true:
 
-1. One writer daemon, running as its own user (for example `joehub`), is the only process allowed to open the database writable. The database file and the key directory are mode `0600` / `0700`, owned by that user. Bots and the dashboard are not that user, so they cannot open the file for write and they cannot read the age identity or any credential the daemon holds.
-2. Clients talk to the daemon over a Unix socket. The daemon calls `SO_PEERCRED` and maps the peer uid to a principal. Ledger, Scout, and Cato each run as their own user. They do not present bearer tokens, and there are no bearer files on a path they can read.
-3. The human account is a different uid. The daemon records an explicit `delegations` row when that uid asks. A bot uid cannot delegate and cannot claim another uid.
-4. If a deployment still runs every process as one uid, the daemon must refuse to treat the peer as an authenticated bot. Same-uid peer credentials cannot tell those processes apart.
+- The access map lists operator, Ledger, Scout, and Cato, each with a different uid, and none of those uids is the writer's euid.
+- The access map file is mode `0600` and owned by the writer uid.
+- The database file and its WAL sidecars are mode `0600`, the database directory is mode `0700`, and all of them are owned by the writer uid. Clients cannot open SQLite on that path.
+- The socket directory is owned by the writer and is not writable by group or other, so a client cannot replace the socket.
 
-Joe's acceptance of the cooperative limit is required for the current program. The daemon, the separate users, and the socket are open work, not a finished control.
+Clients speak JSON over the Unix socket and do not send a credential, a principal name, or a uid. The daemon reads `SO_PEERCRED` and maps that uid through the access map. A request that includes a credential is rejected. Owner names are not accepted as identity. A human write still needs an unrevoked `delegations` row. A bot uid cannot delegate.
 
-## What cooperative mode does anyway
+Tests that need distinct uids run inside a Linux user namespace when `newuidmap` works, and skip otherwise. They do not create host users.
 
-Callers that use the library get these limits, and nothing more:
+## What the in-process library still is
 
-- Domain changes go through `WriteLayer` with a server-issued credential.
-- The operator token is the human credential. Owner rows exist so recovery can recognize them, but their plaintext is discarded at creation.
-- Restore reprovisions principal hashes from the age key and the CSV exports. It keeps ids and the other provenance columns. It does not require a backup of the token files, and it does not write owner token files.
-- A rejected or unauthenticated request does not modify a queue row unless the authenticated principal id and the request fingerprint both match that row.
+`WriteLayer`, `connect()`, and the operator token file are the writer's own engine and the same-user tools. They are cooperative among processes of one uid. They are not the boundary. `connect()` never returns a writable handle. The maintenance connection used by the daemon, migrations, and restore is not an authorization boundary against another process of the writer uid. There is no API that loads an owner token by name. The socket daemon does not accept the operator token as a client credential.
 
-None of that stops a same-user process from writing the database file directly.
+The restore gate is a different control. Every joehub opener refuses the database while a handover flock is held, including the gap after the new inode is published and before the operator credential is installed. That stops a second runtime. It does not separate two bots that share a uid.

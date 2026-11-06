@@ -2,18 +2,19 @@
 
 Every domain change takes the hall pass (a named lock with a TTL and a fencing
 token), runs inside a transaction, and is recorded under an idempotency key
-bound to the request fingerprint. The caller presents a server-issued
-credential. Owner names are not credentials. Stale locks can be taken over,
-which bumps the fence so the previous holder cannot commit. Permanent failures
-are flagged in the errors table and the key is not applied again.
+bound to the request fingerprint. Owner names are not credentials. Stale locks
+can be taken over, which bumps the fence so the previous holder cannot commit.
+Permanent failures are flagged in the errors table and the key is not applied
+again.
 
-Startup calls ``recover_incomplete``. A timer calls it again so a dead lease
-that has not expired yet is retried after expiry, without the original caller
-resubmitting. Recovery reloads the recorded principal and, for a human, the
+Startup calls ``recover_incomplete``. One recovery thread per database retries
+expired leases. The thread stops when the last ``WriteLayer`` using that
+database closes. Recovery reloads the recorded principal and, for a human, the
 delegation. It does not substitute the table owner for that principal.
 
-This is cooperative mode. It does not enforce bot identity between processes
-of the same OS user. See ``docs/TRUST_BOUNDARY.md``.
+Calling ``WriteLayer`` in-process does not enforce bot identity. The socket
+daemon in ``joehub.writer_service`` is the enforced path, and only when each
+principal is a distinct uid. See ``docs/TRUST_BOUNDARY.md``.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -54,6 +56,73 @@ from joehub.util import add_seconds, canonical_uuid, is_timestamp, quote_ident, 
 log = logging.getLogger("joehub.write")
 
 
+class RecoveryPool:
+    """One recovery thread per database, shared by every ``WriteLayer`` on it."""
+
+    _lock = threading.Lock()
+    _entries: dict[str, "_RecoveryEntry"] = {}
+
+    @classmethod
+    def acquire(cls, settings: Settings) -> None:
+        if settings.recovery_interval_seconds <= 0:
+            return
+        key = os.path.realpath(settings.db_path)
+        with cls._lock:
+            entry = cls._entries.get(key)
+            if entry is None:
+                entry = _RecoveryEntry(settings)
+                cls._entries[key] = entry
+                entry.start()
+            entry.refs += 1
+
+    @classmethod
+    def release(cls, settings: Settings) -> None:
+        if settings.recovery_interval_seconds <= 0:
+            return
+        key = os.path.realpath(settings.db_path)
+        thread: threading.Thread | None = None
+        with cls._lock:
+            entry = cls._entries.get(key)
+            if entry is None:
+                return
+            entry.refs -= 1
+            if entry.refs <= 0:
+                entry.stop.set()
+                thread = entry.thread
+                cls._entries.pop(key, None)
+        if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+            thread.join(timeout=5)
+
+    @classmethod
+    def worker_count(cls) -> int:
+        with cls._lock:
+            return sum(1 for entry in cls._entries.values() if entry.thread is not None and entry.thread.is_alive())
+
+
+class _RecoveryEntry:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.refs = 0
+        self.stop = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self.thread = threading.Thread(target=self._loop, name="joehub-recovery", daemon=True)
+        self.thread.start()
+
+    def _loop(self) -> None:
+        interval = self.settings.recovery_interval_seconds
+        while not self.stop.wait(interval):
+            try:
+                layer = WriteLayer(self.settings, recover=False)
+                try:
+                    layer.recover_incomplete()
+                finally:
+                    layer.close()
+            except Exception:
+                log.warning("recovery pass failed", exc_info=True)
+
+
 @dataclass(frozen=True)
 class WriteRequest:
     principal_id: str
@@ -83,24 +152,17 @@ class WriteLayer:
         ensure_principals(self.settings)
         self.holder_id = f"{os_pid()}:{uuid.uuid4()}"
         self.fence: int | None = None
-        self._stop = threading.Event()
-        self._worker: threading.Thread | None = None
+        self._pool_held = False
         if recover:
             self.recover_incomplete()
-            interval = self.settings.recovery_interval_seconds
-            if interval > 0:
-                self._worker = threading.Thread(
-                    target=self._recovery_loop,
-                    name="joehub-recovery",
-                    daemon=True,
-                )
-                self._worker.start()
+            if self.settings.recovery_interval_seconds > 0:
+                RecoveryPool.acquire(self.settings)
+                self._pool_held = True
 
     def close(self) -> None:
-        self._stop.set()
-        worker = self._worker
-        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
-            worker.join(timeout=2)
+        if self._pool_held:
+            self._pool_held = False
+            RecoveryPool.release(self.settings)
 
     def write(
         self,
@@ -112,7 +174,34 @@ class WriteLayer:
         idempotency_key: str,
     ) -> WriteResult:
         try:
-            request = self._authorize(credential, table, operation, payload, idempotency_key)
+            principal = resolve_credential(self.settings, credential)
+        except UnauthorizedError as exc:
+            self._audit_unauthenticated(exc)
+            raise
+        return self.write_as_principal(
+            principal,
+            table=table,
+            operation=operation,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+    def write_as_principal(
+        self,
+        principal: Principal,
+        *,
+        table: str,
+        operation: str,
+        payload: dict,
+        idempotency_key: str,
+    ) -> WriteResult:
+        """Apply a write for a principal the caller already authenticated.
+
+        The socket daemon uses this after ``SO_PEERCRED``. The method itself is
+        not a boundary: any code that can call it can name a principal.
+        """
+        try:
+            request = self._authorize_principal(principal, table, operation, payload, idempotency_key)
         except _Rejected as rejected:
             self._safe_persist(rejected.request, rejected.original)
             raise rejected.original
@@ -123,10 +212,11 @@ class WriteLayer:
 
     def delegate(self, credential: str, owner_name: str) -> str:
         """Record an explicit human delegation. Owner and bot credentials cannot call this."""
-        try:
-            principal = resolve_credential(self.settings, credential)
-        except UnauthorizedError:
-            raise
+        principal = resolve_credential(self.settings, credential)
+        return self.delegate_as_principal(principal, owner_name)
+
+    def delegate_as_principal(self, principal: Principal, owner_name: str) -> str:
+        """Record a delegation for a human principal identified by the daemon."""
         if principal.kind != "human":
             raise UnauthorizedError("only a human can delegate; bots cannot impersonate an owner")
         if owner_name not in ALLOWED_OWNERS:
@@ -181,6 +271,10 @@ class WriteLayer:
     def revoke_delegation(self, credential: str, owner_name: str) -> None:
         """Revoke the human's active delegation. Owner credentials cannot call this."""
         principal = resolve_credential(self.settings, credential)
+        self.revoke_as_principal(principal, owner_name)
+
+    def revoke_as_principal(self, principal: Principal, owner_name: str) -> None:
+        """Revoke a delegation for a human principal identified by the daemon."""
         if principal.kind != "human":
             raise UnauthorizedError("only a human can revoke a delegation")
         if owner_name not in ALLOWED_OWNERS:
@@ -245,14 +339,6 @@ class WriteLayer:
             return True
         return str(lock["expires_at"]) <= utcnow()
 
-    def _recovery_loop(self) -> None:
-        interval = self.settings.recovery_interval_seconds
-        while not self._stop.wait(interval):
-            try:
-                self.recover_incomplete()
-            except Exception:
-                log.warning("recovery pass failed", exc_info=True)
-
     def _recover_row(self, row: sqlite3.Row) -> bool:
         fingerprint = row["request_fingerprint"]
         principal_id = row["actor_principal_id"]
@@ -301,15 +387,14 @@ class WriteLayer:
             return False
         return result.status == "committed" and not result.replayed
 
-    def _authorize(
+    def _authorize_principal(
         self,
-        credential: str,
+        principal: Principal,
         table: str,
         operation: str,
         payload: dict,
         idempotency_key: str,
     ) -> WriteRequest:
-        principal = resolve_credential(self.settings, credential)
         owner = self._effective_owner(principal, table)
         fingerprint = ""
         if isinstance(payload, dict):

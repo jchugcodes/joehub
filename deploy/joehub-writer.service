@@ -1,0 +1,26 @@
+[Unit]
+Description=joehub isolated writer
+After=network.target
+
+[Service]
+Type=simple
+User=joehub-writer
+Group=joehub-writer
+UMask=0077
+RuntimeDirectory=joehub
+RuntimeDirectoryMode=0755
+WorkingDirectory=/var/lib/joehub
+Environment=JOEHUB_DB_PATH=/var/lib/joehub/data/joehub.db
+Environment=JOEHUB_EXPORT_DIR=/var/lib/joehub/exports
+Environment=JOEHUB_KEY_DIR=/var/lib/joehub/keys
+Environment=JOEHUB_ACCESS_MAP=/var/lib/joehub/access.json
+Environment=JOEHUB_WRITER_SOCKET=/run/joehub/writer.sock
+Environment=JOEHUB_WRITER_SOCKET_MODE=660
+Environment=JOEHUB_WRITER_SOCKET_GROUP=joehub-clients
+Environment=JOEHUB_RECOVERY_INTERVAL_SECONDS=1
+ExecStart=/usr/bin/python3 -m joehub.writer_service
+Restart=on-failure
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

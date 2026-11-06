@@ -127,15 +127,18 @@ def _delegation_panel() -> None:
     except (AuthConfigError, JoehubError) as exc:
         st.sidebar.error(str(exc))
         return
-    for owner in ALLOWED_OWNERS:
-        if st.sidebar.button(f"Delegate {owner}"):
-            try:
-                layer.delegate(credential, owner)
-            except JoehubError as exc:
-                st.sidebar.error(str(exc))
-            else:
-                flash(f"Delegated {owner}")
-                st.rerun()
+    try:
+        for owner in ALLOWED_OWNERS:
+            if st.sidebar.button(f"Delegate {owner}"):
+                try:
+                    layer.delegate(credential, owner)
+                except JoehubError as exc:
+                    st.sidebar.error(str(exc))
+                else:
+                    flash(f"Delegated {owner}")
+                    st.rerun()
+    finally:
+        layer.close()
 
 
 def open_db():
