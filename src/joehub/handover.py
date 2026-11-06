@@ -12,6 +12,11 @@ credential install. A durable ``completed`` phase is fsynced before any
 success-path unlink. The journal is removed only after the gate, and a
 completed record survives that unlink so cleanup can be restarted, including
 when recovery itself crashes between steps.
+
+The original's hash is not published as final until after the WAL checkpoint.
+Until that refresh, the journal phase is ``checkpoint_pending`` and
+``original_sha256`` is the pre-checkpoint hash. Recovery of that phase keeps
+the live file, including when the checkpoint changed its bytes.
 """
 
 from __future__ import annotations
@@ -47,6 +52,11 @@ _cleanup_boundary: Callable[[str], None] | None = None
 
 # Test seam. Fires immediately before a restore blocks on the exclusive lock.
 _before_exclusive_lock: Callable[[], None] | None = None
+
+# Test seam. Fires after the WAL checkpoint returns and before the journal's
+# original hash is refreshed. A crash there leaves a checkpointed original
+# whose bytes no longer match the pre-checkpoint hash.
+_after_checkpoint: Callable[[], None] | None = None
 
 
 def handover_journal_path(db_path: Path) -> Path:
@@ -121,9 +131,15 @@ def commit_restored_database(
         }
         _write_json(journal_path, journal)
         gate.publish(nonce)
-        _update(journal_path, journal, phase="gated")
         if had_live:
+            # The checkpoint rewrites the main file when a crashed writer left
+            # a WAL. Publish that fact before the checkpoint so a crash before
+            # the hash refresh is recoverable. ``original_sha256`` is still the
+            # pre-checkpoint hash until the refresh below.
+            _update(journal_path, journal, phase="checkpoint_pending")
             holder = _hold_exclusive(live, nonce)
+            if _after_checkpoint is not None:
+                _after_checkpoint()
             original_sha = _sha256(live)
             journal["original_sha256"] = original_sha
             _update(journal_path, journal, phase="gated")
@@ -134,6 +150,8 @@ def commit_restored_database(
                 sidecar = Path(str(live) + suffix)
                 if sidecar.exists():
                     sidecar.unlink()
+        else:
+            _update(journal_path, journal, phase="gated")
         os.replace(incoming, live)
         replaced = True
         _fsync_dir(live.parent)
@@ -147,9 +165,15 @@ def commit_restored_database(
         _update(journal_path, journal, phase="completed")
         _finish_completed(journal, journal_path)
     except BaseException:
-        if not replaced and journal is not None:
+        # A checkpoint_pending journal is the crash record. Leave it for the
+        # next opener instead of aborting against the stale pre-checkpoint hash.
+        if (
+            not replaced
+            and journal is not None
+            and journal.get("phase") != "checkpoint_pending"
+        ):
             _settle_aborted(journal, journal_path)
-        elif not replaced:
+        elif not replaced and journal is None:
             if staged_path is not None:
                 _unlink_quiet(staged_path)
             if previous_path is not None:
@@ -231,6 +255,9 @@ def _recover_journal(journal: dict, journal_path: Path, db_path: Path) -> None:
         _unlink_quiet(maintenance_gate_path(db_path))
         _unlink_quiet(journal_path)
         _unlink_quiet(handover_completed_path(db_path))
+        return
+    if phase == "checkpoint_pending":
+        _abort_checkpoint_pending(journal, journal_path)
         return
     live = Path(str(journal["live_db"]))
     live_sha = _sha256(live) if live.is_file() else ""
@@ -380,6 +407,31 @@ def _rollback_original(journal: dict) -> None:
         _unlink_quiet(original)
         for suffix in ("-wal", "-shm"):
             _unlink_quiet(Path(str(original) + suffix))
+
+
+def _abort_checkpoint_pending(journal: dict, journal_path: Path) -> None:
+    """Drop a handover that died during the original's WAL checkpoint.
+
+    The live file is still the original database. Checkpointing may have
+    merged a leftover WAL into it, so its hash need not match the
+    pre-checkpoint ``original_sha256``. The file is left untouched.
+    """
+    live = Path(journal["live_db"])
+    if journal.get("had_live_db") and not live.is_file():
+        raise JoehubError("restore handover is inconsistent; refusing to open")
+    incoming = Path(journal["incoming_db"])
+    if incoming.resolve() != live.resolve():
+        _unlink_db(incoming)
+    original = Path(journal["original_db"])
+    if original.resolve() != live.resolve():
+        _unlink_quiet(original)
+        for suffix in ("-wal", "-shm"):
+            _unlink_quiet(Path(str(original) + suffix))
+    _unlink_quiet(Path(journal["staged_token_path"]))
+    _unlink_quiet(Path(journal["previous_token_path"]))
+    _unlink_quiet(maintenance_gate_path(live))
+    _unlink_quiet(journal_path)
+    _unlink_quiet(handover_completed_path(live))
 
 
 def _abort_files(journal: dict) -> None:

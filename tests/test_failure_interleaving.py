@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -63,6 +65,15 @@ def _export_then_diverge(settings):
 
 def _names(path: Path) -> set[str]:
     conn = sqlite3.connect(path)
+    try:
+        return {row[0] for row in conn.execute("SELECT name FROM categories")}
+    finally:
+        conn.close()
+
+
+def _names_ro(path: Path) -> set[str]:
+    """Read names without checkpointing a leftover WAL into the main file."""
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         return {row[0] for row in conn.execute("SELECT name FROM categories")}
     finally:
@@ -346,6 +357,84 @@ def _assert_cleanup_crash(settings, boundary: str) -> None:
         assert not gate_exists
         assert journal_path.is_file()
     _fixed_staging_absent(settings)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _leave_outstanding_wal(db_path: Path) -> None:
+    """Commit a row and exit without closing, so the WAL is not checkpointed."""
+    script = f"""
+import os, sqlite3
+conn = sqlite3.connect({str(db_path)!r})
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA wal_autocheckpoint=0")
+conn.execute(
+    "INSERT INTO categories (id, notion_id, migrated_on, last_modified_by, last_modified_at, name, kind) "
+    "VALUES ('018f0000-0000-7000-8000-00000000aa01', NULL, NULL, 'system', '2026-01-01T00:00:00Z', 'WalOnly', 'expense')"
+)
+conn.commit()
+os._exit(0)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+    wal = Path(str(db_path) + "-wal")
+    assert wal.is_file()
+    assert wal.stat().st_size > 0
+
+
+def test_crash_after_checkpoint_before_hash_refresh_keeps_the_original(settings):
+    _export_then_diverge(settings)
+    pre_checkpoint = _file_sha256(settings.db_path)
+    _leave_outstanding_wal(settings.db_path)
+    assert _file_sha256(settings.db_path) == pre_checkpoint
+    assert _names_ro(settings.db_path) == {"Keep", "Extra", "WalOnly"}
+    seen: dict[str, str] = {}
+
+    def after_checkpoint() -> None:
+        journal = json.loads(handover_journal_path(settings.db_path).read_text(encoding="utf-8"))
+        live_sha = _file_sha256(settings.db_path)
+        assert journal["phase"] == "checkpoint_pending"
+        assert journal["original_sha256"] == pre_checkpoint
+        assert live_sha != journal["original_sha256"]
+        assert live_sha != journal["incoming_sha256"]
+        assert not original_copy_path(settings.db_path).exists()
+        seen["live_sha"] = live_sha
+        raise RuntimeError("crash after checkpoint")
+
+    handover._after_checkpoint = after_checkpoint
+    try:
+        with pytest.raises(RuntimeError, match="crash after checkpoint"):
+            restore_all(settings, force=True)
+    finally:
+        handover._after_checkpoint = None
+
+    journal = json.loads(handover_journal_path(settings.db_path).read_text(encoding="utf-8"))
+    assert journal["phase"] == "checkpoint_pending"
+    assert journal["original_sha256"] == pre_checkpoint
+    assert _file_sha256(settings.db_path) == seen["live_sha"]
+    assert maintenance_gate_path(settings.db_path).is_file()
+    assert not original_copy_path(settings.db_path).exists()
+
+    conn = connect(settings.db_path)
+    try:
+        assert {row["name"] for row in conn.execute("SELECT name FROM categories")} == {
+            "Keep",
+            "Extra",
+            "WalOnly",
+        }
+    finally:
+        conn.close()
+    assert not operator_token_path(settings).is_file()
+    assert not maintenance_gate_path(settings.db_path).exists()
+    assert not handover_journal_path(settings.db_path).exists()
+    assert not handover_completed_path(settings.db_path).exists()
+    assert not original_copy_path(settings.db_path).exists()
+    assert _names(settings.db_path) == {"Keep", "Extra", "WalOnly"}
 
 
 def test_failed_token_write_is_recovered_without_losing_the_original(settings, monkeypatch):
