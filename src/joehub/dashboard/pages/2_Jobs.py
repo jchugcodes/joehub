@@ -7,7 +7,15 @@ import datetime as dt
 import streamlit as st
 
 from joehub.actions import perform
-from joehub.dashboard.common import flash, form_token, h, open_db, require_auth, rotate_token
+from joehub.dashboard.common import (
+    flash,
+    form_token,
+    h,
+    open_db,
+    require_auth,
+    rotate_token,
+    session_credential,
+)
 from joehub.queries import applications, companies, contacts, status_counts
 from joehub.registry import APPLICATION_STATUSES
 
@@ -87,6 +95,7 @@ if submitted:
         if applied_on:
             payload["applied_on"] = applied_on.isoformat() if isinstance(applied_on, dt.date) else str(applied_on)
         _result, err = perform(
+            credential=session_credential(),
             table="applications",
             operation="insert",
             payload=payload,
@@ -110,6 +119,7 @@ if rows:
     if status_submitted:
         token = form_token("application-status")
         _result, err = perform(
+            credential=session_credential(),
             table="applications",
             operation="update",
             payload={"id": application_id, "status": new_status, "event_kind": "transition"},

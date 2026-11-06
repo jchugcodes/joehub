@@ -26,7 +26,7 @@ python -m pip install -e ".[dev]"
 | `JOEHUB_MAX_RETRIES` | `8` |
 | `JOEHUB_RETRY_BACKOFF_SECONDS` | `0.05` |
 
-A path inside the repository is rejected. The database directory, export directory, and key directory must be distinct.
+A path inside the repository is rejected. The database file and the password-hash file must not sit inside the export directory. The key directory and the export directory must not contain each other. The database, export, and key paths must be distinct.
 
 The first write, export, or seed creates the database and applies `migrations/001_initial.sql`.
 
@@ -52,9 +52,11 @@ Running it again is safe. Each fictional row has a stable idempotency key, so a 
 python scripts/export_data.py
 ```
 
-This writes one age-encrypted CSV per table to the export directory, using stable names such as `transactions.csv.age` and `export_history.csv.age`. Files are overwritten on the next run. The identity file is `$JOEHUB_KEY_DIR/age-identity.txt`. It is created with mode `600` when missing. The command prints the export directory, not the key.
+This reads every table in one snapshot, encrypts that set, and publishes it as a generation pointed at by `current`. Stable names such as `transactions.csv.age` and `export_history.csv.age` are replaced only after the generation is in place. The identity file is `$JOEHUB_KEY_DIR/age-identity.txt`. It is created with mode `600` when missing. The command prints the export directory, not the key. Owner tokens are also created there (`principals/*.token`, mode 600) and are not printed.
 
-The run is stored in `export_history`, and that table is included in the encrypted files.
+`export_history.status` stays `running` until that snapshot is published. A failed dump is `failed`. `publication_state` is `incomplete` when a push has not carried the final audit.
+
+The same OS user can open the SQLite file directly. The read-only connection used by the dashboard is not a boundary against that user.
 
 ## Push
 
@@ -66,7 +68,7 @@ export JOEHUB_EXPORT_REMOTE=git@github.com:YOU/joehub-exports.git
 python scripts/export_data.py --push
 ```
 
-You can pass `--remote` instead of the environment variable. The export directory is its own git checkout. The age identity is not part of that commit.
+You can pass `--remote` instead of the environment variable. The push clones the remote, commits only the expected `*.csv.age` files, and fast-forwards `main`. It does not force-push. A remote that already contains a README is kept; the ciphertext is added on top. The age identity, the database, and the password hash are not part of that commit. A local bare-repo test is not a completed publication to a hosted private repository.
 
 ## Restore
 
@@ -75,7 +77,7 @@ export JOEHUB_DB_PATH=/home/box/joehub/data/joehub-restored.db
 python scripts/restore_data.py
 ```
 
-Restore decrypts every `<table>.csv.age`, applies the migrations to a new database, and replaces all rows. It refuses to overwrite an existing database file unless you pass `--force`. After loading, it runs SQLite's foreign-key check. Cent amounts come back as integers, and primary keys are unchanged.
+Stop the dashboard and any other writer first. Restore decrypts into a temporary database, checks integrity, foreign keys, row counts, and the schema, and only then replaces the live file. If a check fails, the original database stays. It refuses to overwrite an existing database file unless you pass `--force`, and it refuses when the file is still locked. Cent amounts come back as integers, and primary keys are unchanged. NULL, an empty string, and the literal `\N` stay distinct.
 
 Use the same `JOEHUB_KEY_DIR` that created the export.
 
@@ -95,7 +97,17 @@ python scripts/run_dashboard.py
 
 The process binds to `127.0.0.1:8501` unless `JOEHUB_BIND_ADDRESS` or `JOEHUB_BIND_PORT` is set. `.streamlit/config.toml` uses the same localhost default. Open `http://127.0.0.1:8501`.
 
-Finance, Jobs, and Journal are the three domain pages. Inspector lists every table, with filter and sort. Domain edits, including the two-step delete, call the same write layer as the scripts. Meta tables are read-only in the inspector. Use Lock in the sidebar to drop the session.
+The password unlocks the human principal. It does not act as Ledger, Scout, or Cato. Use the sidebar delegation buttons before saving. Those buttons write an audited `delegations` row. Domain edits, including the two-step delete, call the same write layer as the scripts and send the human token loaded on the server. Meta tables are read-only in the inspector. Use Lock in the sidebar to drop the session.
+
+## Open gates
+
+These are not done:
+
+- A daily scheduler. Nothing here runs export or restore on a clock.
+- Real private publication and restore against a hosted GitHub repository. The privacy check and the local bare-repo tests are local. They are not an off-machine backup that has been run against your exports repo.
+- Off-computer key backup. The age identity and the writer tokens stay in `JOEHUB_KEY_DIR` on this machine.
+- Secure mobile access. The dashboard binds to localhost. A phone on another network is not a supported client.
+- Cutover enforcement. Nothing here switches a live system off an old store or blocks the previous writer.
 
 Equivalent direct command, from the repository root after the editable install:
 

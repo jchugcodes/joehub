@@ -1,27 +1,35 @@
 """Single-writer queue.
 
-Every domain change takes the hall pass (a named lock with a TTL), runs inside a
-transaction, and is recorded under an idempotency key. Stale locks can be taken
-over. Permanent failures are flagged in the errors table and the key is not applied again.
+Every domain change takes the hall pass (a named lock with a TTL and a fencing
+token), runs inside a transaction, and is recorded under an idempotency key
+bound to the request fingerprint. The caller presents a server-issued
+credential. Owner names are not credentials. Stale locks can be taken over,
+which bumps the fence so the previous holder cannot commit. Permanent failures
+are flagged in the errors table and the key is not applied again.
+
+Startup calls ``recover_incomplete`` so a crashed ``running`` request is
+finished without the original caller resubmitting it.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable
 
 from joehub.config import Settings, load_settings
-from joehub.db import connect, migrate
+from joehub.db import connect, connect_writer, migrate
 from joehub.errors import (
     PermanentWriteError,
     TransientWriteError,
     UnauthorizedError,
     ValidationError,
 )
+from joehub.principals import Principal, ensure_principals, resolve_credential
 from joehub.registry import (
     ALLOWED_OWNERS,
     APPLICATION_EXTRAS,
@@ -29,22 +37,25 @@ from joehub.registry import (
     EVENT_KINDS,
     HALL_PASS,
     OPERATIONS,
+    TABLE_OWNERS,
     TABLES,
     Field,
     fields_by_name,
 )
-from joehub.util import canonical_uuid, is_timestamp, quote_ident, utcnow
-
-CommitHook = Callable[[sqlite3.Connection], None]
+from joehub.util import add_seconds, canonical_uuid, is_timestamp, quote_ident, utcnow
 
 
 @dataclass(frozen=True)
 class WriteRequest:
+    principal_id: str
+    principal_name: str
+    principal_kind: str
     owner: str
     table: str
     operation: str
     payload: dict
     idempotency_key: str
+    fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -57,41 +68,245 @@ class WriteResult:
 
 
 class WriteLayer:
-    def __init__(self, settings: Settings | None = None):
+    def __init__(self, settings: Settings | None = None, *, recover: bool = True):
         self.settings = settings or load_settings()
         migrate(self.settings.db_path)
+        ensure_principals(self.settings)
         self.holder_id = f"{os_pid()}:{uuid.uuid4()}"
+        self.fence: int | None = None
+        if recover:
+            self.recover_incomplete()
 
     def write(
         self,
         *,
-        owner: str,
+        credential: str,
         table: str,
         operation: str,
         payload: dict,
         idempotency_key: str,
-        commit_hook: CommitHook | None = None,
     ) -> WriteResult:
-        return self.execute(
-            WriteRequest(
-                owner=owner,
-                table=table,
-                operation=operation,
-                payload=payload,
-                idempotency_key=idempotency_key,
-            ),
-            commit_hook=commit_hook,
-        )
+        try:
+            request = self._authorize(credential, table, operation, payload, idempotency_key)
+        except _Rejected as rejected:
+            self._safe_persist(rejected.request, rejected.original)
+            raise rejected.original
+        except PermanentWriteError as exc:
+            self._safe_persist(
+                _unauthenticated_request(table, operation, payload, idempotency_key),
+                exc,
+            )
+            raise
+        return self._run(request)
 
-    def execute(self, request: WriteRequest, *, commit_hook: CommitHook | None = None) -> WriteResult:
+    def delegate(self, credential: str, owner_name: str) -> str:
+        """Record an explicit human delegation. Owner and bot credentials cannot call this."""
+        try:
+            principal = resolve_credential(self.settings, credential)
+        except UnauthorizedError:
+            raise
+        if principal.kind != "human":
+            raise UnauthorizedError("only a human can delegate; bots cannot impersonate an owner")
+        if owner_name not in ALLOWED_OWNERS:
+            raise UnauthorizedError("unknown owner")
+        acquired = self._acquire_hall_pass(principal.name)
+        if not acquired:
+            raise TransientWriteError("hall pass is held")
+        try:
+            conn = connect_writer(self.settings.db_path)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                self._touch_lease(conn)
+                existing = conn.execute(
+                    """
+                    SELECT id FROM delegations
+                    WHERE human_principal_id = ? AND owner_name = ? AND revoked_at IS NULL
+                    """,
+                    (principal.id, owner_name),
+                ).fetchone()
+                if existing is not None:
+                    conn.rollback()
+                    return str(existing["id"])
+                now = utcnow()
+                delegation_id = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO delegations (
+                        id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                        human_principal_id, owner_name, granted_at, revoked_at, note
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?)
+                    """,
+                    (
+                        delegation_id,
+                        principal.name,
+                        now,
+                        principal.id,
+                        owner_name,
+                        now,
+                        "explicit human delegation",
+                    ),
+                )
+                conn.commit()
+                return delegation_id
+            except Exception:
+                _rollback_quiet(conn)
+                raise
+            finally:
+                conn.close()
+        finally:
+            self._release_hall_pass()
+
+    def recover_incomplete(self) -> int:
+        """Finish queue rows left ``running`` by a crashed writer. Does not take a new caller payload."""
+        conn = connect(self.settings.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM write_queue WHERE status = 'running' ORDER BY created_at, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        finished = 0
+        for row in rows:
+            if not self._lease_abandoned(row):
+                continue
+            if self._recover_row(row):
+                finished += 1
+        return finished
+
+    def _lease_abandoned(self, _row: sqlite3.Row) -> bool:
+        """A live unexpired hall pass still owns the attempt. Recovery waits it out."""
+        conn = connect(self.settings.db_path)
+        try:
+            lock = conn.execute(
+                "SELECT expires_at FROM locks WHERE lock_name = ?",
+                (HALL_PASS,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if lock is None:
+            return True
+        return str(lock["expires_at"]) <= utcnow()
+
+    def _recover_row(self, row: sqlite3.Row) -> bool:
+        fingerprint = row["request_fingerprint"]
+        principal_id = row["actor_principal_id"]
+        if not fingerprint or not principal_id:
+            self._fail_recovered(row, "running request has no fingerprint")
+            return False
+        try:
+            payload = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            self._fail_recovered(row, "running request payload is unreadable")
+            return False
+        expected = request_fingerprint(
+            principal_id=str(principal_id),
+            owner=str(row["owner_name"]),
+            table=str(row["table_name"]),
+            operation=str(row["operation"]),
+            payload=payload,
+        )
+        if not _digest_equal(expected, str(fingerprint)):
+            self._fail_recovered(row, "running request fingerprint does not match its payload")
+            return False
+        request = WriteRequest(
+            principal_id=str(principal_id),
+            principal_name=str(row["owner_name"]),
+            principal_kind="owner",
+            owner=str(row["owner_name"]),
+            table=str(row["table_name"]),
+            operation=str(row["operation"]),
+            payload=payload,
+            idempotency_key=str(row["idempotency_key"]),
+            fingerprint=str(fingerprint),
+        )
+        try:
+            result = self._run(request)
+        except PermanentWriteError:
+            return False
+        return result.status == "committed" and not result.replayed
+
+    def _authorize(
+        self,
+        credential: str,
+        table: str,
+        operation: str,
+        payload: dict,
+        idempotency_key: str,
+    ) -> WriteRequest:
+        principal = resolve_credential(self.settings, credential)
+        owner = self._effective_owner(principal, table)
+        # Bind the request before payload checks so a validation error is audited
+        # as this principal, not as an anonymous caller.
+        request = WriteRequest(
+            principal_id=principal.id,
+            principal_name=principal.name,
+            principal_kind=principal.kind,
+            owner=owner,
+            table=table,
+            operation=operation,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            fingerprint="",
+        )
         try:
             self._validate_shape(request)
         except PermanentWriteError as exc:
-            self._safe_persist(request, exc)
-            raise
+            raise _Rejected(request, exc) from exc
+        fingerprint = request_fingerprint(
+            principal_id=principal.id,
+            owner=owner,
+            table=table,
+            operation=operation,
+            payload=payload,
+        )
+        return WriteRequest(
+            principal_id=principal.id,
+            principal_name=principal.name,
+            principal_kind=principal.kind,
+            owner=owner,
+            table=table,
+            operation=operation,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+        )
 
+    def _effective_owner(self, principal: Principal, table: str) -> str:
+        if principal.kind == "bot":
+            raise UnauthorizedError("bots cannot impersonate an owner")
+        if table not in TABLES:
+            raise UnauthorizedError(f"{table} is not a writable table")
+        owner = TABLE_OWNERS[table]
+        if owner not in ALLOWED_OWNERS:
+            raise UnauthorizedError(f"{table} is not a writable table")
+        if principal.kind == "owner":
+            if principal.owner_name != owner:
+                raise UnauthorizedError(f"{principal.name} cannot write {table}")
+            return owner
+        if principal.kind == "human":
+            if not self._delegation_active(principal.id, owner):
+                raise UnauthorizedError(f"no delegation from {principal.name} to {owner}")
+            return owner
+        raise UnauthorizedError("unknown principal")
+
+    def _delegation_active(self, principal_id: str, owner_name: str) -> bool:
+        conn = connect(self.settings.db_path)
+        try:
+            row = conn.execute(
+                """
+                SELECT 1 FROM delegations
+                WHERE human_principal_id = ? AND owner_name = ? AND revoked_at IS NULL
+                """,
+                (principal_id, owner_name),
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
+    def _run(self, request: WriteRequest) -> WriteResult:
         existing = self._peek_queue(request.idempotency_key)
         if existing is not None and existing["status"] == "committed":
+            self._require_same_fingerprint(existing, request)
             return self._replay(request, existing)
         if existing is not None and existing["status"] == "failed":
             raise PermanentWriteError(self._failed_message(existing))
@@ -100,18 +315,23 @@ class WriteLayer:
         for attempt in range(1, self.settings.max_retries + 1):
             acquired = False
             try:
-                acquired = self._acquire_hall_pass(request.owner)
+                acquired = self._acquire_hall_pass(request.principal_name)
                 if not acquired:
                     raise TransientWriteError("hall pass is held")
+                self._renew_lease()
                 state, row = self._mark_running(request)
                 if state == "committed" and row is not None:
                     return self._replay(request, row)
+                if state == "conflict":
+                    raise PermanentWriteError(
+                        "idempotency key was already used for a different request"
+                    )
                 if state == "failed":
                     raise PermanentWriteError(self._failed_message(row))
                 if state == "exhausted":
                     raise PermanentWriteError("bounded retry exceeded for this idempotency key")
                 try:
-                    row_id = self._apply_and_commit(request, commit_hook=commit_hook)
+                    row_id = self._apply_and_commit(request)
                 except TransientWriteError:
                     raise
                 except PermanentWriteError:
@@ -145,9 +365,10 @@ class WriteLayer:
         raise exhausted
 
     def _connect(self) -> sqlite3.Connection:
-        return connect(self.settings.db_path)
+        return connect_writer(self.settings.db_path)
 
     def _replay(self, request: WriteRequest, row: sqlite3.Row) -> WriteResult:
+        self._require_same_fingerprint(row, request)
         return WriteResult(
             row_id=row["row_id"],
             replayed=True,
@@ -156,8 +377,14 @@ class WriteLayer:
             operation=request.operation,
         )
 
+    @staticmethod
+    def _require_same_fingerprint(row: sqlite3.Row, request: WriteRequest) -> None:
+        stored = row["request_fingerprint"]
+        if stored is None or not _digest_equal(str(stored), request.fingerprint):
+            raise PermanentWriteError("idempotency key was already used for a different request")
+
     def _validate_shape(self, request: WriteRequest) -> None:
-        if not isinstance(request.owner, str) or request.owner not in ALLOWED_OWNERS:
+        if request.owner not in ALLOWED_OWNERS:
             raise UnauthorizedError("only Ledger, Scout, and Cato may write")
         if request.table not in TABLES:
             raise UnauthorizedError(f"{request.table} is not a writable table")
@@ -225,16 +452,17 @@ class WriteLayer:
             now = utcnow()
             expires = _add_seconds(now, self.settings.lock_ttl_seconds)
             row = conn.execute(
-                "SELECT holder_id, expires_at FROM locks WHERE lock_name = ?",
+                "SELECT holder_id, expires_at, fence FROM locks WHERE lock_name = ?",
                 (HALL_PASS,),
             ).fetchone()
             if row is None:
+                self.fence = 1
                 conn.execute(
                     """
                     INSERT INTO locks (
                         id, notion_id, migrated_on, last_modified_by, last_modified_at,
-                        lock_name, holder_id, acquired_at, expires_at, ttl_seconds
-                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+                        lock_name, holder_id, acquired_at, expires_at, ttl_seconds, fence
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -245,15 +473,35 @@ class WriteLayer:
                         now,
                         expires,
                         self.settings.lock_ttl_seconds,
+                        self.fence,
+                    ),
+                )
+            elif row["holder_id"] == self.holder_id and row["expires_at"] > now:
+                self.fence = int(row["fence"])
+                conn.execute(
+                    """
+                    UPDATE locks
+                    SET expires_at = ?, ttl_seconds = ?, last_modified_by = ?, last_modified_at = ?
+                    WHERE lock_name = ? AND holder_id = ? AND fence = ?
+                    """,
+                    (
+                        expires,
+                        self.settings.lock_ttl_seconds,
+                        actor,
+                        now,
+                        HALL_PASS,
+                        self.holder_id,
+                        self.fence,
                     ),
                 )
             elif row["holder_id"] == self.holder_id or row["expires_at"] <= now:
+                self.fence = int(row["fence"]) + 1
                 conn.execute(
                     """
                     UPDATE locks
                     SET holder_id = ?, acquired_at = ?, expires_at = ?, ttl_seconds = ?,
-                        last_modified_by = ?, last_modified_at = ?
-                    WHERE lock_name = ?
+                        last_modified_by = ?, last_modified_at = ?, fence = ?
+                    WHERE lock_name = ? AND fence = ?
                     """,
                     (
                         self.holder_id,
@@ -262,7 +510,9 @@ class WriteLayer:
                         self.settings.lock_ttl_seconds,
                         actor,
                         now,
+                        self.fence,
                         HALL_PASS,
+                        int(row["fence"]),
                     ),
                 )
             else:
@@ -278,6 +528,34 @@ class WriteLayer:
             return False
         finally:
             conn.close()
+
+    def _renew_lease(self) -> None:
+        conn = connect_writer(self.settings.db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._touch_lease(conn)
+            conn.commit()
+        except Exception:
+            _rollback_quiet(conn)
+            raise
+        finally:
+            conn.close()
+
+    def _touch_lease(self, conn: sqlite3.Connection) -> None:
+        if self.fence is None:
+            raise TransientWriteError("lost the hall pass")
+        now = utcnow()
+        expires = add_seconds(now, self.settings.lock_ttl_seconds)
+        updated = conn.execute(
+            """
+            UPDATE locks
+            SET expires_at = ?, ttl_seconds = ?, last_modified_at = ?
+            WHERE lock_name = ? AND holder_id = ? AND fence = ?
+            """,
+            (expires, self.settings.lock_ttl_seconds, now, HALL_PASS, self.holder_id, self.fence),
+        )
+        if updated.rowcount != 1:
+            raise TransientWriteError("lost the hall pass")
 
     def _release_hall_pass(self) -> None:
         conn = self._connect()
@@ -310,16 +588,22 @@ class WriteLayer:
             if row is not None and int(row["attempt_count"]) >= self.settings.max_retries:
                 conn.rollback()
                 return "exhausted", row
+            if row is not None:
+                stored = row["request_fingerprint"]
+                if stored is None or not _digest_equal(str(stored), request.fingerprint):
+                    conn.rollback()
+                    return "conflict", row
             now = utcnow()
-            payload_json = json.dumps(request.payload, sort_keys=True, separators=(",", ":"))
             if row is None:
+                payload_json = json.dumps(request.payload, sort_keys=True, separators=(",", ":"))
                 conn.execute(
                     """
                     INSERT INTO write_queue (
                         id, notion_id, migrated_on, last_modified_by, last_modified_at,
                         idempotency_key, owner_name, table_name, operation, payload_json,
-                        status, row_id, attempt_count, created_at, completed_at
-                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, 1, ?, NULL)
+                        status, row_id, attempt_count, created_at, completed_at,
+                        request_fingerprint, actor_principal_id, fence
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, 1, ?, NULL, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -331,6 +615,9 @@ class WriteLayer:
                         request.operation,
                         payload_json,
                         now,
+                        request.fingerprint,
+                        request.principal_id,
+                        self.fence,
                     ),
                 )
             else:
@@ -339,22 +626,17 @@ class WriteLayer:
                     UPDATE write_queue
                     SET status = 'running',
                         attempt_count = attempt_count + 1,
-                        payload_json = ?,
                         last_modified_by = ?,
                         last_modified_at = ?,
-                        owner_name = ?,
-                        table_name = ?,
-                        operation = ?
-                    WHERE idempotency_key = ?
+                        fence = ?
+                    WHERE idempotency_key = ? AND request_fingerprint = ?
                     """,
                     (
-                        payload_json,
                         request.owner,
                         now,
-                        request.owner,
-                        request.table,
-                        request.operation,
+                        self.fence,
                         request.idempotency_key,
+                        request.fingerprint,
                     ),
                 )
             conn.commit()
@@ -370,27 +652,27 @@ class WriteLayer:
         finally:
             conn.close()
 
-    def _apply_and_commit(self, request: WriteRequest, *, commit_hook: CommitHook | None) -> str:
+    def _apply_and_commit(self, request: WriteRequest) -> str:
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                self._touch_lease(conn)
                 self._assert_owner(conn, request)
                 row_id = self._dispatch(conn, request)
+                self._touch_lease(conn)
                 now = utcnow()
                 updated = conn.execute(
                     """
                     UPDATE write_queue
                     SET status = 'committed', row_id = ?, completed_at = ?,
                         last_modified_by = ?, last_modified_at = ?
-                    WHERE idempotency_key = ? AND status = 'running'
+                    WHERE idempotency_key = ? AND status = 'running' AND request_fingerprint = ?
                     """,
-                    (row_id, now, request.owner, now, request.idempotency_key),
+                    (row_id, now, request.owner, now, request.idempotency_key, request.fingerprint),
                 )
                 if updated.rowcount != 1:
-                    raise PermanentWriteError("write queue was not running for this key")
-                if commit_hook is not None:
-                    commit_hook(conn)
+                    raise TransientWriteError("lost the hall pass")
                 conn.commit()
                 return row_id
             except Exception:
@@ -558,6 +840,43 @@ class WriteLayer:
         )
         return row_id
 
+    def _fail_recovered(self, row: sqlite3.Row, message: str) -> None:
+        now = utcnow()
+        conn = connect_writer(self.settings.db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                UPDATE write_queue
+                SET status = 'failed', completed_at = ?, last_modified_at = ?
+                WHERE idempotency_key = ? AND status = 'running'
+                """,
+                (now, now, row["idempotency_key"]),
+            )
+            conn.execute(
+                """
+                INSERT INTO errors (
+                    id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                    idempotency_key, owner_name, table_name, operation, message, persistent, created_at
+                ) VALUES (?, NULL, NULL, 'system', ?, ?, ?, ?, ?, ?, 1, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    now,
+                    row["idempotency_key"],
+                    row["owner_name"],
+                    row["table_name"],
+                    row["operation"],
+                    message,
+                    now,
+                ),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            _rollback_quiet(conn)
+        finally:
+            conn.close()
+
     def _safe_persist(self, request: WriteRequest, exc: PermanentWriteError) -> None:
         try:
             self._persist_failure(request, exc)
@@ -581,12 +900,17 @@ class WriteLayer:
             conn.execute("BEGIN IMMEDIATE")
             if key:
                 existing = conn.execute(
-                    "SELECT status FROM write_queue WHERE idempotency_key = ?",
+                    "SELECT status, request_fingerprint FROM write_queue WHERE idempotency_key = ?",
                     (key,),
                 ).fetchone()
-                if existing is not None and existing["status"] in {"committed", "failed"}:
-                    conn.rollback()
-                    return
+                if existing is not None:
+                    stored_fp = existing["request_fingerprint"]
+                    if stored_fp and request.fingerprint and not _digest_equal(str(stored_fp), request.fingerprint):
+                        conn.rollback()
+                        return
+                    if existing["status"] in {"committed", "failed"}:
+                        conn.rollback()
+                        return
             now = utcnow()
             conn.execute(
                 """
@@ -626,8 +950,9 @@ class WriteLayer:
                         INSERT INTO write_queue (
                             id, notion_id, migrated_on, last_modified_by, last_modified_at,
                             idempotency_key, owner_name, table_name, operation, payload_json,
-                            status, row_id, attempt_count, created_at, completed_at
-                        ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'failed', NULL, 1, ?, ?)
+                            status, row_id, attempt_count, created_at, completed_at,
+                            request_fingerprint, actor_principal_id, fence
+                        ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'failed', NULL, 1, ?, ?, ?, ?, NULL)
                         """,
                         (
                             str(uuid.uuid4()),
@@ -640,6 +965,8 @@ class WriteLayer:
                             payload_json,
                             now,
                             now,
+                            request.fingerprint or None,
+                            request.principal_id or None,
                         ),
                     )
             conn.commit()
@@ -902,6 +1229,46 @@ def _add_seconds(stamp: str, seconds: int) -> str:
     from joehub.util import add_seconds
 
     return add_seconds(stamp, seconds)
+
+
+class _Rejected(Exception):
+    def __init__(self, request: WriteRequest, original: PermanentWriteError):
+        super().__init__(str(original))
+        self.request = request
+        self.original = original
+
+
+def request_fingerprint(
+    *,
+    principal_id: str,
+    owner: str,
+    table: str,
+    operation: str,
+    payload: dict,
+) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    material = "\n".join([principal_id, owner, table, operation, encoded])
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _digest_equal(left: str, right: str) -> bool:
+    if len(left) != len(right):
+        return False
+    return hmac.compare_digest(left, right)
+
+
+def _unauthenticated_request(table: object, operation: object, payload: object, idempotency_key: object) -> WriteRequest:
+    return WriteRequest(
+        principal_id="",
+        principal_name="",
+        principal_kind="",
+        owner="unknown",
+        table=table if isinstance(table, str) else "",
+        operation=operation if isinstance(operation, str) else "",
+        payload=payload if isinstance(payload, dict) else {},
+        idempotency_key=idempotency_key if isinstance(idempotency_key, str) else "",
+        fingerprint="",
+    )
 
 
 def os_pid() -> int:

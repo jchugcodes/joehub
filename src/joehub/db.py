@@ -24,15 +24,29 @@ def migrations_dir() -> Path:
     raise FileNotFoundError("migrations directory not found")
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def connect(db_path: Path, *, writable: bool = False) -> sqlite3.Connection:
+    """Open SQLite. The default connection is read-only.
+
+    Domain changes go through WriteLayer. ``connect_writer`` is the maintenance
+    connection used by migrations, the write layer, and restore. A process
+    running as the same OS user can still open the file directly; this flag is
+    not an isolation boundary between those processes.
+    """
     db_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
+    if writable:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    else:
+        conn.execute("PRAGMA query_only = ON")
     return conn
+
+
+def connect_writer(db_path: Path) -> sqlite3.Connection:
+    return connect(db_path, writable=True)
 
 
 def _applied_versions(conn: sqlite3.Connection) -> set[str]:
@@ -46,7 +60,7 @@ def _applied_versions(conn: sqlite3.Connection) -> set[str]:
 
 def migrate(db_path: Path) -> None:
     """Apply SQL migrations in filename order. Migrations must not drop tables."""
-    conn = connect(db_path)
+    conn = connect_writer(db_path)
     try:
         applied = _applied_versions(conn)
         for path in sorted(migrations_dir().glob("*.sql")):

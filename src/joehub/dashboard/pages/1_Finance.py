@@ -7,7 +7,15 @@ import datetime as dt
 import streamlit as st
 
 from joehub.actions import perform
-from joehub.dashboard.common import flash, form_token, h, open_db, require_auth, rotate_token
+from joehub.dashboard.common import (
+    flash,
+    form_token,
+    h,
+    open_db,
+    require_auth,
+    rotate_token,
+    session_credential,
+)
 from joehub.errors import ValidationError
 from joehub.money import dollars_to_cents, format_cents
 from joehub.queries import account_balances, accounts, budgets_with_spend, categories, goals, recent_transactions
@@ -137,6 +145,7 @@ else:
             st.error(str(exc))
         else:
             _result, err = perform(
+                credential=session_credential(),
                 table="transactions",
                 operation="insert",
                 payload=payload,

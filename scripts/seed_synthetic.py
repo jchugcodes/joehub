@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from joehub.config import load_settings  # noqa: E402
 from joehub.db import connect, migrate  # noqa: E402
 from joehub.errors import JoehubError  # noqa: E402
+from joehub.principals import token_for  # noqa: E402
 from joehub.write import WriteLayer  # noqa: E402
 
 NS = uuid.UUID("6f9d8a2e-1c4b-4f0a-9d3e-8a1b2c3d4e5f")
@@ -25,9 +26,18 @@ def sid(name: str) -> str:
     return str(uuid.uuid5(NS, name))
 
 
-def write(layer: WriteLayer, *, owner: str, table: str, slug: str, payload: dict, operation: str = "insert") -> bool:
+def write(
+    layer: WriteLayer,
+    tokens: dict[str, str],
+    *,
+    owner: str,
+    table: str,
+    slug: str,
+    payload: dict,
+    operation: str = "insert",
+) -> bool:
     result = layer.write(
-        owner=owner,
+        credential=tokens[owner],
         table=table,
         operation=operation,
         payload=payload,
@@ -40,13 +50,14 @@ def main() -> int:
     settings = load_settings()
     migrate(settings.db_path)
     layer = WriteLayer(settings)
+    tokens = {name: token_for(settings, name) for name in ("Ledger", "Scout", "Cato")}
     replayed = 0
     total = 0
 
     def add(owner: str, table: str, slug: str, payload: dict, operation: str = "insert") -> None:
         nonlocal replayed, total
         total += 1
-        if write(layer, owner=owner, table=table, slug=slug, payload=payload, operation=operation):
+        if write(layer, tokens, owner=owner, table=table, slug=slug, payload=payload, operation=operation):
             replayed += 1
 
     pay = sid("cat:pay")

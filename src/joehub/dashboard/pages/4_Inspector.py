@@ -5,7 +5,14 @@ from __future__ import annotations
 import streamlit as st
 
 from joehub.actions import coerce_form_value, editable_field_names, perform
-from joehub.dashboard.common import flash, form_token, open_db, require_auth, rotate_token
+from joehub.dashboard.common import (
+    flash,
+    form_token,
+    open_db,
+    require_auth,
+    rotate_token,
+    session_credential,
+)
 from joehub.db import list_tables, table_columns
 from joehub.errors import ValidationError
 from joehub.queries import inspect_table, pending_delete
@@ -68,6 +75,7 @@ if submitted:
             st.info("No changes to save.")
         else:
             _result, err = perform(
+                credential=session_credential(),
                 table=table,
                 operation="update",
                 payload=payload,
@@ -92,6 +100,7 @@ if pending:
     st.warning("A delete is pending confirmation.")
 if st.button("Request delete"):
     _result, err = perform(
+        credential=session_credential(),
         table=table,
         operation="delete_request",
         payload={"id": selected_id},
@@ -105,6 +114,7 @@ if st.button("Request delete"):
         st.rerun()
 if pending and st.button("Confirm delete"):
     _result, err = perform(
+        credential=session_credential(),
         table=table,
         operation="delete_confirm",
         payload={"id": selected_id},

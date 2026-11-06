@@ -7,7 +7,15 @@ import datetime as dt
 import streamlit as st
 
 from joehub.actions import perform
-from joehub.dashboard.common import flash, form_token, h, open_db, require_auth, rotate_token
+from joehub.dashboard.common import (
+    flash,
+    form_token,
+    h,
+    open_db,
+    require_auth,
+    rotate_token,
+    session_credential,
+)
 from joehub.queries import events, journal_entries
 
 st.set_page_config(page_title="Journal", page_icon="◉", layout="centered", initial_sidebar_state="collapsed")
@@ -50,6 +58,7 @@ if submitted:
         st.error("Body is required")
     else:
         _result, err = perform(
+            credential=session_credential(),
             table="journal_entries",
             operation="insert",
             payload={
@@ -88,6 +97,7 @@ with st.form("add-event"):
 if event_submitted:
     token = form_token("event")
     _result, err = perform(
+        credential=session_credential(),
         table="events",
         operation="insert",
         payload={

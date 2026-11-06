@@ -1,50 +1,31 @@
-"""Dashboard mutations. Every change goes through the write layer."""
+"""Dashboard mutations. Every change goes through the write layer as the signed-in human."""
 
 from __future__ import annotations
 
-import sqlite3
-
 from joehub.config import Settings, load_settings
-from joehub.db import connect
 from joehub.errors import JoehubError, ValidationError
 from joehub.registry import TABLES, fields_by_name
 from joehub.write import WriteLayer, WriteResult, coerce_field
 
 
-def owner_for(conn: sqlite3.Connection, table: str) -> str:
-    row = conn.execute(
-        """
-        SELECT owners.name AS owner_name
-        FROM table_registry
-        JOIN owners ON owners.id = table_registry.owner_id
-        WHERE table_registry.table_name = ?
-        """,
-        (table,),
-    ).fetchone()
-    if row is None:
-        raise ValidationError(f"{table} is not writable")
-    return str(row["owner_name"])
-
-
 def perform(
     *,
+    credential: str,
     table: str,
     operation: str,
     payload: dict,
     idempotency_key: str,
     settings: Settings | None = None,
 ) -> tuple[WriteResult | None, str | None]:
+    """Apply a write for an already resolved credential.
+
+    The table owner is not chosen here. The write layer resolves the credential
+    and requires an explicit human delegation, or an owner principal for its own tables.
+    """
     settings = settings or load_settings()
-    conn = connect(settings.db_path)
-    try:
-        owner = owner_for(conn, table)
-    except JoehubError as exc:
-        return None, str(exc)
-    finally:
-        conn.close()
     try:
         result = WriteLayer(settings).write(
-            owner=owner,
+            credential=credential,
             table=table,
             operation=operation,
             payload=payload,

@@ -1,7 +1,8 @@
 """Encrypted CSV export, private-repo push, and restore.
 
-Exports are one age-encrypted CSV per table. The identity file lives in the key
-directory (outside the repo). It is created with mode 600 when missing and is never logged.
+Exports are one age-encrypted CSV per table, taken from a single read snapshot
+and published as one generation. The identity file lives in the key directory
+(outside the repo). It is created with mode 600 when missing and is never logged.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,8 +26,9 @@ import pyrage
 from pyrage import x25519
 
 from joehub.config import Settings, load_settings
-from joehub.db import connect, list_tables, migrate, table_columns
+from joehub.db import connect, connect_writer, list_tables, migrate, table_columns
 from joehub.errors import ConfigError, JoehubError, PrivacyError
+from joehub.principals import ensure_principals, token_for
 from joehub.util import quote_ident, utcnow
 from joehub.write import WriteLayer
 
@@ -36,6 +40,8 @@ _GITHUB_REMOTE = re.compile(
     r"^(?:git@github\.com:|ssh://git@github\.com/|https://github\.com/)"
     r"(?P<slug>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
+_ARTIFACT_NAME = re.compile(r"^[a-z][a-z0-9_]*\.csv\.age$")
+_NULL_TOKEN = r"\N"
 
 
 @dataclass(frozen=True)
@@ -117,6 +123,31 @@ def export_filename(table: str) -> str:
     return f"{table}.csv.age"
 
 
+def encode_cell(value: object) -> str:
+    """Encode one value so NULL, empty text, and the literal NULL token stay distinct."""
+    if value is None:
+        return _NULL_TOKEN
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        text = str(value)
+    elif isinstance(value, int):
+        text = str(value)
+    else:
+        text = value
+    return text.replace("\\", "\\\\")
+
+
+def decode_cell(raw: str, sql_type: str) -> object:
+    if raw == _NULL_TOKEN:
+        return None
+    text = raw.replace("\\\\", "\\")
+    if (sql_type or "").upper().startswith("INT"):
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise JoehubError("exported integer is not an integer") from exc
+    return text
+
+
 def dump_table_csv(conn: sqlite3.Connection, table: str) -> bytes:
     columns = [row["name"] for row in table_columns(conn, table)]
     quoted_cols = ", ".join(quote_ident(column) for column in columns)
@@ -125,7 +156,7 @@ def dump_table_csv(conn: sqlite3.Connection, table: str) -> bytes:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(columns)
     for row in conn.execute(sql):
-        writer.writerow(["" if value is None else value for value in row])
+        writer.writerow([encode_cell(value) for value in row])
     return buffer.getvalue().encode("utf-8")
 
 
@@ -144,37 +175,84 @@ def parse_table_csv(conn: sqlite3.Connection, table: str, payload: bytes) -> lis
     for line in reader:
         if len(line) != len(columns):
             raise JoehubError(f"{table} export has a row with the wrong width")
-        values = []
-        for column, raw in zip(columns, line):
-            if raw == "":
-                values.append(None)
-            elif types[column].startswith("INT"):
-                try:
-                    values.append(int(raw))
-                except ValueError as exc:
-                    raise JoehubError(f"{table}.{column} is not an integer") from exc
-            else:
-                values.append(raw)
+        values = [decode_cell(raw, types[column]) for column, raw in zip(columns, line)]
         parsed.append(tuple(values))
     return parsed
 
 
-def _encrypt_table(conn: sqlite3.Connection, table: str, export_dir: Path, recipient) -> str:
-    plaintext = dump_table_csv(conn, table)
-    blob = pyrage.encrypt(plaintext, [recipient])
-    filename = export_filename(table)
-    (export_dir / filename).write_bytes(blob)
-    return filename
-
-
-def _dump_all(settings: Settings, recipient) -> list[str]:
-    conn = connect(settings.db_path)
+def read_consistent_snapshot(db_path: Path) -> dict[str, bytes]:
+    """Read every table inside one deferred transaction so writers cannot tear the set."""
+    conn = connect(db_path)
     try:
-        return [
-            _encrypt_table(conn, table, settings.export_dir, recipient) for table in list_tables(conn)
-        ]
+        conn.execute("BEGIN")
+        try:
+            return {table: dump_table_csv(conn, table) for table in list_tables(conn)}
+        finally:
+            conn.rollback()
     finally:
         conn.close()
+
+
+def publish_snapshot(export_dir: Path, payloads: dict[str, bytes]) -> list[str]:
+    """Stage a full generation, swing ``current`` atomically, then refresh stable names.
+
+    ``current`` is the consistent set. Stable ``*.csv.age`` names are updated
+    only after that swing and only while the publish lock is held. A crash
+    before the swing leaves the previous generation in place.
+    """
+    export_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(export_dir, 0o700)
+    lock_path = export_dir / ".publish.lock"
+    names = sorted(payloads)
+    for name in names:
+        if _ARTIFACT_NAME.fullmatch(name) is None:
+            raise JoehubError(f"refusing to publish {name}")
+    with lock_path.open("a", encoding="utf-8") as handle:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        staging = export_dir / f".staging-{uuid.uuid4().hex}"
+        try:
+            staging.mkdir()
+            for name in names:
+                (staging / name).write_bytes(payloads[name])
+            generation_id = uuid.uuid4().hex
+            generations = export_dir / "generations"
+            generations.mkdir(exist_ok=True)
+            final = generations / generation_id
+            os.rename(staging, final)
+            link_tmp = export_dir / f".current-{generation_id}"
+            link_tmp.symlink_to(Path("generations") / generation_id)
+            os.replace(link_tmp, export_dir / "current")
+            for name in names:
+                temporary = export_dir / f".{name}.{generation_id}"
+                shutil.copyfile(final / name, temporary)
+                os.replace(temporary, export_dir / name)
+            return names
+        except Exception:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            raise
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def published_dir(export_dir: Path) -> Path:
+    current = export_dir / "current"
+    if current.is_symlink():
+        raw = Path(os.readlink(current))
+        target = raw if raw.is_absolute() else export_dir / raw
+        if target.is_dir():
+            return target
+    return export_dir
+
+
+def _encrypted_snapshot(settings: Settings, recipient) -> dict[str, bytes]:
+    plain = read_consistent_snapshot(settings.db_path)
+    return {
+        export_filename(table): pyrage.encrypt(payload, [recipient])
+        for table, payload in plain.items()
+    }
 
 
 def export_all(
@@ -185,16 +263,18 @@ def export_all(
 ) -> ExportSummary:
     settings = settings or load_settings()
     migrate(settings.db_path)
+    ensure_principals(settings)
     settings.export_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(settings.export_dir, 0o700)
     identity = load_or_create_identity(settings.age_identity_path)
     recipient = identity.to_public()
     writer = WriteLayer(settings)
+    cato = token_for(settings, "Cato")
     started = utcnow()
     target_remote = remote if remote is not None else settings.export_remote
     log.info("export started")
     created = writer.write(
-        owner="Cato",
+        credential=cato,
         table="export_history",
         operation="insert",
         idempotency_key=f"export:{uuid.uuid4()}",
@@ -203,90 +283,130 @@ def export_all(
             "status": "running",
             "export_dir": str(settings.export_dir),
             "remote": target_remote,
+            "publication_state": "not_requested",
         },
     )
     export_id = created.row_id
     if export_id is None:
         raise JoehubError("export history row was not created")
 
-    push_status: str | None = None
-    pushed = False
+    def mark(**kwargs: object) -> None:
+        _mark_history(writer, cato, export_id, **kwargs)
+
+    try:
+        payloads = _encrypted_snapshot(settings, recipient)
+        names = publish_snapshot(settings.export_dir, payloads)
+    except Exception as exc:
+        _mark_failure(writer, cato, export_id, exc)
+        raise
+
+    if not target_remote:
+        mark(
+            status="succeeded",
+            finished_at=utcnow(),
+            publication_state="not_requested",
+            detail="encrypted table export",
+        )
+        try:
+            names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+        except Exception as exc:
+            _mark_failure(writer, cato, export_id, exc)
+            raise
+        log.info("export finished tables=%s pushed=%s", len(names), False)
+        return ExportSummary(export_id=export_id, files=tuple(names), pushed=False, push_status=None)
+
+    check = visibility_check or query_github_visibility
+    try:
+        visibility = check(target_remote)
+        if visibility != "PRIVATE":
+            raise PrivacyError(f"refusing push: visibility is {visibility!r}, PRIVATE required")
+    except PrivacyError as exc:
+        mark(
+            status="succeeded",
+            finished_at=utcnow(),
+            push_status="refused",
+            publication_state="refused",
+            detail=str(exc)[:500],
+        )
+        try:
+            publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+        except Exception as pub_exc:
+            _mark_failure(writer, cato, export_id, pub_exc)
+            raise pub_exc
+        raise
+
+    mark(
+        status="succeeded",
+        finished_at=utcnow(),
+        publication_state="incomplete",
+        detail="local export finished; publication is not complete",
+    )
+    try:
+        payloads = _encrypted_snapshot(settings, recipient)
+        names = publish_snapshot(settings.export_dir, payloads)
+        git_push(settings.export_dir, target_remote, list(payloads))
+    except Exception as exc:
+        mark(
+            push_status="failed",
+            publication_state="failed",
+            detail=_scrub(str(exc))[:500],
+        )
+        try:
+            publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+        except Exception:
+            _mark_failure(writer, cato, export_id, exc)
+        raise JoehubError("export push failed") from exc
+
+    # The remote now has publication_state=incomplete. A second push carries the
+    # final audit. If it fails, the recorded state stays incomplete.
+    mark(push_status="pushed", publication_state="pushed", detail="pushed encrypted exports")
+    try:
+        payloads = _encrypted_snapshot(settings, recipient)
+        names = publish_snapshot(settings.export_dir, payloads)
+        git_push(settings.export_dir, target_remote, list(payloads))
+    except Exception as exc:
+        mark(
+            push_status="failed",
+            publication_state="incomplete",
+            detail=f"audit push incomplete: {_scrub(str(exc))[:400]}",
+        )
+        try:
+            names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+        except Exception:
+            names = sorted(payloads)
+        raise JoehubError("export publication incomplete") from exc
+
+    log.info("export finished tables=%s pushed=%s", len(names), True)
+    return ExportSummary(export_id=export_id, files=tuple(names), pushed=True, push_status="pushed")
+
+
+def _mark_failure(writer: WriteLayer, credential: str, export_id: str, exc: Exception) -> None:
     try:
         _mark_history(
             writer,
+            credential,
             export_id,
-            status="succeeded",
+            status="failed",
             finished_at=utcnow(),
-            detail="encrypted table export",
+            publication_state="failed",
+            detail=_scrub(str(exc))[:500] or exc.__class__.__name__,
         )
-        files = _dump_all(settings, recipient)
-        if target_remote:
-            check = visibility_check or query_github_visibility
-            try:
-                visibility = check(target_remote)
-                if visibility != "PRIVATE":
-                    raise PrivacyError(
-                        f"refusing push: visibility is {visibility!r}, PRIVATE required"
-                    )
-            except PrivacyError as exc:
-                push_status = "refused"
-                _mark_history(writer, export_id, push_status=push_status, detail=str(exc)[:500])
-                files = _dump_all(settings, recipient)
-                raise
-            try:
-                git_push(settings.export_dir, target_remote)
-                push_status = "pushed"
-                pushed = True
-                _mark_history(
-                    writer,
-                    export_id,
-                    push_status=push_status,
-                    detail="pushed encrypted exports",
-                )
-                files = _dump_all(settings, recipient)
-                git_push(settings.export_dir, target_remote)
-            except Exception as exc:
-                push_status = "failed"
-                pushed = False
-                _mark_history(writer, export_id, push_status=push_status, detail=_scrub(str(exc))[:500])
-                files = _dump_all(settings, recipient)
-                raise JoehubError("export push failed") from exc
-    except PrivacyError:
-        raise
-    except JoehubError:
-        raise
-    except Exception as exc:
-        _mark_history(writer, export_id, status="failed", detail=str(exc)[:500])
-        try:
-            _dump_all(settings, recipient)
-        except Exception:
-            pass
-        raise
-
-    log.info("export finished tables=%s pushed=%s", len(files), pushed)
-    return ExportSummary(export_id=export_id, files=tuple(files), pushed=pushed, push_status=push_status)
+    except Exception:
+        log.warning("could not record export failure")
 
 
 def _mark_history(
     writer: WriteLayer,
+    credential: str,
     export_id: str,
-    *,
-    status: str | None = None,
-    finished_at: str | None = None,
-    push_status: str | None = None,
-    detail: str | None = None,
+    **fields: object,
 ) -> None:
     payload: dict = {"id": export_id}
-    if status is not None:
-        payload["status"] = status
-    if finished_at is not None:
-        payload["finished_at"] = finished_at
-    if push_status is not None:
-        payload["push_status"] = push_status
-    if detail is not None:
-        payload["detail"] = detail
+    for key, value in fields.items():
+        if value is not None:
+            payload[key] = value
     writer.write(
-        owner="Cato",
+        credential=credential,
         table="export_history",
         operation="update",
         idempotency_key=f"export-update:{export_id}:{uuid.uuid4()}",
@@ -294,55 +414,102 @@ def _mark_history(
     )
 
 
-def git_push(export_dir: Path, remote: str) -> None:
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    if not (export_dir / ".git").exists():
-        subprocess.run(
-            ["git", "init", "-b", "main", str(export_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        _git(export_dir, "config", "user.email", "joehub-export@example.com", env=env)
-        _git(export_dir, "config", "user.name", "joehub-export", env=env)
-    (export_dir / ".gitignore").write_text(
-        "age-identity.txt\n*.key\ndashboard_auth_hash\n",
-        encoding="utf-8",
+def git_push(export_dir: Path, remote: str, artifacts: list[str]) -> None:
+    """Publish allowlisted ciphertext by cloning the remote. Never force-pushes."""
+    source = published_dir(export_dir)
+    names: list[str] = []
+    for name in artifacts:
+        if _ARTIFACT_NAME.fullmatch(name) is None:
+            raise JoehubError(f"refusing to publish {name}")
+        if not (source / name).is_file():
+            raise JoehubError(f"missing artifact {name}")
+        names.append(name)
+    work = Path(tempfile.mkdtemp(prefix="joehub-publish-"))
+    try:
+        if not _clone_main(remote, work):
+            if work.exists():
+                shutil.rmtree(work)
+            work.mkdir()
+            _git_init(work)
+            _git(work, "remote", "add", "origin", remote)
+        else:
+            _ensure_identity(work)
+        for name in names:
+            shutil.copyfile(source / name, work / name)
+        _git(work, "add", "--", *names)
+        status = _git(work, "status", "--porcelain")
+        if status.stdout.strip():
+            _git(work, "commit", "-m", "Update joehub encrypted exports")
+        _push_fast_forward(work)
+        _point_local_bare_head(remote)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _clone_main(remote: str, work: Path) -> bool:
+    completed = subprocess.run(
+        ["git", "clone", "--branch", "main", remote, str(work)],
+        capture_output=True,
+        text=True,
     )
-    _git(export_dir, "add", "-A", env=env)
-    status = _git(export_dir, "status", "--porcelain", env=env)
-    if status.stdout.strip():
-        _git(export_dir, "commit", "-m", "Update joehub encrypted exports", env=env)
-    remotes = _git(export_dir, "remote", env=env).stdout.split()
-    if "origin" in remotes:
-        _git(export_dir, "remote", "set-url", "origin", remote, env=env)
-    else:
-        _git(export_dir, "remote", "add", "origin", remote, env=env)
-    _git(export_dir, "push", "-u", "origin", "HEAD:main", env=env)
-    # Local bare repos keep their initial HEAD (often master). Point it at the branch we publish
-    # so a later clone checks out the encrypted files.
+    return completed.returncode == 0
+
+
+def _git_init(work: Path) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "main", str(work)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    _ensure_identity(work)
+
+
+def _ensure_identity(work: Path) -> None:
+    env = _git_env()
+    _git(work, "config", "user.email", "joehub-export@example.com", env=env)
+    _git(work, "config", "user.name", "joehub-export", env=env)
+
+
+def _push_fast_forward(work: Path) -> None:
+    try:
+        _git(work, "push", "-u", "origin", "HEAD:main")
+    except JoehubError:
+        _git(work, "fetch", "origin")
+        _git(work, "rebase", "origin/main")
+        _git(work, "push", "-u", "origin", "HEAD:main")
+
+
+def _point_local_bare_head(remote: str) -> None:
     remote_path = Path(remote)
     head = remote_path / "HEAD"
-    if head.is_file():
-        subprocess.run(
-            ["git", "--git-dir", str(remote_path), "symbolic-ref", "HEAD", "refs/heads/main"],
-            check=True,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
+    if not head.is_file():
+        return
+    subprocess.run(
+        ["git", "--git-dir", str(remote_path), "symbolic-ref", "HEAD", "refs/heads/main"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    )
 
 
-def _git(export_dir: Path, *args: str, env: dict) -> subprocess.CompletedProcess:
+def _git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _git(work: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    if any(arg == "--force" or arg == "--force-with-lease" or arg.startswith("+") for arg in args):
+        raise JoehubError("refusing force-push")
     try:
         return subprocess.run(
-            ["git", "-C", str(export_dir), *args],
+            ["git", "-C", str(work), *args],
             check=True,
             capture_output=True,
             text=True,
-            env=env,
+            env=env or _git_env(),
         )
     except subprocess.CalledProcessError as exc:
         raise JoehubError(_scrub(exc.stderr or "git command failed")) from None
@@ -355,57 +522,122 @@ def _scrub(text: str) -> str:
 
 
 def restore_all(settings: Settings | None = None, *, force: bool = False) -> None:
+    """Decrypt and validate into a temporary database, then replace the live file.
+
+    The existing database, including its WAL, is left untouched until integrity,
+    foreign keys, row counts, and the id column all check out. The caller must
+    stop other joehub processes first; restore refuses when it cannot take an
+    exclusive lock.
+    """
     settings = settings or load_settings()
     db_path = settings.db_path
     if db_path.exists() and not force:
         raise JoehubError(f"{db_path} already exists; pass force to rebuild it")
-    if db_path.exists() and force:
-        db_path.unlink()
+    source = published_dir(settings.export_dir)
+    identity = load_or_create_identity(settings.age_identity_path)
+    tmp = db_path.with_name(db_path.name + f".restore-{uuid.uuid4().hex}")
+    try:
+        migrate(tmp)
+        conn = connect_writer(tmp)
+        try:
+            tables = list_tables(conn)
+            decrypted: dict[str, bytes] = {}
+            for table in tables:
+                path = source / export_filename(table)
+                if not path.is_file():
+                    raise JoehubError(f"missing encrypted export for {table}")
+                try:
+                    decrypted[table] = pyrage.decrypt(path.read_bytes(), [identity])
+                except Exception as exc:
+                    raise JoehubError(f"could not decrypt {table}") from exc
+            parsed: dict[str, list[tuple]] = {}
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                for table in tables:
+                    conn.execute(f"DELETE FROM {quote_ident(table)}")
+                    rows = parse_table_csv(conn, table, decrypted[table])
+                    parsed[table] = rows
+                    if not rows:
+                        continue
+                    columns = [row["name"] for row in table_columns(conn, table)]
+                    collist = ", ".join(quote_ident(column) for column in columns)
+                    placeholders = ", ".join("?" for _ in columns)
+                    conn.executemany(
+                        f"INSERT INTO {quote_ident(table)} ({collist}) VALUES ({placeholders})",
+                        rows,
+                    )
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass
+                raise
+            _validate_restored(conn, tables, parsed)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
         for suffix in ("-wal", "-shm"):
-            sidecar = Path(str(db_path) + suffix)
+            sidecar = Path(str(tmp) + suffix)
             if sidecar.exists():
                 sidecar.unlink()
-    migrate(db_path)
-    identity = load_or_create_identity(settings.age_identity_path)
-    conn = connect(db_path)
+        if db_path.exists():
+            _require_runtime_stopped(db_path)
+        os.replace(tmp, db_path)
+    except Exception:
+        _discard_database(tmp)
+        raise
+    log.info("restore finished")
+
+
+def _validate_restored(
+    conn: sqlite3.Connection,
+    tables: list[str],
+    parsed: dict[str, list[tuple]],
+) -> None:
+    integrity = conn.execute("PRAGMA integrity_check").fetchone()
+    if integrity is None or integrity[0] != "ok":
+        raise JoehubError("restored database failed integrity_check")
+    conn.execute("PRAGMA foreign_keys = ON")
+    broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if broken:
+        raise JoehubError("restored database failed foreign key checks")
+    for table in tables:
+        count = conn.execute(f"SELECT COUNT(*) FROM {quote_ident(table)}").fetchone()[0]
+        if count != len(parsed[table]):
+            raise JoehubError(f"{table} row count does not match the export")
+        columns = [row["name"] for row in table_columns(conn, table)]
+        if not columns or columns[0] != "id":
+            raise JoehubError(f"{table} schema is missing the id column")
+
+
+def _require_runtime_stopped(db_path: Path) -> None:
+    conn = connect_writer(db_path)
     try:
-        tables = list_tables(conn)
-        decrypted: dict[str, bytes] = {}
-        for table in tables:
-            path = settings.export_dir / export_filename(table)
-            if not path.is_file():
-                raise JoehubError(f"missing encrypted export for {table}")
-            try:
-                decrypted[table] = pyrage.decrypt(path.read_bytes(), [identity])
-            except Exception as exc:
-                raise JoehubError(f"could not decrypt {table}") from exc
-        conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            for table in tables:
-                conn.execute(f"DELETE FROM {quote_ident(table)}")
-            for table in tables:
-                rows = parse_table_csv(conn, table, decrypted[table])
-                columns = [row["name"] for row in table_columns(conn, table)]
-                if not rows:
-                    continue
-                collist = ", ".join(quote_ident(column) for column in columns)
-                placeholders = ", ".join("?" for _ in columns)
-                conn.executemany(
-                    f"INSERT INTO {quote_ident(table)} ({collist}) VALUES ({placeholders})",
-                    rows,
-                )
-            conn.commit()
-        except Exception:
-            try:
-                conn.rollback()
-            except sqlite3.Error:
-                pass
-            raise
-        conn.execute("PRAGMA foreign_keys = ON")
-        broken = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if broken:
-            raise JoehubError("restored database failed foreign key checks")
+        conn.execute("BEGIN EXCLUSIVE")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        _rollback_quiet(conn)
+        raise JoehubError("refusing restore: the runtime still has the database open") from exc
     finally:
         conn.close()
-    log.info("restore finished")
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(db_path) + suffix)
+        if sidecar.exists():
+            sidecar.unlink()
+
+
+def _discard_database(db_path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        sidecar = Path(str(db_path) + suffix)
+        if sidecar.exists():
+            sidecar.unlink()
+
+
+def _rollback_quiet(conn: sqlite3.Connection) -> None:
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        pass

@@ -175,11 +175,17 @@ TABLES: dict[str, tuple[Field, ...]] = {
         _text("export_dir", required=True),
         _text("remote"),
         _text("push_status", choices=("pushed", "refused", "failed")),
+        _text(
+            "publication_state",
+            choices=("not_requested", "pushed", "refused", "failed", "incomplete"),
+        ),
         _text("detail"),
     ),
 }
 
-# Meta tables are real tables but are not writable through the public write API.
+# Meta tables are registered to Cato so every table has one owner. The public
+# write API does not accept them. Privileged maintenance (migrations, the hall
+# pass, the queue, error rows, delegations, and restore) is the only writer.
 META_TABLES = (
     "schema_migrations",
     "owners",
@@ -188,6 +194,8 @@ META_TABLES = (
     "locks",
     "errors",
     "pending_deletes",
+    "principals",
+    "delegations",
 )
 
 TABLE_OWNERS = {
@@ -204,6 +212,15 @@ TABLE_OWNERS = {
     "journal_entries": "Cato",
     "bot_activity": "Cato",
     "export_history": "Cato",
+    "schema_migrations": "Cato",
+    "owners": "Cato",
+    "table_registry": "Cato",
+    "write_queue": "Cato",
+    "locks": "Cato",
+    "errors": "Cato",
+    "pending_deletes": "Cato",
+    "principals": "Cato",
+    "delegations": "Cato",
 }
 
 APPLICATION_EXTRAS = frozenset({"event_kind", "occurred_at"})

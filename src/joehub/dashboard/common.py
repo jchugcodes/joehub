@@ -10,7 +10,10 @@ import streamlit as st
 from joehub.auth import load_password_hash, verify_password
 from joehub.config import load_settings
 from joehub.db import connect, migrate
-from joehub.errors import AuthConfigError
+from joehub.errors import AuthConfigError, JoehubError
+from joehub.principals import HUMAN_NAME, token_for
+from joehub.registry import ALLOWED_OWNERS
+from joehub.write import WriteLayer
 
 CSS = """
 <style>
@@ -82,11 +85,13 @@ def flash(message: str) -> None:
 
 
 def require_auth() -> None:
+    """Unlock the human principal. The session does not grant an owner by itself."""
     inject_css()
-    if st.session_state.get("joehub_auth") is True:
+    if st.session_state.get("joehub_principal") == HUMAN_NAME:
         show_flash()
+        _delegation_panel()
         if st.sidebar.button("Lock"):
-            st.session_state["joehub_auth"] = False
+            st.session_state.pop("joehub_principal", None)
             st.rerun()
         return
     st.title("joehub")
@@ -101,10 +106,36 @@ def require_auth() -> None:
         submitted = st.form_submit_button("Unlock")
     if submitted:
         if password and verify_password(password, stored):
-            st.session_state["joehub_auth"] = True
+            st.session_state["joehub_principal"] = HUMAN_NAME
             st.rerun()
         st.error("Wrong password")
     st.stop()
+
+
+def session_credential() -> str:
+    """Load the human token on the server. The browser never supplies an owner name."""
+    if st.session_state.get("joehub_principal") != HUMAN_NAME:
+        raise AuthConfigError("not signed in")
+    return token_for(load_settings(), HUMAN_NAME)
+
+
+def _delegation_panel() -> None:
+    st.sidebar.caption("Edits need an explicit delegation. A password is not an owner.")
+    try:
+        credential = session_credential()
+        layer = WriteLayer(load_settings())
+    except (AuthConfigError, JoehubError) as exc:
+        st.sidebar.error(str(exc))
+        return
+    for owner in ALLOWED_OWNERS:
+        if st.sidebar.button(f"Delegate {owner}"):
+            try:
+                layer.delegate(credential, owner)
+            except JoehubError as exc:
+                st.sidebar.error(str(exc))
+            else:
+                flash(f"Delegated {owner}")
+                st.rerun()
 
 
 def open_db():

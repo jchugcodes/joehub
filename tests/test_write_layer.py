@@ -6,11 +6,12 @@ import pytest
 
 from joehub.db import connect
 from joehub.errors import PermanentWriteError, UnauthorizedError, ValidationError
+from joehub.principals import token_for
 
 
 def _account(writer, name="Everyday Checking") -> str:
     result = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key=f"acct-{name}",
@@ -21,7 +22,7 @@ def _account(writer, name="Everyday Checking") -> str:
 
 def _category(writer) -> str:
     result = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="categories",
         operation="insert",
         idempotency_key="cat-groceries",
@@ -34,18 +35,26 @@ def test_idempotent_replay_does_not_duplicate_or_apply_a_new_payload(writer, set
     account_id = _account(writer)
     payload = {"account_id": account_id, "amount_cents": -1250, "date": "2026-04-02", "payee": "Corner Market"}
     first = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="tx-1",
         payload=payload,
     )
+    with pytest.raises(PermanentWriteError, match="different request"):
+        writer.write(
+            credential=token_for(writer.settings, "Ledger"),
+            table="transactions",
+            operation="insert",
+            idempotency_key="tx-1",
+            payload={**payload, "amount_cents": -9999, "payee": "Someone else"},
+        )
     second = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="tx-1",
-        payload={**payload, "amount_cents": -9999, "payee": "Someone else"},
+        payload=payload,
     )
     assert second.replayed is True
     assert second.row_id == first.row_id
@@ -74,7 +83,7 @@ def test_invalid_fields_are_persistent_and_do_not_insert(writer, settings):
     for index, payload in enumerate(cases):
         with pytest.raises(PermanentWriteError):
             writer.write(
-                owner="Ledger",
+                credential=token_for(writer.settings, "Ledger"),
                 table="transactions",
                 operation="insert",
                 idempotency_key=f"bad-{index}",
@@ -82,7 +91,7 @@ def test_invalid_fields_are_persistent_and_do_not_insert(writer, settings):
             )
     with pytest.raises(ValidationError):
         writer.write(
-            owner="Scout",
+            credential=token_for(writer.settings, "Scout"),
             table="applications",
             operation="insert",
             idempotency_key="bad-status",
@@ -101,7 +110,7 @@ def test_invalid_fields_are_persistent_and_do_not_insert(writer, settings):
 def test_failed_key_is_not_retried(writer):
     with pytest.raises(PermanentWriteError):
         writer.write(
-            owner="Ledger",
+            credential=token_for(writer.settings, "Ledger"),
             table="transactions",
             operation="insert",
             idempotency_key="same-bad",
@@ -109,7 +118,7 @@ def test_failed_key_is_not_retried(writer):
         )
     with pytest.raises(PermanentWriteError, match="already failed"):
         writer.write(
-            owner="Ledger",
+            credential=token_for(writer.settings, "Ledger"),
             table="transactions",
             operation="insert",
             idempotency_key="same-bad",
@@ -122,7 +131,7 @@ def test_unauthorized_writes_and_deletes(writer, settings):
     category_id = _category(writer)
     with pytest.raises(UnauthorizedError):
         writer.write(
-            owner="Scout",
+            credential=token_for(writer.settings, "Scout"),
             table="transactions",
             operation="insert",
             idempotency_key="scout-tx",
@@ -130,7 +139,7 @@ def test_unauthorized_writes_and_deletes(writer, settings):
         )
     with pytest.raises(UnauthorizedError):
         writer.write(
-            owner="Mallory",
+            credential="Mallory",
             table="transactions",
             operation="insert",
             idempotency_key="mallory",
@@ -138,7 +147,7 @@ def test_unauthorized_writes_and_deletes(writer, settings):
         )
     with pytest.raises(UnauthorizedError):
         writer.write(
-            owner="Cato",
+            credential=token_for(writer.settings, "Cato"),
             table="categories",
             operation="delete_request",
             idempotency_key="cato-delete",
@@ -156,7 +165,7 @@ def test_unauthorized_writes_and_deletes(writer, settings):
 def test_two_step_delete_requires_the_owner(writer, settings):
     category_id = _category(writer)
     writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="categories",
         operation="delete_request",
         idempotency_key="del-req",
@@ -164,7 +173,7 @@ def test_two_step_delete_requires_the_owner(writer, settings):
     )
     with pytest.raises(UnauthorizedError):
         writer.write(
-            owner="Scout",
+            credential=token_for(writer.settings, "Scout"),
             table="categories",
             operation="delete_confirm",
             idempotency_key="del-scout",
@@ -172,14 +181,14 @@ def test_two_step_delete_requires_the_owner(writer, settings):
         )
     with pytest.raises(PermanentWriteError, match="no pending delete"):
         writer.write(
-            owner="Ledger",
+            credential=token_for(writer.settings, "Ledger"),
             table="categories",
             operation="delete_confirm",
             idempotency_key="del-without-request",
             payload={"id": str(uuid.uuid4())},
         )
     confirmed = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="categories",
         operation="delete_confirm",
         idempotency_key="del-ok",
@@ -187,7 +196,7 @@ def test_two_step_delete_requires_the_owner(writer, settings):
     )
     assert confirmed.replayed is False
     replay = writer.write(
-        owner="Ledger",
+        credential=token_for(writer.settings, "Ledger"),
         table="categories",
         operation="delete_confirm",
         idempotency_key="del-ok",
@@ -206,36 +215,48 @@ def test_two_step_delete_requires_the_owner(writer, settings):
 
 
 def test_rollback_removes_application_and_history(writer, settings):
-    def boom(conn):
-        apps = conn.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
-        history = conn.execute("SELECT COUNT(*) AS n FROM application_status_history").fetchone()["n"]
-        assert apps == 1
-        assert history == 1
-        raise RuntimeError("boom before commit")
-
-    with pytest.raises(PermanentWriteError, match="boom before commit"):
+    with pytest.raises(TypeError):
         writer.write(
-            owner="Scout",
+            credential=token_for(writer.settings, "Scout"),
             table="applications",
             operation="insert",
-            idempotency_key="rollback-app",
+            idempotency_key="no-hook",
+            payload={"role_title": "Operator", "status": "Interested"},
+            commit_hook=lambda _conn: None,
+        )
+    writer.write(
+        credential=token_for(writer.settings, "Scout"),
+        table="applications",
+        operation="insert",
+        idempotency_key="rollback-app",
+        payload={
+            "role_title": "Operator",
+            "status": "Interested",
+            "notion_id": "synthetic-notion-1",
+            "raw_company": "Fictional Widgets LLC",
+        },
+    )
+    with pytest.raises(PermanentWriteError):
+        writer.write(
+            credential=token_for(writer.settings, "Scout"),
+            table="applications",
+            operation="insert",
+            idempotency_key="rollback-dup",
             payload={
-                "role_title": "Operator",
-                "status": "Interested",
-                "raw_company": "Fictional Widgets LLC",
-                "raw_status": "maybe",
+                "role_title": "Other",
+                "status": "Applied",
+                "notion_id": "synthetic-notion-1",
             },
-            commit_hook=boom,
         )
     conn = connect(settings.db_path)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM application_status_history").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM application_status_history").fetchone()[0] == 1
         assert conn.execute("SELECT persistent FROM errors").fetchone()["persistent"] == 1
     finally:
         conn.close()
     follow = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="after-rollback",
@@ -247,7 +268,7 @@ def test_rollback_removes_application_and_history(writer, settings):
 def test_unknown_foreign_key_rolls_back(writer, settings):
     with pytest.raises(PermanentWriteError):
         writer.write(
-            owner="Ledger",
+            credential=token_for(writer.settings, "Ledger"),
             table="transactions",
             operation="insert",
             idempotency_key="missing-account",
@@ -262,35 +283,35 @@ def test_unknown_foreign_key_rolls_back(writer, settings):
 
 def test_company_link_is_exact_and_raw_text_is_kept(writer, settings):
     north = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="co-north",
         payload={"name": "Northwind Labs"},
     ).row_id
     writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="co-twin-a",
         payload={"name": "Twin Co"},
     )
     writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="co-twin-b",
         payload={"name": "Twin Co"},
     )
     contact = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="contacts",
         operation="insert",
         idempotency_key="contact-riley",
         payload={"name": "Riley Example", "company_id": north, "email": "riley.example@example.com"},
     ).row_id
     linked = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="applications",
         operation="insert",
         idempotency_key="app-linked",
@@ -305,7 +326,7 @@ def test_company_link_is_exact_and_raw_text_is_kept(writer, settings):
         },
     ).row_id
     ambiguous = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="applications",
         operation="insert",
         idempotency_key="app-ambiguous",
@@ -318,7 +339,7 @@ def test_company_link_is_exact_and_raw_text_is_kept(writer, settings):
         },
     ).row_id
     baseline = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="applications",
         operation="insert",
         idempotency_key="app-baseline",
@@ -331,7 +352,7 @@ def test_company_link_is_exact_and_raw_text_is_kept(writer, settings):
         },
     ).row_id
     writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="applications",
         operation="update",
         idempotency_key="app-baseline-next",

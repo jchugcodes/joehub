@@ -53,6 +53,16 @@ def repo_roots() -> list[Path]:
     return roots
 
 
+def _path_contains(parent: Path, child: Path) -> bool:
+    """True when child is parent or a path inside it. Does not follow symlinks."""
+    parent_text = os.path.normcase(os.path.abspath(parent))
+    child_text = os.path.normcase(os.path.abspath(child))
+    if child_text == parent_text:
+        return True
+    prefix = parent_text if parent_text.endswith(os.sep) else parent_text + os.sep
+    return child_text.startswith(prefix)
+
+
 def assert_outside_repo(path: Path) -> None:
     resolved = path.resolve()
     for root in repo_roots():
@@ -88,8 +98,10 @@ def load_settings() -> Settings:
     key_dir = _env_path("JOEHUB_KEY_DIR", DEFAULT_KEY_DIR)
     if db_path == export_dir or key_dir == export_dir or key_dir == db_path:
         raise ConfigError("database, export, and key paths must be distinct")
-    if export_dir.is_relative_to(key_dir) or key_dir.is_relative_to(export_dir):
+    if _path_contains(export_dir, key_dir) or _path_contains(key_dir, export_dir):
         raise ConfigError("key directory and export directory must not contain each other")
+    if _path_contains(export_dir, db_path):
+        raise ConfigError("database path must not be inside the export directory")
 
     backoff_raw = os.environ.get("JOEHUB_RETRY_BACKOFF_SECONDS", "0.05")
     try:
@@ -119,8 +131,12 @@ def load_settings() -> Settings:
         if not auth_hash_file.is_absolute():
             auth_hash_file = Path.cwd() / auth_hash_file
         assert_outside_repo(auth_hash_file)
+        if _path_contains(export_dir, auth_hash_file):
+            raise ConfigError("password hash file must not be inside the export directory")
     else:
         auth_hash_file = key_dir / "dashboard_auth_hash"
+        if _path_contains(export_dir, auth_hash_file):
+            raise ConfigError("password hash file must not be inside the export directory")
 
     return Settings(
         db_path=db_path,

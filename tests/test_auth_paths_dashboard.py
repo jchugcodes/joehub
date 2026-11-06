@@ -17,6 +17,7 @@ from joehub.errors import AuthConfigError, ConfigError, ValidationError
 from joehub.money import dollars_to_cents, format_cents
 from joehub.queries import inspect_table, net_worth_cents, recent_transactions
 from joehub.db import connect
+from joehub.principals import token_for
 
 
 def test_default_paths_are_outside_the_repo(monkeypatch):
@@ -68,6 +69,7 @@ def test_money_and_queries_and_actions(writer, settings):
     with pytest.raises(ValidationError):
         dollars_to_cents("10.555")
     account, err = perform(
+        credential=token_for(settings, "Ledger"),
         table="accounts",
         operation="insert",
         payload={"name": "Action Checking", "account_type": "checking"},
@@ -76,6 +78,7 @@ def test_money_and_queries_and_actions(writer, settings):
     )
     assert err is None and account is not None
     saved, err = perform(
+        credential=token_for(settings, "Ledger"),
         table="transactions",
         operation="insert",
         payload={"account_id": account.row_id, "amount_cents": -500, "date": "2026-05-01", "payee": "Corner"},
@@ -84,6 +87,7 @@ def test_money_and_queries_and_actions(writer, settings):
     )
     assert err is None and saved is not None
     _none, meta_err = perform(
+        credential=token_for(settings, "Cato"),
         table="locks",
         operation="insert",
         payload={"id": "nope"},
@@ -111,8 +115,13 @@ def test_dashboard_pages_authenticate_and_use_the_write_layer():
         text = path.read_text(encoding="utf-8")
         assert "require_auth(" in text
         assert "perform(" in text
+        assert "credential=session_credential()" in text
+        assert "joehub_auth" not in text
         assert "INSERT " not in text
         assert "DELETE " not in text
+    common = (root / "src" / "joehub" / "dashboard" / "common.py").read_text(encoding="utf-8")
+    assert "joehub_principal" in common
+    assert "joehub_auth" not in common
     config = (root / ".streamlit" / "config.toml").read_text(encoding="utf-8")
     assert 'address = "127.0.0.1"' in config
     runner = (root / "scripts" / "run_dashboard.py").read_text(encoding="utf-8")

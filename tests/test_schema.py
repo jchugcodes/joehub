@@ -3,11 +3,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from joehub.db import connect, list_tables, migrate, migrations_dir, table_columns
-from joehub.registry import AUDIT_COLUMNS, TABLE_OWNERS, TABLES
+from joehub.db import connect, connect_writer, list_tables, migrate, migrations_dir, table_columns
+from joehub.principals import token_for
+from joehub.registry import AUDIT_COLUMNS, META_TABLES, TABLE_OWNERS, TABLES
 
 EXPECTED_FKS = {
     ("table_registry", "owner_id", "owners"),
+    ("delegations", "human_principal_id", "principals"),
     ("budgets", "category_id", "categories"),
     ("budgets", "account_id", "accounts"),
     ("goals", "account_id", "accounts"),
@@ -35,15 +37,7 @@ def test_schema_has_audit_columns_owners_and_foreign_keys(settings):
     conn = connect(settings.db_path)
     try:
         tables = set(list_tables(conn))
-        assert set(TABLES) | {
-            "schema_migrations",
-            "owners",
-            "table_registry",
-            "write_queue",
-            "locks",
-            "errors",
-            "pending_deletes",
-        } == tables
+        assert set(TABLES) | set(META_TABLES) == tables
         for table in tables:
             info = table_columns(conn, table)
             names = [row["name"] for row in info]
@@ -93,7 +87,7 @@ def test_migrate_is_idempotent(settings):
     conn = connect(settings.db_path)
     try:
         assert conn.execute("SELECT COUNT(*) FROM owners").fetchone()[0] == 3
-        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
@@ -101,13 +95,13 @@ def test_migrate_is_idempotent(settings):
 
 def test_database_constraints_reject_bad_status_and_id_changes(writer, settings):
     created = writer.write(
-        owner="Scout",
+        credential=token_for(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="schema-co",
         payload={"name": "Constraint Labs"},
     )
-    conn = connect(settings.db_path)
+    conn = connect_writer(settings.db_path)
     try:
         with pytest_raises_integrity():
             conn.execute(
@@ -138,3 +132,4 @@ def test_migration_file_lives_at_repo_root():
     path = Path(migrations_dir())
     assert path.name == "migrations"
     assert (path / "001_initial.sql").is_file()
+    assert (path / "002_writers_and_registry.sql").is_file()

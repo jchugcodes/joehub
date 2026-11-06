@@ -24,9 +24,11 @@ Triggers abort any update of `id`.
 | --- | --- |
 | Ledger | `categories`, `accounts`, `budgets`, `goals`, `transactions` |
 | Scout | `companies`, `contacts`, `applications`, `application_status_history` |
-| Cato | `events`, `journal_entries`, `bot_activity`, `export_history` |
+| Cato | `events`, `journal_entries`, `bot_activity`, `export_history`, and the meta tables below |
 
-Meta tables are not in `table_registry` and are not writable by those owners: `schema_migrations`, `owners`, `table_registry`, `write_queue`, `locks`, `errors`, `pending_deletes`.
+Every table has exactly one `table_registry` row. Meta tables are owned by Cato so the registry is complete: `schema_migrations`, `owners`, `table_registry`, `write_queue`, `locks`, `errors`, `pending_deletes`, `principals`, `delegations`.
+
+Privileged maintenance is the only writer of those meta tables. That means the migration runner, the hall-pass and queue implementation, error logging, delegation records, and restore. The public write API does not accept them. Cato's domain credential cannot insert into `schema_migrations`. Maintenance is not permission for a bot to write Ledger or Scout tables.
 
 ## Ledger
 
@@ -52,13 +54,19 @@ Meta tables are not in `table_registry` and are not writable by those owners: `s
 - `events`: `title`, `starts_at`, optional `ends_at`, `location`, `notes`.
 - `journal_entries`: `entry_date`, optional `title`, `body`, optional `mood`.
 - `bot_activity`: `bot_name`, `action`, `occurred_at`, optional `detail`.
-- `export_history`: `started_at`, optional `finished_at`, `status` (`running`, `succeeded`, `failed`), `export_dir`, optional `remote`, optional `push_status` (`pushed`, `refused`, `failed`), optional `detail`.
+- `export_history`: `started_at`, optional `finished_at`, `status` (`running`, `succeeded`, `failed`), `export_dir`, optional `remote`, optional `push_status` (`pushed`, `refused`, `failed`), optional `publication_state` (`not_requested`, `pushed`, `refused`, `failed`, `incomplete`), optional `detail`. `succeeded` is recorded only after a snapshot has been published. `publication_state = incomplete` means a push landed without the final audit commit.
+
+## Writers
+
+A caller presents a server-issued token. The plaintext lives under the key directory (`principals/<name>.token`, mode 600) and the database stores only its SHA-256. Passing the string `Ledger`, `Scout`, or `Cato` does not authenticate. Owner principals may write only their own tables. The human principal `operator` may write a domain table only after `delegations` has an unrevoked row for that human and that owner. Creating that row is an explicit, audited action and only the human credential can do it. A principal with kind `bot` is rejected. The dashboard password unlocks the human session; it does not by itself act as Ledger, Scout, or Cato.
 
 ## Writes, locks, and deletes
 
-`write_queue` is the single-writer log. Each call has an idempotency key. A committed key returns the original row and does not apply a later payload. A failed key stays failed.
+`write_queue` is the single-writer log. Each call has an idempotency key and a fingerprint of the principal, owner, table, operation, and payload. The same key with the same fingerprint returns the original row. A different payload, actor, table, or operation is rejected and does not replace the stored request. A failed key stays failed.
 
-`locks` holds one hall pass, `lock_name = hall_pass`. The holder and expiry are committed before the domain change. Another writer can take the pass only after `expires_at`. Releasing the pass deletes the row only when the holder id matches, so a crashed holder cannot clear a recovered pass. The domain change and the queue row's `committed` status share one transaction. If that transaction rolls back, the domain rows disappear and `errors.persistent` is set to `1`.
+`locks` holds one hall pass, `lock_name = hall_pass`, plus a fencing token. The holder and expiry are committed before the domain change. Taking over a stale lock increments `fence`. The holder renews `expires_at` without changing the fence. An apply whose fence no longer matches rolls back. Releasing the pass deletes the row only when the holder id matches. On startup, `WriteLayer` finishes `running` queue rows whose lease has expired, using the stored fingerprint, without the original caller resubmitting. The domain change and the queue row's `committed` status share one transaction. If that transaction rolls back, the domain rows disappear and `errors.persistent` is set to `1`.
+
+`connect()` opens the database read-only (`query_only`). Domain changes go through `WriteLayer`. That does not isolate two processes running as the same OS user: either process can open the SQLite file itself and ignore the writer.
 
 Lock contention and a busy database are retried a bounded number of times (`JOEHUB_MAX_RETRIES`). Validation errors, unauthorized owners, and exhausted retries are recorded immediately and are not applied again under the same key.
 
@@ -69,7 +77,7 @@ Hard delete is two operations on the same owner:
 
 ## Exports
 
-Each table, including empty ones and `export_history`, is written to `<table>.csv.age`. NULL is an empty CSV field. Non-empty text is kept, including commas, quotes, and newlines. Restore rebuilds a migrated database, replaces every row, and checks foreign keys. Integer columns are loaded as integers so cent amounts stay integers.
+Each table, including empty ones and `export_history`, is read inside one snapshot and written to `<table>.csv.age`. NULL is the field `\N`. An empty string is an empty field. A backslash is doubled, so the literal text `\N` is stored as `\\N` and comes back as `\N`. The published set is the `current` generation. Stable file names are replaced only after that generation is in place. Restore decrypts into a temporary database, checks `integrity_check`, `foreign_key_check`, row counts, and the leading `id` column, and only then replaces the live file. A failure leaves the original database in place. The runtime has to be stopped; restore takes an exclusive lock and refuses when it cannot. Integer columns are loaded as integers so cent amounts stay integers.
 
 The age identity is not a column and is not exported.
 

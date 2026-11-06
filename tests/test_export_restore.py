@@ -14,7 +14,7 @@ from joehub.backup import (
     query_github_visibility,
     restore_all,
 )
-from joehub.db import connect, list_tables, table_columns
+from joehub.db import connect, connect_writer, list_tables, table_columns
 from joehub.errors import JoehubError, PrivacyError
 from joehub.util import quote_ident
 from tests.scripts_seed import seed_main
@@ -79,7 +79,7 @@ def test_export_round_trip_preserves_types_constraints_and_ids(settings, caplog,
     for table, rows in before.items():
         assert after[table] == rows, table
 
-    conn = connect(restored_path)
+    conn = connect_writer(restored_path)
     try:
         amount = conn.execute("SELECT amount_cents FROM transactions ORDER BY date LIMIT 1").fetchone()
         assert isinstance(amount["amount_cents"], int)
