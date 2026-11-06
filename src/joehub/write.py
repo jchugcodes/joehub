@@ -1,0 +1,910 @@
+"""Single-writer queue.
+
+Every domain change takes the hall pass (a named lock with a TTL), runs inside a
+transaction, and is recorded under an idempotency key. Stale locks can be taken
+over. Permanent failures are flagged in the errors table and the key is not applied again.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+import uuid
+from dataclasses import dataclass
+from typing import Callable
+
+from joehub.config import Settings, load_settings
+from joehub.db import connect, migrate
+from joehub.errors import (
+    PermanentWriteError,
+    TransientWriteError,
+    UnauthorizedError,
+    ValidationError,
+)
+from joehub.registry import (
+    ALLOWED_OWNERS,
+    APPLICATION_EXTRAS,
+    APPLICATION_STATUSES,
+    EVENT_KINDS,
+    HALL_PASS,
+    OPERATIONS,
+    TABLES,
+    Field,
+    fields_by_name,
+)
+from joehub.util import canonical_uuid, is_timestamp, quote_ident, utcnow
+
+CommitHook = Callable[[sqlite3.Connection], None]
+
+
+@dataclass(frozen=True)
+class WriteRequest:
+    owner: str
+    table: str
+    operation: str
+    payload: dict
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    row_id: str | None
+    replayed: bool
+    status: str
+    table: str
+    operation: str
+
+
+class WriteLayer:
+    def __init__(self, settings: Settings | None = None):
+        self.settings = settings or load_settings()
+        migrate(self.settings.db_path)
+        self.holder_id = f"{os_pid()}:{uuid.uuid4()}"
+
+    def write(
+        self,
+        *,
+        owner: str,
+        table: str,
+        operation: str,
+        payload: dict,
+        idempotency_key: str,
+        commit_hook: CommitHook | None = None,
+    ) -> WriteResult:
+        return self.execute(
+            WriteRequest(
+                owner=owner,
+                table=table,
+                operation=operation,
+                payload=payload,
+                idempotency_key=idempotency_key,
+            ),
+            commit_hook=commit_hook,
+        )
+
+    def execute(self, request: WriteRequest, *, commit_hook: CommitHook | None = None) -> WriteResult:
+        try:
+            self._validate_shape(request)
+        except PermanentWriteError as exc:
+            self._safe_persist(request, exc)
+            raise
+
+        existing = self._peek_queue(request.idempotency_key)
+        if existing is not None and existing["status"] == "committed":
+            return self._replay(request, existing)
+        if existing is not None and existing["status"] == "failed":
+            raise PermanentWriteError(self._failed_message(existing))
+
+        last_transient: TransientWriteError | None = None
+        for attempt in range(1, self.settings.max_retries + 1):
+            acquired = False
+            try:
+                acquired = self._acquire_hall_pass(request.owner)
+                if not acquired:
+                    raise TransientWriteError("hall pass is held")
+                state, row = self._mark_running(request)
+                if state == "committed" and row is not None:
+                    return self._replay(request, row)
+                if state == "failed":
+                    raise PermanentWriteError(self._failed_message(row))
+                if state == "exhausted":
+                    raise PermanentWriteError("bounded retry exceeded for this idempotency key")
+                try:
+                    row_id = self._apply_and_commit(request, commit_hook=commit_hook)
+                except TransientWriteError:
+                    raise
+                except PermanentWriteError:
+                    raise
+                except sqlite3.OperationalError as exc:
+                    if _is_busy(exc):
+                        raise TransientWriteError(str(exc)) from exc
+                    raise PermanentWriteError(str(exc)) from exc
+                except Exception as exc:
+                    raise PermanentWriteError(str(exc)) from exc
+                return WriteResult(
+                    row_id=row_id,
+                    replayed=False,
+                    status="committed",
+                    table=request.table,
+                    operation=request.operation,
+                )
+            except TransientWriteError as exc:
+                last_transient = exc
+                time.sleep(self.settings.retry_backoff_seconds * attempt)
+                continue
+            except PermanentWriteError as exc:
+                self._safe_persist(request, exc)
+                raise
+            finally:
+                if acquired:
+                    self._release_hall_pass()
+
+        exhausted = PermanentWriteError(f"retries exhausted: {last_transient}")
+        self._safe_persist(request, exhausted)
+        raise exhausted
+
+    def _connect(self) -> sqlite3.Connection:
+        return connect(self.settings.db_path)
+
+    def _replay(self, request: WriteRequest, row: sqlite3.Row) -> WriteResult:
+        return WriteResult(
+            row_id=row["row_id"],
+            replayed=True,
+            status="committed",
+            table=request.table,
+            operation=request.operation,
+        )
+
+    def _validate_shape(self, request: WriteRequest) -> None:
+        if not isinstance(request.owner, str) or request.owner not in ALLOWED_OWNERS:
+            raise UnauthorizedError("only Ledger, Scout, and Cato may write")
+        if request.table not in TABLES:
+            raise UnauthorizedError(f"{request.table} is not a writable table")
+        if request.operation not in OPERATIONS:
+            raise ValidationError("unsupported operation")
+        if not isinstance(request.payload, dict):
+            raise ValidationError("payload must be an object")
+        key = request.idempotency_key
+        if not isinstance(key, str) or key != key.strip() or not key or len(key) > 200 or "\n" in key:
+            raise ValidationError("invalid idempotency key")
+        try:
+            json.dumps(request.payload)
+        except TypeError as exc:
+            raise ValidationError("payload is not JSON serializable") from exc
+
+        if request.operation in {"delete_request", "delete_confirm"}:
+            if set(request.payload) != {"id"}:
+                raise ValidationError("delete payload must contain only id")
+            canonical_uuid(request.payload["id"])
+            return
+
+        allowed = set(fields_by_name(request.table)) | {"id", "notion_id", "migrated_on"}
+        if request.table == "applications":
+            allowed |= APPLICATION_EXTRAS
+        for name in request.payload:
+            if name not in allowed:
+                raise ValidationError(f"unknown field {name}")
+        if "id" in request.payload and request.payload["id"] is not None:
+            canonical_uuid(request.payload["id"])
+        _validate_audit_inputs(request.payload)
+        if request.table == "applications":
+            if "event_kind" in request.payload and request.payload["event_kind"] not in EVENT_KINDS:
+                raise ValidationError("event_kind must be migration_baseline or transition")
+            if "occurred_at" in request.payload and not is_timestamp(request.payload["occurred_at"]):
+                raise ValidationError("occurred_at must be a UTC timestamp YYYY-MM-DDTHH:MM:SSZ")
+
+        if request.operation == "update":
+            if "id" not in request.payload:
+                raise ValidationError("update requires id")
+            mutable = [name for name in request.payload if name != "id"]
+            if not mutable:
+                raise ValidationError("update requires at least one field")
+            return
+
+        for field in TABLES[request.table]:
+            if field.name in request.payload:
+                coerce_field(field, request.payload[field.name])
+            elif field.required and not field.has_default:
+                raise ValidationError(f"{field.name} is required")
+
+    def _peek_queue(self, idempotency_key: str) -> sqlite3.Row | None:
+        conn = self._connect()
+        try:
+            return conn.execute(
+                "SELECT * FROM write_queue WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+    def _acquire_hall_pass(self, actor: str) -> bool:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            now = utcnow()
+            expires = _add_seconds(now, self.settings.lock_ttl_seconds)
+            row = conn.execute(
+                "SELECT holder_id, expires_at FROM locks WHERE lock_name = ?",
+                (HALL_PASS,),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO locks (
+                        id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                        lock_name, holder_id, acquired_at, expires_at, ttl_seconds
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        actor,
+                        now,
+                        HALL_PASS,
+                        self.holder_id,
+                        now,
+                        expires,
+                        self.settings.lock_ttl_seconds,
+                    ),
+                )
+            elif row["holder_id"] == self.holder_id or row["expires_at"] <= now:
+                conn.execute(
+                    """
+                    UPDATE locks
+                    SET holder_id = ?, acquired_at = ?, expires_at = ?, ttl_seconds = ?,
+                        last_modified_by = ?, last_modified_at = ?
+                    WHERE lock_name = ?
+                    """,
+                    (
+                        self.holder_id,
+                        now,
+                        expires,
+                        self.settings.lock_ttl_seconds,
+                        actor,
+                        now,
+                        HALL_PASS,
+                    ),
+                )
+            else:
+                conn.rollback()
+                return False
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            _rollback_quiet(conn)
+            return False
+        except sqlite3.OperationalError:
+            _rollback_quiet(conn)
+            return False
+        finally:
+            conn.close()
+
+    def _release_hall_pass(self) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM locks WHERE lock_name = ? AND holder_id = ?",
+                (HALL_PASS, self.holder_id),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            _rollback_quiet(conn)
+        finally:
+            conn.close()
+
+    def _mark_running(self, request: WriteRequest) -> tuple[str, sqlite3.Row | None]:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM write_queue WHERE idempotency_key = ?",
+                (request.idempotency_key,),
+            ).fetchone()
+            if row is not None and row["status"] == "committed":
+                conn.rollback()
+                return "committed", row
+            if row is not None and row["status"] == "failed":
+                conn.rollback()
+                return "failed", row
+            if row is not None and int(row["attempt_count"]) >= self.settings.max_retries:
+                conn.rollback()
+                return "exhausted", row
+            now = utcnow()
+            payload_json = json.dumps(request.payload, sort_keys=True, separators=(",", ":"))
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO write_queue (
+                        id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                        idempotency_key, owner_name, table_name, operation, payload_json,
+                        status, row_id, attempt_count, created_at, completed_at
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, 1, ?, NULL)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        request.owner,
+                        now,
+                        request.idempotency_key,
+                        request.owner,
+                        request.table,
+                        request.operation,
+                        payload_json,
+                        now,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE write_queue
+                    SET status = 'running',
+                        attempt_count = attempt_count + 1,
+                        payload_json = ?,
+                        last_modified_by = ?,
+                        last_modified_at = ?,
+                        owner_name = ?,
+                        table_name = ?,
+                        operation = ?
+                    WHERE idempotency_key = ?
+                    """,
+                    (
+                        payload_json,
+                        request.owner,
+                        now,
+                        request.owner,
+                        request.table,
+                        request.operation,
+                        request.idempotency_key,
+                    ),
+                )
+            conn.commit()
+            return "running", row
+        except sqlite3.OperationalError as exc:
+            _rollback_quiet(conn)
+            if _is_busy(exc):
+                raise TransientWriteError(str(exc)) from exc
+            raise
+        except sqlite3.IntegrityError as exc:
+            _rollback_quiet(conn)
+            raise TransientWriteError(str(exc)) from exc
+        finally:
+            conn.close()
+
+    def _apply_and_commit(self, request: WriteRequest, *, commit_hook: CommitHook | None) -> str:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._assert_owner(conn, request)
+                row_id = self._dispatch(conn, request)
+                now = utcnow()
+                updated = conn.execute(
+                    """
+                    UPDATE write_queue
+                    SET status = 'committed', row_id = ?, completed_at = ?,
+                        last_modified_by = ?, last_modified_at = ?
+                    WHERE idempotency_key = ? AND status = 'running'
+                    """,
+                    (row_id, now, request.owner, now, request.idempotency_key),
+                )
+                if updated.rowcount != 1:
+                    raise PermanentWriteError("write queue was not running for this key")
+                if commit_hook is not None:
+                    commit_hook(conn)
+                conn.commit()
+                return row_id
+            except Exception:
+                _rollback_quiet(conn)
+                raise
+        finally:
+            conn.close()
+
+    def _assert_owner(self, conn: sqlite3.Connection, request: WriteRequest) -> None:
+        row = conn.execute(
+            """
+            SELECT owners.name AS owner_name
+            FROM table_registry
+            JOIN owners ON owners.id = table_registry.owner_id
+            WHERE table_registry.table_name = ?
+            """,
+            (request.table,),
+        ).fetchone()
+        if row is None or row["owner_name"] not in ALLOWED_OWNERS or row["owner_name"] != request.owner:
+            raise UnauthorizedError(f"{request.owner} cannot write {request.table}")
+
+    def _dispatch(self, conn: sqlite3.Connection, request: WriteRequest) -> str:
+        if request.operation == "insert":
+            return self._insert(conn, request)
+        if request.operation == "update":
+            return self._update(conn, request)
+        if request.operation == "delete_request":
+            return self._delete_request(conn, request)
+        if request.operation == "delete_confirm":
+            return self._delete_confirm(conn, request)
+        raise ValidationError("unsupported operation")
+
+    def _insert(self, conn: sqlite3.Connection, request: WriteRequest) -> str:
+        payload = request.payload
+        values: dict[str, object] = {
+            "id": canonical_uuid(payload["id"]) if payload.get("id") else str(uuid.uuid4()),
+            "notion_id": _optional_notion(payload),
+            "migrated_on": _optional_migrated_on(payload),
+        }
+        for field in TABLES[request.table]:
+            if request.table == "applications" and field.name in {"company_id", "contact_id"}:
+                continue
+            values[field.name] = _take_field(field, payload)
+        if request.table == "applications":
+            company_id = _resolve_company(conn, payload)
+            contact_id = _resolve_contact(conn, payload, company_id)
+            values["company_id"] = company_id
+            values["contact_id"] = contact_id
+        now = utcnow()
+        values["last_modified_by"] = request.owner
+        values["last_modified_at"] = now
+        _check_ranges(request.table, values)
+        _check_refs(conn, request.table, values)
+        _insert_row(conn, request.table, values)
+        if request.table == "applications":
+            _insert_status_event(
+                conn,
+                application_id=str(values["id"]),
+                from_status=None,
+                to_status=str(values["status"]),
+                event_kind=str(payload.get("event_kind") or "transition"),
+                occurred_at=payload.get("occurred_at") if isinstance(payload.get("occurred_at"), str) else now,
+                actor=request.owner,
+            )
+        return str(values["id"])
+
+    def _update(self, conn: sqlite3.Connection, request: WriteRequest) -> str:
+        payload = request.payload
+        row_id = canonical_uuid(payload["id"])
+        existing = _fetch_row(conn, request.table, row_id)
+        if existing is None:
+            raise ValidationError("row not found")
+        changes: dict[str, object] = {}
+        for field in TABLES[request.table]:
+            if request.table == "applications" and field.name in {"company_id", "contact_id"}:
+                continue
+            if field.name in payload:
+                changes[field.name] = coerce_field(field, payload[field.name])
+        if "notion_id" in payload:
+            changes["notion_id"] = _notion_value(payload["notion_id"])
+        if "migrated_on" in payload:
+            changes["migrated_on"] = _migrated_value(payload["migrated_on"])
+        if request.table == "applications":
+            if "company_id" in payload or "raw_company" in payload:
+                changes["company_id"] = _resolve_company(conn, payload)
+            if "contact_id" in payload or "raw_contact" in payload:
+                company_id = changes.get("company_id", existing["company_id"])
+                changes["contact_id"] = _resolve_contact(conn, payload, company_id)
+        merged = dict(existing)
+        merged.update(changes)
+        _check_ranges(request.table, merged)
+        _check_refs(conn, request.table, changes)
+        now = utcnow()
+        changes["last_modified_by"] = request.owner
+        changes["last_modified_at"] = now
+        _update_row(conn, request.table, row_id, changes)
+        if request.table == "applications" and "status" in changes and changes["status"] != existing["status"]:
+            _insert_status_event(
+                conn,
+                application_id=row_id,
+                from_status=existing["status"],
+                to_status=str(changes["status"]),
+                event_kind=str(payload.get("event_kind") or "transition"),
+                occurred_at=payload.get("occurred_at") if isinstance(payload.get("occurred_at"), str) else now,
+                actor=request.owner,
+            )
+        return row_id
+
+    def _delete_request(self, conn: sqlite3.Connection, request: WriteRequest) -> str:
+        row_id = canonical_uuid(request.payload["id"])
+        if _fetch_row(conn, request.table, row_id) is None:
+            raise ValidationError("row not found")
+        open_row = conn.execute(
+            """
+            SELECT id FROM pending_deletes
+            WHERE table_name = ? AND row_id = ? AND status = 'pending'
+            """,
+            (request.table, row_id),
+        ).fetchone()
+        if open_row is not None:
+            raise PermanentWriteError("delete already pending")
+        now = utcnow()
+        _insert_row(
+            conn,
+            "pending_deletes",
+            {
+                "id": str(uuid.uuid4()),
+                "notion_id": None,
+                "migrated_on": None,
+                "last_modified_by": request.owner,
+                "last_modified_at": now,
+                "owner_name": request.owner,
+                "table_name": request.table,
+                "row_id": row_id,
+                "requested_at": now,
+                "confirmed_at": None,
+                "status": "pending",
+            },
+        )
+        return row_id
+
+    def _delete_confirm(self, conn: sqlite3.Connection, request: WriteRequest) -> str:
+        row_id = canonical_uuid(request.payload["id"])
+        pending = conn.execute(
+            """
+            SELECT id FROM pending_deletes
+            WHERE table_name = ? AND row_id = ? AND status = 'pending' AND owner_name = ?
+            """,
+            (request.table, row_id, request.owner),
+        ).fetchone()
+        if pending is None:
+            raise PermanentWriteError("no pending delete for this owner and row")
+        quoted = quote_ident(request.table)
+        deleted = conn.execute(f"DELETE FROM {quoted} WHERE id = ?", (row_id,))
+        if deleted.rowcount != 1:
+            raise ValidationError("row not found")
+        now = utcnow()
+        conn.execute(
+            """
+            UPDATE pending_deletes
+            SET status = 'confirmed', confirmed_at = ?, last_modified_by = ?, last_modified_at = ?
+            WHERE id = ?
+            """,
+            (now, request.owner, now, pending["id"]),
+        )
+        return row_id
+
+    def _safe_persist(self, request: WriteRequest, exc: PermanentWriteError) -> None:
+        try:
+            self._persist_failure(request, exc)
+        except Exception as persist_exc:
+            raise PermanentWriteError(f"{exc} (also failed to record the error: {persist_exc})") from exc
+
+    def _persist_failure(self, request: WriteRequest, exc: PermanentWriteError) -> None:
+        message = str(exc).strip() or exc.__class__.__name__
+        if len(message) > 2000:
+            message = message[:2000]
+        owner_name = request.owner if isinstance(request.owner, str) and request.owner else "unknown"
+        table_name = request.table if isinstance(request.table, str) else None
+        operation = request.operation if isinstance(request.operation, str) else None
+        key = request.idempotency_key if isinstance(request.idempotency_key, str) else None
+        try:
+            payload_json = json.dumps(request.payload, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            payload_json = "{}"
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if key:
+                existing = conn.execute(
+                    "SELECT status FROM write_queue WHERE idempotency_key = ?",
+                    (key,),
+                ).fetchone()
+                if existing is not None and existing["status"] in {"committed", "failed"}:
+                    conn.rollback()
+                    return
+            now = utcnow()
+            conn.execute(
+                """
+                INSERT INTO errors (
+                    id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                    idempotency_key, owner_name, table_name, operation, message, persistent, created_at
+                ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    owner_name,
+                    now,
+                    key,
+                    owner_name,
+                    table_name,
+                    operation,
+                    message,
+                    now,
+                ),
+            )
+            if key and operation in OPERATIONS and table_name:
+                if conn.execute(
+                    "SELECT 1 FROM write_queue WHERE idempotency_key = ?",
+                    (key,),
+                ).fetchone():
+                    conn.execute(
+                        """
+                        UPDATE write_queue
+                        SET status = 'failed', completed_at = ?, last_modified_by = ?, last_modified_at = ?
+                        WHERE idempotency_key = ?
+                        """,
+                        (now, owner_name, now, key),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO write_queue (
+                            id, notion_id, migrated_on, last_modified_by, last_modified_at,
+                            idempotency_key, owner_name, table_name, operation, payload_json,
+                            status, row_id, attempt_count, created_at, completed_at
+                        ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'failed', NULL, 1, ?, ?)
+                        """,
+                        (
+                            str(uuid.uuid4()),
+                            owner_name,
+                            now,
+                            key,
+                            owner_name,
+                            table_name,
+                            operation,
+                            payload_json,
+                            now,
+                            now,
+                        ),
+                    )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            _rollback_quiet(conn)
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _failed_message(row: sqlite3.Row | None) -> str:
+        if row is None:
+            return "idempotency key already failed"
+        return "idempotency key already failed"
+
+
+def coerce_field(field: Field, value: object) -> object:
+    if value is None:
+        if field.required:
+            raise ValidationError(f"{field.name} is required")
+        return None
+    if field.kind == "text":
+        if not isinstance(value, str):
+            raise ValidationError(f"{field.name} must be text")
+        if field.required and value == "":
+            raise ValidationError(f"{field.name} is required")
+        if field.choices is not None and value not in field.choices:
+            allowed = ", ".join(field.choices)
+            raise ValidationError(f"{field.name} must be one of: {allowed}")
+        return value
+    if field.kind == "int":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValidationError(f"{field.name} must be an integer")
+        if field.min_value is not None and value < field.min_value:
+            raise ValidationError(f"{field.name} must be >= {field.min_value}")
+        return value
+    if field.kind == "date":
+        if not isinstance(value, str):
+            raise ValidationError(f"{field.name} must be YYYY-MM-DD")
+        from datetime import datetime
+
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValidationError(f"{field.name} must be YYYY-MM-DD") from exc
+        return value
+    if field.kind == "timestamp":
+        if not is_timestamp(value):
+            raise ValidationError(f"{field.name} must be a UTC timestamp YYYY-MM-DDTHH:MM:SSZ")
+        return value
+    if field.kind == "uuid":
+        return canonical_uuid(value)
+    raise ValidationError(f"unsupported field type for {field.name}")
+
+
+def _take_field(field: Field, payload: dict) -> object:
+    if field.name in payload:
+        return coerce_field(field, payload[field.name])
+    if field.has_default:
+        return coerce_field(field, field.default)
+    if field.required:
+        raise ValidationError(f"{field.name} is required")
+    return None
+
+
+def _validate_audit_inputs(payload: dict) -> None:
+    if "notion_id" in payload:
+        _notion_value(payload["notion_id"])
+    if "migrated_on" in payload:
+        _migrated_value(payload["migrated_on"])
+
+
+def _optional_notion(payload: dict) -> str | None:
+    if "notion_id" not in payload:
+        return None
+    return _notion_value(payload["notion_id"])
+
+
+def _optional_migrated_on(payload: dict) -> str | None:
+    if "migrated_on" not in payload:
+        return None
+    return _migrated_value(payload["migrated_on"])
+
+
+def _notion_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValidationError("notion_id must be text")
+    return value
+
+
+def _migrated_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if not is_timestamp(value):
+        raise ValidationError("migrated_on must be a UTC timestamp YYYY-MM-DDTHH:MM:SSZ")
+    return str(value)
+
+
+def _check_refs(conn: sqlite3.Connection, table: str, values: dict) -> None:
+    for field in TABLES[table]:
+        if field.references is None or field.name not in values:
+            continue
+        value = values[field.name]
+        if value is None:
+            continue
+        quoted = quote_ident(field.references)
+        found = conn.execute(f"SELECT 1 FROM {quoted} WHERE id = ?", (value,)).fetchone()
+        if found is None:
+            raise ValidationError(f"unknown {field.name}")
+
+
+def _check_ranges(table: str, values: dict) -> None:
+    if table == "budgets":
+        start = values.get("start_date")
+        end = values.get("end_date")
+        if start and end and str(end) < str(start):
+            raise ValidationError("end_date is before start_date")
+    if table == "events":
+        start = values.get("starts_at")
+        end = values.get("ends_at")
+        if start and end and str(end) < str(start):
+            raise ValidationError("ends_at is before starts_at")
+    if table == "application_status_history":
+        kind = values.get("event_kind")
+        if kind is not None and kind not in EVENT_KINDS:
+            raise ValidationError("invalid event_kind")
+        for column in ("from_status", "to_status"):
+            status = values.get(column)
+            if status is not None and status not in APPLICATION_STATUSES:
+                raise ValidationError(f"invalid {column}")
+
+
+def _resolve_company(conn: sqlite3.Connection, payload: dict) -> str | None:
+    if "company_id" in payload:
+        raw_id = payload["company_id"]
+        if raw_id is None:
+            return None
+        company_id = canonical_uuid(raw_id)
+        found = conn.execute("SELECT 1 FROM companies WHERE id = ?", (company_id,)).fetchone()
+        if found is None:
+            raise ValidationError("unknown company_id")
+        return company_id
+    raw_name = payload.get("raw_company")
+    if not isinstance(raw_name, str) or raw_name == "":
+        return None
+    rows = conn.execute("SELECT id FROM companies WHERE name = ?", (raw_name,)).fetchall()
+    if len(rows) == 1:
+        return rows[0]["id"]
+    return None
+
+
+def _resolve_contact(conn: sqlite3.Connection, payload: dict, company_id: object) -> str | None:
+    if "contact_id" in payload:
+        raw_id = payload["contact_id"]
+        if raw_id is None:
+            return None
+        contact_id = canonical_uuid(raw_id)
+        found = conn.execute("SELECT 1 FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+        if found is None:
+            raise ValidationError("unknown contact_id")
+        return contact_id
+    raw_name = payload.get("raw_contact")
+    if not isinstance(raw_name, str) or raw_name == "":
+        return None
+    if isinstance(company_id, str):
+        rows = conn.execute(
+            "SELECT id FROM contacts WHERE name = ? AND company_id = ?",
+            (raw_name, company_id),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM contacts WHERE name = ?", (raw_name,)).fetchall()
+    if len(rows) == 1:
+        return rows[0]["id"]
+    return None
+
+
+def _insert_status_event(
+    conn: sqlite3.Connection,
+    *,
+    application_id: str,
+    from_status: str | None,
+    to_status: str,
+    event_kind: str,
+    occurred_at: str,
+    actor: str,
+) -> None:
+    if event_kind not in EVENT_KINDS:
+        raise ValidationError("event_kind must be migration_baseline or transition")
+    if to_status not in APPLICATION_STATUSES:
+        raise ValidationError("invalid status")
+    if from_status is not None and from_status not in APPLICATION_STATUSES:
+        raise ValidationError("invalid from_status")
+    if not is_timestamp(occurred_at):
+        raise ValidationError("occurred_at must be a UTC timestamp YYYY-MM-DDTHH:MM:SSZ")
+    now = utcnow()
+    _insert_row(
+        conn,
+        "application_status_history",
+        {
+            "id": str(uuid.uuid4()),
+            "notion_id": None,
+            "migrated_on": None,
+            "last_modified_by": actor,
+            "last_modified_at": now,
+            "application_id": application_id,
+            "from_status": from_status,
+            "to_status": to_status,
+            "event_kind": event_kind,
+            "occurred_at": occurred_at,
+            "note": None,
+        },
+    )
+
+
+def _fetch_row(conn: sqlite3.Connection, table: str, row_id: str) -> sqlite3.Row | None:
+    quoted = quote_ident(table)
+    return conn.execute(f"SELECT * FROM {quoted} WHERE id = ?", (row_id,)).fetchone()
+
+
+def _insert_row(conn: sqlite3.Connection, table: str, values: dict) -> None:
+    columns = list(values)
+    for column in columns:
+        quote_ident(column)
+    quoted_table = quote_ident(table)
+    collist = ", ".join(quote_ident(column) for column in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    conn.execute(
+        f"INSERT INTO {quoted_table} ({collist}) VALUES ({placeholders})",
+        [values[column] for column in columns],
+    )
+
+
+def _update_row(conn: sqlite3.Connection, table: str, row_id: str, changes: dict) -> None:
+    assignments = []
+    params: list[object] = []
+    for column, value in changes.items():
+        assignments.append(f"{quote_ident(column)} = ?")
+        params.append(value)
+    params.append(row_id)
+    sql = f"UPDATE {quote_ident(table)} SET {', '.join(assignments)} WHERE id = ?"
+    updated = conn.execute(sql, params)
+    if updated.rowcount != 1:
+        raise ValidationError("row not found")
+
+
+def _rollback_quiet(conn: sqlite3.Connection) -> None:
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        pass
+
+
+def _is_busy(exc: sqlite3.OperationalError) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+def _add_seconds(stamp: str, seconds: int) -> str:
+    from joehub.util import add_seconds
+
+    return add_seconds(stamp, seconds)
+
+
+def os_pid() -> int:
+    import os
+
+    return os.getpid()
