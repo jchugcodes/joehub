@@ -60,7 +60,7 @@ Privileged maintenance is the only writer of those meta tables. That means the m
 
 A caller presents a server-issued credential. The database stores only SHA-256. The only plaintext joehub writes is the operator token (`principals/operator.token`, mode 600). There is no lookup by principal name, and owner plaintext is not kept. Passing the string `Ledger`, `Scout`, or `Cato` does not authenticate. The human principal `operator` may write a domain table only after `delegations` has an unrevoked row for that human and that owner. Creating or revoking that row is an explicit, audited action and only the human credential can do it. A principal with kind `bot` is rejected. The dashboard password unlocks the human session; it does not by itself act as Ledger, Scout, or Cato.
 
-On one shared OS user this does not enforce bot identity. `docs/TRUST_BOUNDARY.md` names the missing kernel uid. The writer daemon enforces `SO_PEERCRED` only after the users in `docs/DEPLOYMENT_ACCESS.md` exist. It is not in effect on a shared uid.
+On one shared OS user this does not enforce bot identity. Cooperative shared-computer mode is the default, and bot identity is not tamper-resistant there. `docs/TRUST_BOUNDARY.md` records that decision and names the missing kernel uid. The writer daemon is an optional strict mode. It enforces `SO_PEERCRED` only when the users in `docs/DEPLOYMENT_ACCESS.md` exist, and it refuses a shared uid. It is not the default.
 
 ## Writes, locks, and deletes
 

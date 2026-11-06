@@ -1,8 +1,10 @@
 # Trust boundary
 
-The locked rule is enforced owner write access. joehub does not enforce bot identity while every agent runs as one OS user. That is not a cooperative mode anyone can accept in place of the rule. It is a missing kernel credential. Joe reviews the privileged steps in `docs/DEPLOYMENT_ACCESS.md` before they are applied. Applying them is what turns the writer on. Starting the daemon without them does not.
+Decision (Joe, Nov 6, 2026, 6:18 PM ET): "Accept cooperative bot ownership on the shared computer, with the single writer queue, validation, audits and two-step deletes retained."
 
-Real isolation is not achievable on one shared OS user.
+Cooperative shared-computer mode is the default deployment. Bot identity is cooperative and not tamper-resistant on the shared computer. joehub does not enforce bot identity while every agent runs as one OS user. Real isolation is not achievable on one shared OS user.
+
+The uid-mapped writer daemon is an optional strict mode, not the default. It still refuses to claim enforcement when principals share a uid. The privileged steps in `docs/DEPLOYMENT_ACCESS.md` are not applied for this deployment. Starting the daemon without those distinct uids does not create a boundary, and the daemon refuses to listen.
 
 ## What is true on one shared OS user
 
@@ -17,9 +19,9 @@ A separate writer OS user is not enough on its own if the bots still share one u
 
 The missing platform capability is a distinct kernel uid for each principal (operator, Ledger, Scout, and Cato), different from the writer uid. An equivalent would be some other kernel credential that `SO_PEERCRED` or an LSM exposes and that another process of the same uid cannot present. This machine does not have that for the agents. No design in the list above supplies it.
 
-## What the writer service enforces once those uids exist
+## Optional strict mode, once those uids exist
 
-`joehub.writer_service` is the enforced path. It is implemented. It is not in effect on a shared uid, and it refuses to listen unless all of the following are true:
+`joehub.writer_service` is optional strict mode. It is not the default deployment. It is implemented. It is not in effect on a shared uid, and it refuses to listen unless all of the following are true:
 
 - The access map lists operator, Ledger, Scout, and Cato, each with a different uid, and none of those uids is the writer's euid.
 - The access map file is mode `0600` and owned by the writer uid.
@@ -30,8 +32,10 @@ Clients speak JSON over the Unix socket and do not send a credential, a principa
 
 Tests that need distinct uids run inside a Linux user namespace when `newuidmap` works, and skip otherwise. They do not create host users.
 
-## What the in-process library still is
+## What the in-process library is
 
-`WriteLayer`, `connect()`, and the operator token file are the writer's own engine and the same-user tools. They are cooperative among processes of one uid. They are not the boundary. `connect()` never returns a writable handle. The maintenance connection used by the daemon, migrations, and restore is not an authorization boundary against another process of the writer uid. There is no API that loads an owner token by name. The socket daemon does not accept the operator token as a client credential.
+`WriteLayer`, `connect()`, and the operator token file are the default on the shared computer. They are cooperative among processes of one uid. Bot identity here is not tamper-resistant. `connect()` never returns a writable handle. The maintenance connection used by the daemon, migrations, and restore is not an authorization boundary against another process of the writer uid. There is no API that loads an owner token by name. The socket daemon does not accept the operator token as a client credential.
 
-The restore gate is a different control. Every joehub opener refuses the database while a handover flock is held, including the gap after the new inode is published and before the operator credential is installed. That stops a second runtime. It does not separate two bots that share a uid.
+The single-writer queue and lock, ownership validation, audit fields, owner-only two-step hard deletes, and the backup/restore handover stay in force for these cooperative callers.
+
+The restore lock is a different control. Openers hold it shared across connect and validation. Restore holds it exclusive from before any credential staging until the handover is cleaned up. That stops a second runtime from opening the new inode before the operator credential is installed. It does not separate two bots that share a uid.

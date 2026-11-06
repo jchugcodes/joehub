@@ -12,9 +12,11 @@ expired leases. The thread stops when the last ``WriteLayer`` using that
 database closes. Recovery reloads the recorded principal and, for a human, the
 delegation. It does not substitute the table owner for that principal.
 
-Calling ``WriteLayer`` in-process does not enforce bot identity. The socket
-daemon in ``joehub.writer_service`` is the enforced path, and only when each
-principal is a distinct uid. See ``docs/TRUST_BOUNDARY.md``.
+Calling ``WriteLayer`` in-process is the default on a shared computer. It does
+not enforce bot identity, and that identity is cooperative, not
+tamper-resistant. The socket daemon in ``joehub.writer_service`` is an optional
+strict mode, and only when each principal is a distinct uid. It refuses to
+claim enforcement when principals share a uid. See ``docs/TRUST_BOUNDARY.md``.
 """
 
 from __future__ import annotations

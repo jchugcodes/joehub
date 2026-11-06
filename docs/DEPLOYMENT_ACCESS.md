@@ -1,8 +1,8 @@
 # Deployment access
 
-These are the privileged changes that make owner write access enforceable on the shared computer. They are not applied by this repository, by tests, or by the daemon. Review them before anyone runs them. Paths below are the ones the unit file uses. Synthetic data only; do not put real records or the age secret into git.
+This is the optional strict mode, not the default deployment. The default is cooperative shared-computer mode, recorded in `docs/TRUST_BOUNDARY.md`. These are the privileged changes that make owner write access enforceable when each principal has its own uid. They are not applied by this repository, by tests, or by the daemon. Do not apply them as part of the default. Review them before anyone runs them. Paths below are the ones the unit file uses. Synthetic data only; do not put real records or the age secret into git.
 
-The daemon is not sufficient without this layout. If Ledger, Scout, Cato, and the operator still execute as one uid, do not start it and expect isolation. It will refuse a map that gives two principals the same uid or that gives a principal the writer uid. Mapping the shared uid to a single name would make every bot that uid into that one principal. There is no configuration that turns one uid into four principals.
+The daemon is not sufficient without this layout, and it is not the default. If Ledger, Scout, Cato, and the operator still execute as one uid, do not start it and expect isolation. It will refuse a map that gives two principals the same uid or that gives a principal the writer uid. Mapping the shared uid to a single name would make every bot that uid into that one principal. There is no configuration that turns one uid into four principals.
 
 The missing capability until the users below exist is a distinct kernel uid per principal, different from the writer uid.
 

@@ -6,10 +6,12 @@ second file. A crash or a competing opener in that gap must not observe a
 database whose hashes do not match the token on disk, and must not destroy the
 only copy of the previous database before the new pair is valid.
 
-The gate file is honored by every opener in ``joehub.db``. The restoring
-process holds an flock on the gate for the whole gap. When that process dies
-the kernel drops the flock, and the next opener finishes or rolls back the
-journal instead of using the database.
+Exclusion is the maintenance flock, taken before any shared staging or checks.
+Openers hold it shared across connect. The restorer holds it exclusive through
+credential install. A durable ``completed`` phase is fsynced before any
+success-path unlink. The journal is removed only after the gate, and a
+completed record survives that unlink so cleanup can be restarted, including
+when recovery itself crashes between steps.
 """
 
 from __future__ import annotations
@@ -39,13 +41,32 @@ from joehub.principals import (
 
 _in_recover = threading.local()
 
+# Test seam. Fires immediately before each success-path unlink, including
+# when recovery restarts that cleanup.
+_cleanup_boundary: Callable[[str], None] | None = None
+
+# Test seam. Fires immediately before a restore blocks on the exclusive lock.
+_before_exclusive_lock: Callable[[], None] | None = None
+
 
 def handover_journal_path(db_path: Path) -> Path:
     return Path(str(db_path) + ".handover.json")
 
 
+def handover_completed_path(db_path: Path) -> Path:
+    return Path(str(db_path) + ".handover.completed")
+
+
 def original_copy_path(db_path: Path) -> Path:
     return Path(str(db_path) + ".original")
+
+
+def handover_pending(db_path: Path) -> bool:
+    return (
+        maintenance_gate_path(db_path).is_file()
+        or handover_journal_path(db_path).is_file()
+        or handover_completed_path(db_path).is_file()
+    )
 
 
 def commit_restored_database(
@@ -62,39 +83,42 @@ def commit_restored_database(
     place. Tests use it to simulate a crash; production passes none.
     """
     live = settings.db_path
-    recover_restore_handover(live)
-    if maintenance_gate_path(live).exists():
-        raise JoehubError("database is in a restore handover; refusing to open")
-
-    staged_secret = _stage_credential(settings, minted)
-    had_live = live.is_file()
-    original_sha = _sha256(live) if had_live else ""
-    incoming_sha = _sha256(incoming)
-    nonce = uuid.uuid4().hex + uuid.uuid4().hex
-    token_path = operator_token_path(settings)
-    journal_path = handover_journal_path(live)
-    original = original_copy_path(live)
-    journal = {
-        "version": 1,
-        "phase": "prepared",
-        "live_db": str(live),
-        "incoming_db": str(incoming),
-        "original_db": str(original),
-        "original_sha256": original_sha,
-        "incoming_sha256": incoming_sha,
-        "staged_token_path": str(token_path.with_name("operator.token.staged")),
-        "previous_token_path": str(token_path.with_name("operator.token.previous")),
-        "operator_token_path": str(token_path),
-        "nonce": nonce,
-        "had_live_db": had_live,
-        "staged_digest": token_digest(staged_secret),
-    }
     gate: _Gate | None = None
     holder: sqlite3.Connection | None = None
     replaced = False
-    verified = False
+    journal: dict | None = None
+    journal_path = handover_journal_path(live)
+    staged_path: Path | None = None
+    previous_path: Path | None = None
     try:
         gate = _Gate.lock(live)
+        recover_restore_handover(live, already_exclusive=True)
+        if maintenance_gate_path(live).exists() or journal_path.exists():
+            raise JoehubError("database is in a restore handover; refusing to open")
+        nonce = uuid.uuid4().hex + uuid.uuid4().hex
+        token_path = operator_token_path(settings)
+        staged_path = token_path.with_name(f"operator.token.staged.{nonce}")
+        previous_path = token_path.with_name(f"operator.token.previous.{nonce}")
+        staged_secret = _stage_credential(settings, minted, staged_path, previous_path)
+        had_live = live.is_file()
+        original_sha = _sha256(live) if had_live else ""
+        incoming_sha = _sha256(incoming)
+        original = original_copy_path(live)
+        journal = {
+            "version": 1,
+            "phase": "prepared",
+            "live_db": str(live),
+            "incoming_db": str(incoming),
+            "original_db": str(original),
+            "original_sha256": original_sha,
+            "incoming_sha256": incoming_sha,
+            "staged_token_path": str(staged_path),
+            "previous_token_path": str(previous_path),
+            "operator_token_path": str(token_path),
+            "nonce": nonce,
+            "had_live_db": had_live,
+            "staged_digest": token_digest(staged_secret),
+        }
         _write_json(journal_path, journal)
         gate.publish(nonce)
         _update(journal_path, journal, phase="gated")
@@ -120,39 +144,42 @@ def commit_restored_database(
         _update(journal_path, journal, phase="token_installed")
         if not _token_matches(journal):
             raise JoehubError("restored database does not match the operator credential")
-        _discard_recovered_original(journal)
-        _unlink_quiet(journal_path)
-        if gate is not None:
-            gate.clear()
-            gate = None
-        verified = True
+        _update(journal_path, journal, phase="completed")
+        _finish_completed(journal, journal_path)
     except BaseException:
-        if not replaced:
-            _abort_files(journal)
-            if gate is not None:
-                gate.clear()
-                gate = None
-            _unlink_quiet(journal_path)
+        if not replaced and journal is not None:
+            _settle_aborted(journal, journal_path)
+        elif not replaced:
+            if staged_path is not None:
+                _unlink_quiet(staged_path)
+            if previous_path is not None:
+                _unlink_quiet(previous_path)
         raise
     finally:
         if holder is not None:
             holder.close()
-        if gate is not None and not verified:
+        if gate is not None:
             gate.release_lock_only()
 
 
-def recover_restore_handover(db_path: Path) -> bool:
+def recover_restore_handover(db_path: Path, *, already_exclusive: bool = False) -> bool:
     """Finish or roll back a handover whose owner has died.
 
     Returns True when a journal was completed or discarded. Returns False when
     there is nothing to do, or another live owner still holds the gate.
+    ``already_exclusive`` means the caller holds the maintenance flock.
     """
     if getattr(_in_recover, "on", False):
         return False
-    journal_path = handover_journal_path(db_path)
-    gate_path = maintenance_gate_path(db_path)
-    if not journal_path.is_file() and not gate_path.is_file():
+    if not handover_pending(db_path):
         return False
+    if already_exclusive:
+        _in_recover.on = True
+        try:
+            _recover_locked(db_path)
+        finally:
+            _in_recover.on = False
+        return True
     lock_path = maintenance_lock_path(db_path)
     lock_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
@@ -165,26 +192,8 @@ def recover_restore_handover(db_path: Path) -> bool:
             return False
         _in_recover.on = True
         try:
-            if not journal_path.is_file():
-                raise JoehubError("restore gate has no handover journal; refusing to open")
-            journal = _read_json(journal_path)
-            _require_journal(journal, db_path)
-            live = Path(str(journal["live_db"]))
-            live_sha = _sha256(live) if live.is_file() else ""
-            if live_sha and live_sha == journal["incoming_sha256"]:
-                _complete_installed(journal, journal_path)
-                return True
-            if journal.get("had_live_db") and live_sha == journal["original_sha256"]:
-                _abort_files(journal)
-                _unlink_quiet(journal_path)
-                _unlink_quiet(gate_path)
-                return True
-            if not journal.get("had_live_db") and not live_sha:
-                _abort_files(journal)
-                _unlink_quiet(journal_path)
-                _unlink_quiet(gate_path)
-                return True
-            raise JoehubError("restore handover is inconsistent; refusing to open")
+            _recover_locked(db_path)
+            return True
         finally:
             _in_recover.on = False
             import fcntl
@@ -194,18 +203,112 @@ def recover_restore_handover(db_path: Path) -> bool:
         os.close(fd)
 
 
+def _recover_locked(db_path: Path) -> None:
+    journal_path = handover_journal_path(db_path)
+    completed_path = handover_completed_path(db_path)
+    if journal_path.is_file():
+        journal = _read_json(journal_path)
+        _require_journal(journal, db_path)
+        _recover_journal(journal, journal_path, db_path)
+        return
+    if completed_path.is_file():
+        journal = _read_json(completed_path)
+        _require_journal(journal, db_path)
+        journal["phase"] = "completed"
+        _finish_completed(journal, journal_path)
+        return
+    if maintenance_gate_path(db_path).is_file():
+        raise JoehubError("restore gate has no handover journal; refusing to open")
+
+
+def _recover_journal(journal: dict, journal_path: Path, db_path: Path) -> None:
+    phase = journal.get("phase")
+    if phase == "completed":
+        _finish_completed(journal, journal_path)
+        return
+    if phase == "aborted":
+        _abort_files(journal)
+        _unlink_quiet(maintenance_gate_path(db_path))
+        _unlink_quiet(journal_path)
+        _unlink_quiet(handover_completed_path(db_path))
+        return
+    live = Path(str(journal["live_db"]))
+    live_sha = _sha256(live) if live.is_file() else ""
+    if phase in {"db_installed", "token_installed"} or (
+        live_sha != "" and live_sha == journal["incoming_sha256"]
+    ):
+        _complete_installed(journal, journal_path)
+        return
+    if journal.get("had_live_db") and live_sha == journal["original_sha256"]:
+        _settle_aborted(journal, journal_path)
+        return
+    if not journal.get("had_live_db") and not live_sha:
+        _settle_aborted(journal, journal_path)
+        return
+    raise JoehubError("restore handover is inconsistent; refusing to open")
+
+
 def _complete_installed(journal: dict, journal_path: Path) -> None:
+    if journal.get("phase") == "completed":
+        _finish_completed(journal, journal_path)
+        return
     _install_staged_token(journal)
     if not _token_matches(journal):
         if journal.get("had_live_db"):
             _rollback_original(journal)
-            _unlink_quiet(journal_path)
-            _unlink_quiet(maintenance_gate_path(Path(journal["live_db"])))
+            _settle_aborted(journal, journal_path)
             return
         raise JoehubError("restored database does not match the staged operator credential")
-    _discard_recovered_original(journal)
+    _update(journal_path, journal, phase="completed")
+    _finish_completed(journal, journal_path)
+
+
+def _finish_completed(journal: dict, journal_path: Path) -> None:
+    """Idempotent cleanup after the handover pair is valid.
+
+    The completed phase and a sibling completed record are durable before any
+    unlink. Each step can crash and be repeated. The journal is unlinked only
+    after the gate, and the completed record is unlinked last.
+    """
+    journal["phase"] = "completed"
+    live = Path(journal["live_db"])
+    completed = handover_completed_path(live)
+    if not journal_path.is_file():
+        _write_json(journal_path, journal)
+    else:
+        _update(journal_path, journal, phase="completed")
+    _write_json(completed, journal)
+    _boundary("before_unlink_original")
+    _unlink_quiet(Path(journal["original_db"]))
+    for suffix in ("-wal", "-shm"):
+        _unlink_quiet(Path(str(journal["original_db"]) + suffix))
+    _unlink_quiet(Path(str(live) + ".rejected"))
+    _boundary("before_unlink_staged")
+    _unlink_quiet(Path(journal["staged_token_path"]))
+    _boundary("before_unlink_previous")
+    _unlink_quiet(Path(journal["previous_token_path"]))
+    _boundary("before_unlink_gate")
+    _unlink_quiet(maintenance_gate_path(live))
+    _boundary("before_unlink_journal")
     _unlink_quiet(journal_path)
-    _unlink_quiet(maintenance_gate_path(Path(journal["live_db"])))
+    _boundary("before_unlink_completed")
+    _unlink_quiet(completed)
+
+
+def _boundary(name: str) -> None:
+    hook = _cleanup_boundary
+    if hook is not None:
+        hook(name)
+
+
+def _settle_aborted(journal: dict, journal_path: Path) -> None:
+    """Record an abort, then drop leftovers. The journal outlives the gate."""
+    _update(journal_path, journal, phase="aborted")
+    _abort_files(journal)
+    db_path = Path(journal["live_db"])
+    _unlink_quiet(maintenance_gate_path(db_path))
+    _unlink_quiet(journal_path)
+    _unlink_quiet(handover_completed_path(db_path))
 
 
 def _install_staged_token(journal: dict) -> None:
@@ -247,40 +350,36 @@ def _token_matches(journal: dict) -> bool:
     return hmac.compare_digest(stored, journal["staged_digest"])
 
 
+def _restore_previous_token(journal: dict) -> None:
+    previous = Path(journal["previous_token_path"])
+    if previous.is_file():
+        write_token_file(
+            Path(journal["operator_token_path"]),
+            previous.read_text(encoding="utf-8").strip(),
+        )
+
+
 def _rollback_original(journal: dict) -> None:
     live = Path(journal["live_db"])
     original = Path(journal["original_db"])
+    live_sha = _sha256(live) if live.is_file() else ""
+    if live_sha != "" and live_sha == journal["original_sha256"]:
+        _restore_previous_token(journal)
+        _unlink_quiet(original)
+        for suffix in ("-wal", "-shm"):
+            _unlink_quiet(Path(str(original) + suffix))
+        return
     if not original.is_file():
         raise JoehubError("original database copy is missing; refusing to roll back blindly")
     rejected = Path(str(live) + ".rejected")
     if live.exists():
         os.replace(live, rejected)
     _copy_fsync(original, live)
-    _fsync_dir(live.parent)
-    previous = Path(journal["previous_token_path"])
-    if previous.is_file():
-        write_token_file(Path(journal["operator_token_path"]), previous.read_text(encoding="utf-8").strip())
+    _restore_previous_token(journal)
     if _sha256(live) == journal["original_sha256"]:
         _unlink_quiet(original)
-
-
-def _discard_recovered_original(journal: dict) -> None:
-    """Delete the preserved original only after the live credential pair is valid.
-
-    The caller has already checked that the live file is the incoming database,
-    before any connection could rewrite the header. A later open may change
-    bytes, so this does not hash the file again.
-    """
-    live = Path(journal["live_db"])
-    if not live.is_file():
-        raise JoehubError("refusing to delete the original database before the handover is valid")
-    if not _token_matches(journal):
-        raise JoehubError("refusing to delete the original database before the handover is valid")
-    _unlink_quiet(Path(journal["original_db"]))
-    _unlink_quiet(Path(journal["staged_token_path"]))
-    _unlink_quiet(Path(journal["previous_token_path"]))
-    for suffix in ("-wal", "-shm"):
-        _unlink_quiet(Path(str(journal["original_db"]) + suffix))
+        for suffix in ("-wal", "-shm"):
+            _unlink_quiet(Path(str(original) + suffix))
 
 
 def _abort_files(journal: dict) -> None:
@@ -298,10 +397,8 @@ def _abort_files(journal: dict) -> None:
     _unlink_quiet(Path(journal["previous_token_path"]))
 
 
-def _stage_credential(settings: Settings, minted: str | None) -> str:
+def _stage_credential(settings: Settings, minted: str | None, staged: Path, previous: Path) -> str:
     path = operator_token_path(settings)
-    previous = path.with_name("operator.token.previous")
-    staged = path.with_name("operator.token.staged")
     if path.is_file():
         write_token_file(previous, path.read_text(encoding="utf-8").strip())
     elif previous.exists():
@@ -346,10 +443,13 @@ class _Gate:
         lock_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            hook = _before_exclusive_lock
+            if hook is not None:
+                hook()
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except BaseException:
             os.close(fd)
-            raise JoehubError("a restore handover is already in progress") from exc
+            raise
         return cls(db_path, fd)
 
     def publish(self, nonce: str) -> None:
@@ -370,7 +470,6 @@ class _Gate:
     def clear(self) -> None:
         _unlink_quiet(maintenance_gate_path(self.db_path))
         self.release_lock_only()
-        _unlink_quiet(maintenance_lock_path(self.db_path))
 
 
 def _require_journal(journal: object, db_path: Path) -> None:
@@ -383,6 +482,7 @@ def _require_journal(journal: object, db_path: Path) -> None:
         "original_sha256",
         "nonce",
         "staged_token_path",
+        "previous_token_path",
         "operator_token_path",
         "staged_digest",
         "original_db",

@@ -5,11 +5,12 @@ Unix socket. Their identity is ``SO_PEERCRED``, looked up in an access map the
 writer owns. The request must not carry a credential, a principal name, or a
 uid: those fields are rejected so a stolen token cannot impersonate anyone.
 
-This process is not a principal boundary by itself. It refuses to listen unless
-the access map gives every principal a distinct uid that is not the writer's,
-the database is mode 0600 and owned by the writer, and the socket directory
-cannot be replaced by group or other. On a machine where every bot is one uid,
-no map satisfies that check. See ``docs/DEPLOYMENT_ACCESS.md``.
+This process is an optional strict mode, not the default deployment. It is not
+a principal boundary by itself. It refuses to listen unless the access map
+gives every principal a distinct uid that is not the writer's, the database is
+mode 0600 and owned by the writer, and the socket directory cannot be replaced
+by group or other. On a machine where every bot is one uid, no map satisfies
+that check. See ``docs/DEPLOYMENT_ACCESS.md``.
 """
 
 from __future__ import annotations

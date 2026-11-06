@@ -5,9 +5,10 @@ handle still cannot write: an authorizer denies mutating statements. That is
 not a principal boundary. A process running as the same OS user can open the
 database file itself. See ``docs/TRUST_BOUNDARY.md``.
 
-Every opener in this module also honors the restore maintenance gate. While a
-handover is in progress, a new runtime cannot open the database that was just
-swapped into place.
+Every opener holds a shared flock on the maintenance lock across the admission
+check, ``sqlite3.connect``, and connection validation. Restore holds that same
+lock exclusively for the whole handover, including credential install. A marker
+check alone is not admission.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import re
 import sqlite3
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from joehub.errors import JoehubError
 from joehub.util import quote_ident, utcnow
@@ -98,6 +100,77 @@ def _nonce_matches(presented: str | None, nonce: str) -> bool:
     return hmac.compare_digest(presented, nonce)
 
 
+# Test seam. Runs only while the shared admission lock is held, after the
+# gate has been rechecked and before ``sqlite3.connect``.
+_before_connect: Callable[[Path], None] | None = None
+
+
+class _Admission:
+    """Shared lock held for one open, or nothing when the caller already holds exclusive."""
+
+    def __init__(self, fd: int | None):
+        self.fd = fd
+
+    def release(self) -> None:
+        if self.fd is None:
+            return
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self.fd)
+            self.fd = None
+
+
+def _admit(db_path: Path, maintenance_token: str | None) -> _Admission:
+    """Take the shared handover lock and hold it across connect.
+
+    The restoring thread already holds the exclusive lock and presents the
+    gate nonce. A second flock in that process would deadlock, so that path
+    does not take another lock. Every other opener either shares the lock or
+    fails closed while the exclusive owner is alive.
+    """
+    gate = _read_gate(db_path)
+    if gate is not None and _nonce_matches(maintenance_token, str(gate["nonce"])):
+        return _Admission(None)
+    lock_path = maintenance_lock_path(db_path)
+    lock_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise JoehubError("database is in a restore handover; refusing to open") from exc
+        if _must_recover(db_path, maintenance_token):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise JoehubError("database is in a restore handover; refusing to open") from exc
+            from joehub.handover import recover_restore_handover
+
+            recover_restore_handover(db_path, already_exclusive=True)
+            gate = _read_gate(db_path)
+            if gate is not None and not _nonce_matches(maintenance_token, str(gate["nonce"])):
+                raise JoehubError("database is in a restore handover; refusing to open")
+            fcntl.flock(fd, fcntl.LOCK_SH)
+        return _Admission(fd)
+    except Exception:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+        raise
+
+
+def _must_recover(db_path: Path, maintenance_token: str | None) -> bool:
+    from joehub.handover import handover_pending
+
+    gate = _read_gate(db_path)
+    if gate is not None and not _nonce_matches(maintenance_token, str(gate["nonce"])):
+        return True
+    return handover_pending(db_path)
+
+
 def gate_owner_alive(db_path: Path) -> bool:
     """True when the process that opened the handover still holds its lock.
 
@@ -119,33 +192,35 @@ def gate_owner_alive(db_path: Path) -> bool:
         os.close(fd)
 
 
-def _honor_maintenance_gate(db_path: Path, maintenance_token: str | None) -> None:
-    gate = _read_gate(db_path)
-    if gate is None:
-        return
-    if _nonce_matches(maintenance_token, str(gate["nonce"])):
-        return
-    if gate_owner_alive(db_path):
-        raise JoehubError("database is in a restore handover; refusing to open")
-    from joehub.handover import recover_restore_handover
-
-    recover_restore_handover(db_path)
-    gate = _read_gate(db_path)
-    if gate is None:
-        return
-    if _nonce_matches(maintenance_token, str(gate["nonce"])):
-        return
-    raise JoehubError("database is in a restore handover; refusing to open")
-
-
-def _open(db_path: Path, *, maintenance_token: str | None = None) -> sqlite3.Connection:
-    _honor_maintenance_gate(db_path, maintenance_token)
-    db_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+def _open(
+    db_path: Path,
+    *,
+    maintenance_token: str | None = None,
+    prepare: Callable[[sqlite3.Connection], None] | None = None,
+) -> sqlite3.Connection:
+    admission = _admit(db_path, maintenance_token)
+    conn: sqlite3.Connection | None = None
+    try:
+        if admission.fd is not None and _before_connect is not None:
+            _before_connect(db_path)
+        db_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=30, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        if prepare is not None:
+            prepare(conn)
+        else:
+            conn.execute("SELECT 1")
+        opened = conn
+        conn = None
+        return opened
+    except Exception:
+        if conn is not None:
+            conn.close()
+        raise
+    finally:
+        admission.release()
 
 
 def _deny_writes(action: int, _arg1: str | None, _arg2: str | None, _db_name: str | None, _source: str | None) -> int:
@@ -160,10 +235,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     There is no writable switch. ``PRAGMA query_only = OFF`` does not make this
     connection able to write. Domain changes go through ``WriteLayer``.
     """
-    conn = _open(db_path)
-    conn.execute("PRAGMA query_only = ON")
-    conn.set_authorizer(_deny_writes)
-    return conn
+    def prepare(conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA query_only = ON")
+        conn.set_authorizer(_deny_writes)
+        conn.execute("SELECT 1")
+
+    return _open(db_path, prepare=prepare)
 
 
 def _maintenance_connect(db_path: Path, *, maintenance_token: str | None = None) -> sqlite3.Connection:
@@ -174,10 +251,11 @@ def _maintenance_connect(db_path: Path, *, maintenance_token: str | None = None)
     maintenance token only lets the restore handover open the database it
     already locked; it does not grant a client a principal.
     """
-    conn = _open(db_path, maintenance_token=maintenance_token)
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
+    def prepare(conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+
+    return _open(db_path, maintenance_token=maintenance_token, prepare=prepare)
 
 
 def _applied_versions(conn: sqlite3.Connection) -> set[str]:
