@@ -1,8 +1,12 @@
 name: tests
 
-on:
+"on":
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   pytest:
