@@ -16,6 +16,7 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("JOEHUB_LOCK_TTL_SECONDS", "5")
     monkeypatch.setenv("JOEHUB_MAX_RETRIES", "6")
     monkeypatch.setenv("JOEHUB_RETRY_BACKOFF_SECONDS", "0.01")
+    monkeypatch.setenv("JOEHUB_RECOVERY_INTERVAL_SECONDS", "0")
     monkeypatch.delenv("JOEHUB_AUTH_HASH", raising=False)
     monkeypatch.delenv("JOEHUB_AUTH_HASH_FILE", raising=False)
     monkeypatch.delenv("JOEHUB_EXPORT_REMOTE", raising=False)

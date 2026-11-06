@@ -10,9 +10,10 @@ import pytest
 
 from dataclasses import replace
 
-from joehub.db import connect, connect_writer
+from joehub.db import connect, _maintenance_connect
 from joehub.errors import PermanentWriteError
-from joehub.principals import token_for
+from joehub.principals import operator_token
+from tests.acting import credential
 from joehub.registry import HALL_PASS
 from joehub.util import utcnow
 from joehub.write import WriteLayer, request_fingerprint
@@ -29,7 +30,7 @@ def insert_transaction(db_path, export_dir, key_dir, account_id, idem_key, cents
     from joehub.write import WriteLayer as WorkerWriter
 
     result = WorkerWriter().write(
-        credential=token_for(load_settings(), "Ledger"),
+        credential=operator_token(load_settings()),
         table="transactions",
         operation="insert",
         idempotency_key=idem_key,
@@ -49,7 +50,7 @@ def test_stale_lock_can_be_recovered_and_release_does_not_steal(settings):
     other = WriteLayer(settings)
     assert holder._acquire_hall_pass("Ledger") is True
     assert other._acquire_hall_pass("Scout") is False
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         conn.execute(
             "UPDATE locks SET expires_at = '2000-01-01T00:00:00Z' WHERE lock_name = ?",
@@ -75,7 +76,7 @@ def test_stale_lock_can_be_recovered_and_release_does_not_steal(settings):
 
 def test_active_lock_blocks_until_retries_are_exhausted(writer, settings):
     account = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key="lock-acct",
@@ -86,7 +87,7 @@ def test_active_lock_blocks_until_retries_are_exhausted(writer, settings):
     impatient = WriteLayer(replace(settings, max_retries=2, retry_backoff_seconds=0.01))
     with pytest.raises(PermanentWriteError, match="retries exhausted"):
         impatient.write(
-            credential=token_for(settings, "Ledger"),
+            credential=credential(settings, "Ledger"),
             table="transactions",
             operation="insert",
             idempotency_key="blocked-tx",
@@ -103,7 +104,7 @@ def test_active_lock_blocks_until_retries_are_exhausted(writer, settings):
     finally:
         conn.close()
     recovered = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="after-block",
@@ -114,7 +115,7 @@ def test_active_lock_blocks_until_retries_are_exhausted(writer, settings):
 
 def test_crash_recovery_completes_a_running_write_once(writer, settings):
     account = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key="crash-acct",
@@ -122,10 +123,10 @@ def test_crash_recovery_completes_a_running_write_once(writer, settings):
     ).row_id
     payload = {"account_id": account, "amount_cents": 2500, "date": "2026-04-04", "memo": "recovered"}
     now = utcnow()
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         principal_id = conn.execute(
-            "SELECT id FROM principals WHERE name = 'Ledger'"
+            "SELECT id FROM principals WHERE name = 'operator'"
         ).fetchone()["id"]
         fingerprint = request_fingerprint(
             principal_id=principal_id,
@@ -160,7 +161,7 @@ def test_crash_recovery_completes_a_running_write_once(writer, settings):
         conn.close()
     assert writer.recover_incomplete() == 1
     again = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="crash-key",
@@ -184,7 +185,7 @@ def test_crash_recovery_completes_a_running_write_once(writer, settings):
 
 def test_multiprocess_contention_and_duplicate_keys(settings, writer):
     account = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key="mp-acct",
@@ -229,7 +230,7 @@ def test_database_is_unlocked_after_a_writer_error(settings):
     layer = WriteLayer(settings)
     with pytest.raises(PermanentWriteError):
         layer.write(
-            credential=token_for(settings, "Ledger"),
+            credential=credential(settings, "Ledger"),
             table="transactions",
             operation="insert",
             idempotency_key="unlock",

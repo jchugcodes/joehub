@@ -25,6 +25,7 @@ python -m pip install -e ".[dev]"
 | `JOEHUB_LOCK_TTL_SECONDS` | `30` |
 | `JOEHUB_MAX_RETRIES` | `8` |
 | `JOEHUB_RETRY_BACKOFF_SECONDS` | `0.05` |
+| `JOEHUB_RECOVERY_INTERVAL_SECONDS` | `1` (set `0` to disable the recovery timer) |
 
 A path inside the repository is rejected. The database file and the password-hash file must not sit inside the export directory. The key directory and the export directory must not contain each other. The database, export, and key paths must be distinct.
 
@@ -52,11 +53,13 @@ Running it again is safe. Each fictional row has a stable idempotency key, so a 
 python scripts/export_data.py
 ```
 
-This reads every table in one snapshot, encrypts that set, and publishes it as a generation pointed at by `current`. Stable names such as `transactions.csv.age` and `export_history.csv.age` are replaced only after the generation is in place. The identity file is `$JOEHUB_KEY_DIR/age-identity.txt`. It is created with mode `600` when missing. The command prints the export directory, not the key. Owner tokens are also created there (`principals/*.token`, mode 600) and are not printed.
+This reads every table in one snapshot, encrypts that set, and publishes it as a generation pointed at by `current`. Stable names such as `transactions.csv.age` and `export_history.csv.age` are replaced only after the generation is in place. The identity file is `$JOEHUB_KEY_DIR/age-identity.txt`. It is created with mode `600` when missing. The command prints the export directory, not the key.
 
-`export_history.status` stays `running` until that snapshot is published. A failed dump is `failed`. `publication_state` is `incomplete` when a push has not carried the final audit.
+The command records an audited delegation from the operator to Cato, then writes `export_history` with the operator credential. The only token file is `$JOEHUB_KEY_DIR/principals/operator.token` (mode 600). Owner token files are not created. On one shared OS user that operator file is readable by every process. That is cooperative mode, not enforced bot identity. Read `docs/TRUST_BOUNDARY.md` before relying on it. Joe has to accept the limit.
 
-The same OS user can open the SQLite file directly. The read-only connection used by the dashboard is not a boundary against that user.
+`export_history.status` stays `running` until that snapshot is published. A failed dump is `failed`. `publication_state` stays `incomplete` until the final push returns. A crash during that push leaves a journal at `$JOEHUB_EXPORT_DIR/.publication-journal.json`. The next export reconciles it and does not treat a local `pushed` mark as done while the journal is still open. The same OS user can open the SQLite file directly. `connect()` is not a boundary against that user.
+
+`WriteLayer` retries expired leases on a timer (`JOEHUB_RECOVERY_INTERVAL_SECONDS`, default 1 second). Set it to `0` to keep recovery to process start only. A human write is recovered only if that human's delegation is still unrevoked.
 
 ## Push
 
@@ -77,9 +80,11 @@ export JOEHUB_DB_PATH=/home/box/joehub/data/joehub-restored.db
 python scripts/restore_data.py
 ```
 
-Stop the dashboard and any other writer first. Restore decrypts into a temporary database, checks integrity, foreign keys, row counts, and the schema, and only then replaces the live file. If a check fails, the original database stays. It refuses to overwrite an existing database file unless you pass `--force`, and it refuses when the file is still locked. Cent amounts come back as integers, and primary keys are unchanged. NULL, an empty string, and the literal `\N` stay distinct.
+Stop the dashboard and any other writer first. Restore decrypts into a temporary database, checks integrity, foreign keys, row counts, and the schema, and only then replaces the live file. The exclusive lock is held across the WAL checkpoint (which runs outside the lock transaction), the sidecar removal, and the replace. If a check fails, the original database stays. It refuses to overwrite an existing database file unless you pass `--force`, and it refuses when the file is still locked. Cent amounts come back as integers, and primary keys are unchanged. NULL, an empty string, and the literal `\N` stay distinct.
 
-Use the same `JOEHUB_KEY_DIR` that created the export.
+The CSV exports and the age identity are enough. You do not need a backup of the token files. When the operator token is missing or does not match the restored hash, restore keeps every principal id (and `notion_id`, `migrated_on`, name, kind, and owner name), rotates the hashes, and writes a new operator token. Owner token files are not written. `last_modified_by` on those rows becomes `restore`.
+
+Use the same `JOEHUB_KEY_DIR` so the age identity is the one that encrypted the export.
 
 ## Dashboard
 
@@ -108,6 +113,7 @@ These are not done:
 - Off-computer key backup. The age identity and the writer tokens stay in `JOEHUB_KEY_DIR` on this machine.
 - Secure mobile access. The dashboard binds to localhost. A phone on another network is not a supported client.
 - Cutover enforcement. Nothing here switches a live system off an old store or blocks the previous writer.
+- Enforced bot identity. Cooperative mode is what runs. The separate-user writer daemon in `docs/TRUST_BOUNDARY.md` is not provisioned. Joe has to accept that a same-user process can bypass the writer.
 
 Equivalent direct command, from the repository root after the editable install:
 

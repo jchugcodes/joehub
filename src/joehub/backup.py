@@ -26,9 +26,15 @@ import pyrage
 from pyrage import x25519
 
 from joehub.config import Settings, load_settings
-from joehub.db import connect, connect_writer, list_tables, migrate, table_columns
+from joehub.db import _maintenance_connect, connect, list_tables, migrate, table_columns
 from joehub.errors import ConfigError, JoehubError, PrivacyError
-from joehub.principals import ensure_principals, token_for
+from joehub.principals import (
+    ensure_principals,
+    install_operator_token,
+    operator_token,
+    reprovision_principals,
+    resolve_credential,
+)
 from joehub.util import quote_ident, utcnow
 from joehub.write import WriteLayer
 
@@ -42,6 +48,7 @@ _GITHUB_REMOTE = re.compile(
 )
 _ARTIFACT_NAME = re.compile(r"^[a-z][a-z0-9_]*\.csv\.age$")
 _NULL_TOKEN = r"\N"
+_JOURNAL_NAME = ".publication-journal.json"
 
 
 @dataclass(frozen=True)
@@ -255,6 +262,115 @@ def _encrypted_snapshot(settings: Settings, recipient) -> dict[str, bytes]:
     }
 
 
+def _export_credential(settings: Settings, writer: WriteLayer) -> str:
+    credential = operator_token(settings)
+    principal = resolve_credential(settings, credential)
+    if not writer._delegation_active(principal.id, "Cato"):
+        raise JoehubError("export requires an unrevoked delegation from the operator to Cato")
+    return credential
+
+
+def _journal_path(export_dir: Path) -> Path:
+    return export_dir / _JOURNAL_NAME
+
+
+def _write_journal(export_dir: Path, payload: dict) -> None:
+    export_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    temporary = export_dir / f".journal-{uuid.uuid4().hex}"
+    temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, _journal_path(export_dir))
+
+
+def _read_journal(export_dir: Path) -> dict | None:
+    path = _journal_path(export_dir)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _clear_journal(export_dir: Path) -> None:
+    path = _journal_path(export_dir)
+    if path.exists():
+        path.unlink()
+
+
+def _demote_unconfirmed_push(writer: WriteLayer, credential: str, export_id: str) -> None:
+    """A local ``pushed`` mark is false while the final push is still unacked."""
+    conn = connect(writer.settings.db_path)
+    try:
+        row = conn.execute(
+            "SELECT publication_state FROM export_history WHERE id = ?",
+            (export_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or row["publication_state"] != "pushed":
+        return
+    _mark_history(
+        writer,
+        credential,
+        export_id,
+        publication_state="incomplete",
+        push_status="failed",
+        detail="publication was marked pushed before the final push finished",
+    )
+
+
+def reconcile_interrupted_publication(
+    settings: Settings,
+    *,
+    writer: WriteLayer | None = None,
+    credential: str | None = None,
+    visibility_check: VisibilityCheck | None = None,
+) -> None:
+    """Finish a publication whose final push did not ack.
+
+    A crash skips the exception handler. The journal is what the next process
+    uses. Local ``publication_state=pushed`` is demoted until that push returns.
+    """
+    journal = _read_journal(settings.export_dir)
+    if journal is None:
+        return
+    if journal.get("phase") == "final_acked":
+        _clear_journal(settings.export_dir)
+        return
+    own_writer = writer is None
+    writer = writer or WriteLayer(settings)
+    try:
+        credential = credential or _export_credential(settings, writer)
+        export_id = str(journal["export_id"])
+        remote = str(journal["remote"])
+        _demote_unconfirmed_push(writer, credential, export_id)
+        check = visibility_check or query_github_visibility
+        visibility = check(remote)
+        if visibility != "PRIVATE":
+            raise PrivacyError(f"refusing push: visibility is {visibility!r}, PRIVATE required")
+        _write_journal(
+            settings.export_dir,
+            {"export_id": export_id, "remote": remote, "phase": "final_in_progress"},
+        )
+        identity = load_or_create_identity(settings.age_identity_path)
+        payloads = _encrypted_snapshot(settings, identity.to_public())
+        publish_snapshot(settings.export_dir, payloads)
+        git_push(settings.export_dir, remote, list(payloads))
+        _mark_history(
+            writer,
+            credential,
+            export_id,
+            push_status="pushed",
+            publication_state="pushed",
+            detail="reconciled interrupted publication",
+        )
+        _write_journal(
+            settings.export_dir,
+            {"export_id": export_id, "remote": remote, "phase": "final_acked"},
+        )
+        _clear_journal(settings.export_dir)
+    finally:
+        if own_writer:
+            writer.close()
+
+
 def export_all(
     settings: Settings | None = None,
     *,
@@ -269,115 +385,134 @@ def export_all(
     identity = load_or_create_identity(settings.age_identity_path)
     recipient = identity.to_public()
     writer = WriteLayer(settings)
-    cato = token_for(settings, "Cato")
-    started = utcnow()
-    target_remote = remote if remote is not None else settings.export_remote
-    log.info("export started")
-    created = writer.write(
-        credential=cato,
-        table="export_history",
-        operation="insert",
-        idempotency_key=f"export:{uuid.uuid4()}",
-        payload={
-            "started_at": started,
-            "status": "running",
-            "export_dir": str(settings.export_dir),
-            "remote": target_remote,
-            "publication_state": "not_requested",
-        },
-    )
-    export_id = created.row_id
-    if export_id is None:
-        raise JoehubError("export history row was not created")
-
-    def mark(**kwargs: object) -> None:
-        _mark_history(writer, cato, export_id, **kwargs)
-
     try:
-        payloads = _encrypted_snapshot(settings, recipient)
-        names = publish_snapshot(settings.export_dir, payloads)
-    except Exception as exc:
-        _mark_failure(writer, cato, export_id, exc)
-        raise
-
-    if not target_remote:
-        mark(
-            status="succeeded",
-            finished_at=utcnow(),
-            publication_state="not_requested",
-            detail="encrypted table export",
+        credential = _export_credential(settings, writer)
+        reconcile_interrupted_publication(
+            settings,
+            writer=writer,
+            credential=credential,
+            visibility_check=visibility_check,
         )
+        started = utcnow()
+        target_remote = remote if remote is not None else settings.export_remote
+        log.info("export started")
+        created = writer.write(
+            credential=credential,
+            table="export_history",
+            operation="insert",
+            idempotency_key=f"export:{uuid.uuid4()}",
+            payload={
+                "started_at": started,
+                "status": "running",
+                "export_dir": str(settings.export_dir),
+                "remote": target_remote,
+                "publication_state": "not_requested",
+            },
+        )
+        export_id = created.row_id
+        if export_id is None:
+            raise JoehubError("export history row was not created")
+
+        def mark(**kwargs: object) -> None:
+            _mark_history(writer, credential, export_id, **kwargs)
+
         try:
-            names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+            payloads = _encrypted_snapshot(settings, recipient)
+            names = publish_snapshot(settings.export_dir, payloads)
         except Exception as exc:
-            _mark_failure(writer, cato, export_id, exc)
+            _mark_failure(writer, credential, export_id, exc)
             raise
-        log.info("export finished tables=%s pushed=%s", len(names), False)
-        return ExportSummary(export_id=export_id, files=tuple(names), pushed=False, push_status=None)
 
-    check = visibility_check or query_github_visibility
-    try:
-        visibility = check(target_remote)
-        if visibility != "PRIVATE":
-            raise PrivacyError(f"refusing push: visibility is {visibility!r}, PRIVATE required")
-    except PrivacyError as exc:
+        if not target_remote:
+            mark(
+                status="succeeded",
+                finished_at=utcnow(),
+                publication_state="not_requested",
+                detail="encrypted table export",
+            )
+            try:
+                names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+            except Exception as exc:
+                _mark_failure(writer, credential, export_id, exc)
+                raise
+            log.info("export finished tables=%s pushed=%s", len(names), False)
+            return ExportSummary(export_id=export_id, files=tuple(names), pushed=False, push_status=None)
+
+        check = visibility_check or query_github_visibility
+        try:
+            visibility = check(target_remote)
+            if visibility != "PRIVATE":
+                raise PrivacyError(f"refusing push: visibility is {visibility!r}, PRIVATE required")
+        except PrivacyError as exc:
+            mark(
+                status="succeeded",
+                finished_at=utcnow(),
+                push_status="refused",
+                publication_state="refused",
+                detail=str(exc)[:500],
+            )
+            try:
+                publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+            except Exception as pub_exc:
+                _mark_failure(writer, credential, export_id, pub_exc)
+                raise pub_exc
+            raise
+
         mark(
             status="succeeded",
             finished_at=utcnow(),
-            push_status="refused",
-            publication_state="refused",
-            detail=str(exc)[:500],
-        )
-        try:
-            publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
-        except Exception as pub_exc:
-            _mark_failure(writer, cato, export_id, pub_exc)
-            raise pub_exc
-        raise
-
-    mark(
-        status="succeeded",
-        finished_at=utcnow(),
-        publication_state="incomplete",
-        detail="local export finished; publication is not complete",
-    )
-    try:
-        payloads = _encrypted_snapshot(settings, recipient)
-        names = publish_snapshot(settings.export_dir, payloads)
-        git_push(settings.export_dir, target_remote, list(payloads))
-    except Exception as exc:
-        mark(
-            push_status="failed",
-            publication_state="failed",
-            detail=_scrub(str(exc))[:500],
-        )
-        try:
-            publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
-        except Exception:
-            _mark_failure(writer, cato, export_id, exc)
-        raise JoehubError("export push failed") from exc
-
-    # The remote now has publication_state=incomplete. A second push carries the
-    # final audit. If it fails, the recorded state stays incomplete.
-    mark(push_status="pushed", publication_state="pushed", detail="pushed encrypted exports")
-    try:
-        payloads = _encrypted_snapshot(settings, recipient)
-        names = publish_snapshot(settings.export_dir, payloads)
-        git_push(settings.export_dir, target_remote, list(payloads))
-    except Exception as exc:
-        mark(
-            push_status="failed",
             publication_state="incomplete",
-            detail=f"audit push incomplete: {_scrub(str(exc))[:400]}",
+            detail="local export finished; publication is not complete",
+        )
+        _write_journal(
+            settings.export_dir,
+            {"export_id": export_id, "remote": target_remote, "phase": "first_in_progress"},
         )
         try:
-            names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
-        except Exception:
-            names = sorted(payloads)
-        raise JoehubError("export publication incomplete") from exc
+            payloads = _encrypted_snapshot(settings, recipient)
+            names = publish_snapshot(settings.export_dir, payloads)
+            git_push(settings.export_dir, target_remote, list(payloads))
+        except Exception as exc:
+            mark(
+                push_status="failed",
+                publication_state="failed",
+                detail=_scrub(str(exc))[:500],
+            )
+            try:
+                publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+            except Exception:
+                _mark_failure(writer, credential, export_id, exc)
+            raise JoehubError("export push failed") from exc
 
-    log.info("export finished tables=%s pushed=%s", len(names), True)
-    return ExportSummary(export_id=export_id, files=tuple(names), pushed=True, push_status="pushed")
+        # The journal is opened before the local pushed mark. The snapshot of
+        # that mark is the final audit push. A crash before git_push returns
+        # leaves the journal open, so the local mark is not a finished success.
+        _write_journal(
+            settings.export_dir,
+            {"export_id": export_id, "remote": target_remote, "phase": "final_in_progress"},
+        )
+        mark(push_status="pushed", publication_state="pushed", detail="pushed encrypted exports")
+        try:
+            payloads = _encrypted_snapshot(settings, recipient)
+            names = publish_snapshot(settings.export_dir, payloads)
+            git_push(settings.export_dir, target_remote, list(payloads))
+        except Exception as exc:
+            mark(
+                push_status="failed",
+                publication_state="incomplete",
+                detail=f"audit push incomplete: {_scrub(str(exc))[:400]}",
+            )
+            try:
+                names = publish_snapshot(settings.export_dir, _encrypted_snapshot(settings, recipient))
+            except Exception:
+                names = sorted(payloads)
+            raise JoehubError("export publication incomplete") from exc
+
+        _clear_journal(settings.export_dir)
+        log.info("export finished tables=%s pushed=%s", len(names), True)
+        return ExportSummary(export_id=export_id, files=tuple(names), pushed=True, push_status="pushed")
+    finally:
+        writer.close()
 
 
 def _mark_failure(writer: WriteLayer, credential: str, export_id: str, exc: Exception) -> None:
@@ -524,10 +659,15 @@ def _scrub(text: str) -> str:
 def restore_all(settings: Settings | None = None, *, force: bool = False) -> None:
     """Decrypt and validate into a temporary database, then replace the live file.
 
-    The existing database, including its WAL, is left untouched until integrity,
-    foreign keys, row counts, and the id column all check out. The caller must
-    stop other joehub processes first; restore refuses when it cannot take an
-    exclusive lock.
+    The existing database, including its WAL and shared-memory files, stays in
+    place until integrity, foreign keys, row counts, and the id column all
+    check out. The exclusive lock is taken before those sidecars are removed
+    and is held through the replace. Checkpoint runs only after that
+    transaction has ended. On failure the original file is left as it was.
+
+    After a successful decrypt, principal ids are kept and credentials are
+    reprovisioned from the age key when the operator token is missing or does
+    not match. No token backup is required.
     """
     settings = settings or load_settings()
     db_path = settings.db_path
@@ -536,9 +676,10 @@ def restore_all(settings: Settings | None = None, *, force: bool = False) -> Non
     source = published_dir(settings.export_dir)
     identity = load_or_create_identity(settings.age_identity_path)
     tmp = db_path.with_name(db_path.name + f".restore-{uuid.uuid4().hex}")
+    holder: sqlite3.Connection | None = None
     try:
         migrate(tmp)
-        conn = connect_writer(tmp)
+        conn = _maintenance_connect(tmp)
         try:
             tables = list_tables(conn)
             decrypted: dict[str, bytes] = {}
@@ -575,6 +716,7 @@ def restore_all(settings: Settings | None = None, *, force: bool = False) -> Non
                     pass
                 raise
             _validate_restored(conn, tables, parsed)
+            minted = reprovision_principals(conn, settings, authenticated_by_age_key=True)
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
             conn.close()
@@ -583,11 +725,20 @@ def restore_all(settings: Settings | None = None, *, force: bool = False) -> Non
             if sidecar.exists():
                 sidecar.unlink()
         if db_path.exists():
-            _require_runtime_stopped(db_path)
+            holder = _hold_maintenance_exclusion(db_path)
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(db_path) + suffix)
+                if sidecar.exists():
+                    sidecar.unlink()
         os.replace(tmp, db_path)
+        if minted is not None:
+            install_operator_token(settings, minted)
     except Exception:
         _discard_database(tmp)
         raise
+    finally:
+        if holder is not None:
+            holder.close()
     log.info("restore finished")
 
 
@@ -612,21 +763,30 @@ def _validate_restored(
             raise JoehubError(f"{table} schema is missing the id column")
 
 
-def _require_runtime_stopped(db_path: Path) -> None:
-    conn = connect_writer(db_path)
+def _hold_maintenance_exclusion(db_path: Path) -> sqlite3.Connection:
+    """Lock the live database and return the connection still holding that lock.
+
+    ``BEGIN EXCLUSIVE`` then ``COMMIT`` with ``locking_mode=EXCLUSIVE`` keeps
+    the lock until the caller closes the connection. The checkpoint runs after
+    the commit, never inside the transaction. The caller removes sidecars and
+    replaces the file before closing.
+    """
+    conn = _maintenance_connect(db_path)
     try:
+        conn.execute("PRAGMA locking_mode = EXCLUSIVE")
         conn.execute("BEGIN EXCLUSIVE")
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.commit()
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
     except sqlite3.OperationalError as exc:
-        _rollback_quiet(conn)
-        raise JoehubError("refusing restore: the runtime still has the database open") from exc
-    finally:
         conn.close()
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(db_path) + suffix)
-        if sidecar.exists():
-            sidecar.unlink()
+        raise JoehubError("refusing restore: the runtime still has the database open") from exc
+    except Exception:
+        conn.close()
+        raise
+    if row is not None and int(row[0]) != 0:
+        conn.close()
+        raise JoehubError("refusing restore: the runtime still has the database open")
+    return conn
 
 
 def _discard_database(db_path: Path) -> None:

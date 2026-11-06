@@ -14,9 +14,10 @@ from joehub.backup import (
     query_github_visibility,
     restore_all,
 )
-from joehub.db import connect, connect_writer, list_tables, table_columns
+from joehub.db import connect, _maintenance_connect, list_tables, table_columns
 from joehub.errors import JoehubError, PrivacyError
 from joehub.util import quote_ident
+from tests.acting import credential
 from tests.scripts_seed import seed_main
 
 
@@ -79,7 +80,7 @@ def test_export_round_trip_preserves_types_constraints_and_ids(settings, caplog,
     for table, rows in before.items():
         assert after[table] == rows, table
 
-    conn = connect_writer(restored_path)
+    conn = _maintenance_connect(restored_path)
     try:
         amount = conn.execute("SELECT amount_cents FROM transactions ORDER BY date LIMIT 1").fetchone()
         assert isinstance(amount["amount_cents"], int)
@@ -117,6 +118,7 @@ def test_export_round_trip_preserves_types_constraints_and_ids(settings, caplog,
 
 
 def test_restore_refuses_to_clobber_without_force(settings):
+    credential(settings, "Cato")
     export_all(settings)
     with pytest.raises(JoehubError, match="already exists"):
         restore_all(settings, force=False)
@@ -162,6 +164,7 @@ def test_visibility_check_requires_private_github(tmp_path):
 def test_push_uses_local_bare_repo_and_refuses_when_check_fails(settings, tmp_path):
     bare = tmp_path / "remote.git"
     subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+    credential(settings, "Cato")
     with pytest.raises(PrivacyError):
         export_all(settings, remote=str(bare), visibility_check=lambda _remote: "PUBLIC")
     probe = subprocess.run(["git", "--git-dir", str(bare), "rev-parse", "main"], capture_output=True, text=True)

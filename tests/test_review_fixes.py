@@ -23,9 +23,10 @@ from joehub.backup import (
     restore_all,
 )
 from joehub.config import load_settings
-from joehub.db import connect, connect_writer, list_tables
+from joehub.db import connect, _maintenance_connect, list_tables
 from joehub.errors import ConfigError, JoehubError, PermanentWriteError, UnauthorizedError
-from joehub.principals import HUMAN_NAME, ensure_principals, token_digest, token_for
+from joehub.principals import HUMAN_NAME, ensure_principals, operator_token, token_digest
+from tests.acting import bind_owner_secret, credential
 from joehub.registry import META_TABLES, TABLE_OWNERS, TABLES
 from joehub.write import WriteLayer, request_fingerprint
 
@@ -39,7 +40,7 @@ def test_owner_name_is_not_a_credential_and_humans_need_delegation(writer, setti
             idempotency_key="spoof-name",
             payload={"name": "Spoof", "account_type": "checking"},
         )
-    human = token_for(settings, HUMAN_NAME)
+    human = operator_token(settings)
     _result, err = perform(
         credential=human,
         table="accounts",
@@ -50,8 +51,8 @@ def test_owner_name_is_not_a_credential_and_humans_need_delegation(writer, setti
     )
     assert err and "delegation" in err
     with pytest.raises(UnauthorizedError, match="human"):
-        writer.delegate(token_for(settings, "Ledger"), "Scout")
-    conn = connect_writer(settings.db_path)
+        writer.delegate(bind_owner_secret(settings, "Ledger"), "Scout")
+    conn = _maintenance_connect(settings.db_path)
     try:
         bot_token = "jht_bot_not_a_human_principal_token"
         conn.execute(
@@ -102,7 +103,7 @@ def test_commit_hook_is_gone_and_the_default_connection_cannot_write(settings):
     layer = WriteLayer(settings)
     with pytest.raises(TypeError):
         layer.write(
-            credential=token_for(settings, "Ledger"),
+            credential=credential(settings, "Ledger"),
             table="categories",
             operation="insert",
             idempotency_key="hook",
@@ -111,7 +112,7 @@ def test_commit_hook_is_gone_and_the_default_connection_cannot_write(settings):
         )
     conn = connect(settings.db_path)
     try:
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(sqlite3.DatabaseError):
             conn.execute(
                 """
                 INSERT INTO categories (
@@ -126,7 +127,7 @@ def test_commit_hook_is_gone_and_the_default_connection_cannot_write(settings):
 
 def test_export_snapshot_ignores_a_commit_between_tables(settings, writer, monkeypatch):
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="categories",
         operation="insert",
         idempotency_key="snap-cat",
@@ -138,7 +139,7 @@ def test_export_snapshot_ignores_a_commit_between_tables(settings, writer, monke
     def wrapped(db_path):
         shots = original(db_path)
         writer.write(
-            credential=token_for(settings, "Ledger"),
+            credential=credential(settings, "Ledger"),
             table="categories",
             operation="insert",
             idempotency_key="snap-during",
@@ -154,14 +155,14 @@ def test_export_snapshot_ignores_a_commit_between_tables(settings, writer, monke
 
     monkeypatch.setattr(backup, "read_consistent_snapshot", original)
     during = {"name": "Torn"}
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         conn.execute("BEGIN")
         try:
             tables = list_tables(conn)
             first_table = tables[0]
             _ = conn.execute(f'SELECT COUNT(*) FROM "{first_table}"').fetchone()
-            other = connect_writer(settings.db_path)
+            other = _maintenance_connect(settings.db_path)
             try:
                 other.execute(
                     """
@@ -219,7 +220,7 @@ def test_csv_null_empty_and_sentinel_round_trip(writer, settings):
     assert decode_cell("", "TEXT") == ""
     assert decode_cell(r"\\N", "TEXT") == r"\N"
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key="null-acct",
@@ -227,7 +228,7 @@ def test_csv_null_empty_and_sentinel_round_trip(writer, settings):
     )
     account = connect(settings.db_path).execute("SELECT id FROM accounts").fetchone()["id"]
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="null-tx",
@@ -240,7 +241,7 @@ def test_csv_null_empty_and_sentinel_round_trip(writer, settings):
         },
     )
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="transactions",
         operation="insert",
         idempotency_key="sentinel-tx",
@@ -252,6 +253,7 @@ def test_csv_null_empty_and_sentinel_round_trip(writer, settings):
             "memo": r"\N",
         },
     )
+    credential(settings, "Cato")
     export_all(settings)
     restored = settings.db_path.parent / "null-restored.db"
     restore_all(replace(settings, db_path=restored))
@@ -271,12 +273,13 @@ def test_csv_null_empty_and_sentinel_round_trip(writer, settings):
 
 def test_failed_restore_leaves_the_original_database(settings, writer):
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="categories",
         operation="insert",
         idempotency_key="keep-cat",
         payload={"name": "Keep", "kind": "expense"},
     )
+    credential(settings, "Cato")
     export_all(settings)
     original = settings.db_path.read_bytes()
     (published_dir(settings.export_dir) / "categories.csv.age").write_bytes(b"not-age")
@@ -303,6 +306,7 @@ def test_sensitive_paths_and_git_allowlist(monkeypatch, tmp_path, settings):
     with pytest.raises(ConfigError, match="hash"):
         load_settings()
 
+    credential(settings, "Cato")
     export_all(settings)
     (settings.export_dir / "dashboard_auth_hash").write_text("scrypt$secret", encoding="utf-8")
     (settings.export_dir / "joehub.db").write_bytes(b"sqlite")
@@ -338,6 +342,7 @@ def test_push_keeps_a_prepopulated_remote(settings, tmp_path):
         capture_output=True,
         text=True,
     ).stdout.strip()
+    credential(settings, "Cato")
     summary = export_all(settings, remote=str(bare), visibility_check=lambda _remote: "PRIVATE")
     assert summary.pushed is True
     assert summary.push_status == "pushed"
@@ -369,6 +374,7 @@ def test_export_failure_does_not_claim_success(settings, monkeypatch):
         raise JoehubError("disk full")
 
     monkeypatch.setattr("joehub.backup._encrypted_snapshot", boom)
+    credential(settings, "Cato")
     with pytest.raises(JoehubError, match="disk full"):
         export_all(settings)
     conn = connect(settings.db_path)
@@ -387,22 +393,23 @@ def test_export_failure_does_not_claim_success(settings, monkeypatch):
 
 def test_idempotency_rejects_a_different_payload_and_does_not_overwrite_running(writer, settings):
     writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=bind_owner_secret(settings, "Ledger"),
         table="categories",
         operation="insert",
         idempotency_key="same-key",
         payload={"name": "Original", "kind": "expense"},
     )
-    writer.delegate(token_for(settings, HUMAN_NAME), "Ledger")
+    human = operator_token(settings)
+    writer.delegate(human, "Ledger")
     with pytest.raises(PermanentWriteError, match="different request"):
         writer.write(
-            credential=token_for(settings, HUMAN_NAME),
+            credential=human,
             table="categories",
             operation="insert",
             idempotency_key="same-key",
             payload={"name": "Original", "kind": "expense"},
         )
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         principal_id = conn.execute("SELECT id FROM principals WHERE name = 'Ledger'").fetchone()["id"]
         payload = {"name": "Running", "kind": "income"}
@@ -441,7 +448,7 @@ def test_idempotency_rejects_a_different_payload_and_does_not_overwrite_running(
         conn.close()
     with pytest.raises(PermanentWriteError, match="different request"):
         writer.write(
-            credential=token_for(settings, "Ledger"),
+            credential=credential(settings, "Ledger"),
             table="categories",
             operation="insert",
             idempotency_key="running-key",
@@ -461,7 +468,7 @@ def test_idempotency_rejects_a_different_payload_and_does_not_overwrite_running(
 
 def test_startup_recovery_and_fence(settings, writer):
     account = writer.write(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         idempotency_key="fence-acct",
@@ -470,7 +477,7 @@ def test_startup_recovery_and_fence(settings, writer):
     holder = WriteLayer(settings)
     assert holder._acquire_hall_pass("Ledger") is True
     fence = holder.fence
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         conn.execute(
             "UPDATE locks SET expires_at = '2000-01-01T00:00:00Z' WHERE lock_name = 'hall_pass'"
@@ -480,7 +487,7 @@ def test_startup_recovery_and_fence(settings, writer):
     other = WriteLayer(settings, recover=False)
     assert other._acquire_hall_pass("Scout") is True
     assert other.fence == fence + 1
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         with pytest.raises(Exception):
             holder._touch_lease(conn)
@@ -494,7 +501,7 @@ def test_startup_recovery_and_fence(settings, writer):
     from joehub.util import utcnow
 
     now = utcnow()
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         principal_id = conn.execute("SELECT id FROM principals WHERE name = 'Ledger'").fetchone()["id"]
         fingerprint = request_fingerprint(
@@ -564,7 +571,7 @@ def test_every_table_has_one_registered_owner(settings):
         conn.close()
     with pytest.raises(UnauthorizedError):
         WriteLayer(settings).write(
-            credential=token_for(settings, "Cato"),
+            credential=credential(settings, "Cato"),
             table="schema_migrations",
             operation="insert",
             idempotency_key="meta-write",

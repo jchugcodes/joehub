@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from joehub.config import load_settings  # noqa: E402
 from joehub.db import connect, migrate  # noqa: E402
 from joehub.errors import JoehubError  # noqa: E402
-from joehub.principals import token_for  # noqa: E402
+from joehub.principals import operator_token  # noqa: E402
 from joehub.write import WriteLayer  # noqa: E402
 
 NS = uuid.UUID("6f9d8a2e-1c4b-4f0a-9d3e-8a1b2c3d4e5f")
@@ -50,7 +50,10 @@ def main() -> int:
     settings = load_settings()
     migrate(settings.db_path)
     layer = WriteLayer(settings)
-    tokens = {name: token_for(settings, name) for name in ("Ledger", "Scout", "Cato")}
+    token = operator_token(settings)
+    for name in ("Ledger", "Scout", "Cato"):
+        layer.delegate(token, name)
+    tokens = {name: token for name in ("Ledger", "Scout", "Cato")}
     replayed = 0
     total = 0
 

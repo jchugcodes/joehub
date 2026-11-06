@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from joehub.db import connect, connect_writer, list_tables, migrate, migrations_dir, table_columns
-from joehub.principals import token_for
+from joehub.db import connect, _maintenance_connect, list_tables, migrate, migrations_dir, table_columns
+from tests.acting import credential
 from joehub.registry import AUDIT_COLUMNS, META_TABLES, TABLE_OWNERS, TABLES
 
 EXPECTED_FKS = {
@@ -95,13 +95,13 @@ def test_migrate_is_idempotent(settings):
 
 def test_database_constraints_reject_bad_status_and_id_changes(writer, settings):
     created = writer.write(
-        credential=token_for(writer.settings, "Scout"),
+        credential=credential(writer.settings, "Scout"),
         table="companies",
         operation="insert",
         idempotency_key="schema-co",
         payload={"name": "Constraint Labs"},
     )
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         with pytest_raises_integrity():
             conn.execute(

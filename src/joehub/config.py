@@ -34,6 +34,7 @@ class Settings:
     bind_port: int
     auth_hash: str | None
     auth_hash_file: Path
+    recovery_interval_seconds: float
 
     @property
     def age_identity_path(self) -> Path:
@@ -54,9 +55,13 @@ def repo_roots() -> list[Path]:
 
 
 def _path_contains(parent: Path, child: Path) -> bool:
-    """True when child is parent or a path inside it. Does not follow symlinks."""
-    parent_text = os.path.normcase(os.path.abspath(parent))
-    child_text = os.path.normcase(os.path.abspath(child))
+    """True when the real path of child is parent or inside it.
+
+    ``realpath`` resolves symlinks. A lexical check would miss a database path
+    that sits outside the export directory and points at a file inside it.
+    """
+    parent_text = os.path.normcase(os.path.realpath(parent))
+    child_text = os.path.normcase(os.path.realpath(child))
     if child_text == parent_text:
         return True
     prefix = parent_text if parent_text.endswith(os.sep) else parent_text + os.sep
@@ -111,6 +116,14 @@ def load_settings() -> Settings:
     if backoff < 0:
         raise ConfigError("JOEHUB_RETRY_BACKOFF_SECONDS must be >= 0")
 
+    interval_raw = os.environ.get("JOEHUB_RECOVERY_INTERVAL_SECONDS", "1")
+    try:
+        recovery_interval = float(interval_raw)
+    except ValueError as exc:
+        raise ConfigError("JOEHUB_RECOVERY_INTERVAL_SECONDS must be a number") from exc
+    if recovery_interval < 0:
+        raise ConfigError("JOEHUB_RECOVERY_INTERVAL_SECONDS must be >= 0")
+
     remote = os.environ.get("JOEHUB_EXPORT_REMOTE") or None
     if remote is not None:
         remote = remote.strip() or None
@@ -150,4 +163,5 @@ def load_settings() -> Settings:
         bind_port=port,
         auth_hash=auth_hash,
         auth_hash_file=auth_hash_file,
+        recovery_interval_seconds=recovery_interval,
     )

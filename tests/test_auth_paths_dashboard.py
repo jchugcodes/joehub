@@ -17,7 +17,7 @@ from joehub.errors import AuthConfigError, ConfigError, ValidationError
 from joehub.money import dollars_to_cents, format_cents
 from joehub.queries import inspect_table, net_worth_cents, recent_transactions
 from joehub.db import connect
-from joehub.principals import token_for
+from tests.acting import credential
 
 
 def test_default_paths_are_outside_the_repo(monkeypatch):
@@ -69,7 +69,7 @@ def test_money_and_queries_and_actions(writer, settings):
     with pytest.raises(ValidationError):
         dollars_to_cents("10.555")
     account, err = perform(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="accounts",
         operation="insert",
         payload={"name": "Action Checking", "account_type": "checking"},
@@ -78,7 +78,7 @@ def test_money_and_queries_and_actions(writer, settings):
     )
     assert err is None and account is not None
     saved, err = perform(
-        credential=token_for(settings, "Ledger"),
+        credential=credential(settings, "Ledger"),
         table="transactions",
         operation="insert",
         payload={"account_id": account.row_id, "amount_cents": -500, "date": "2026-05-01", "payee": "Corner"},
@@ -87,7 +87,7 @@ def test_money_and_queries_and_actions(writer, settings):
     )
     assert err is None and saved is not None
     _none, meta_err = perform(
-        credential=token_for(settings, "Cato"),
+        credential=credential(settings, "Cato"),
         table="locks",
         operation="insert",
         payload={"id": "nope"},

@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from joehub.backup import export_all  # noqa: E402
 from joehub.config import load_settings  # noqa: E402
 from joehub.errors import JoehubError  # noqa: E402
+from joehub.principals import operator_token  # noqa: E402
+from joehub.write import WriteLayer  # noqa: E402
 
 
 def main() -> int:
@@ -21,6 +23,9 @@ def main() -> int:
     parser.add_argument("--remote", default=None, help="Git remote URL. Overrides JOEHUB_EXPORT_REMOTE.")
     args = parser.parse_args()
     settings = load_settings()
+    # Explicit audited delegation. The operator token is not Cato by itself.
+    operator = operator_token(settings)
+    WriteLayer(settings).delegate(operator, "Cato")
     remote = args.remote if args.remote is not None else (settings.export_remote if args.push else None)
     if args.push and not remote:
         print("Set --remote or JOEHUB_EXPORT_REMOTE before pushing.", file=sys.stderr)

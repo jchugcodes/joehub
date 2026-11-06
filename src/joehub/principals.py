@@ -1,9 +1,14 @@
-"""Server-side writer credentials.
+"""Operator credential and principal rows.
 
-Tokens are random, stored only as SHA-256 in the database, and the plaintext
-lives in the key directory (mode 600). A caller-supplied owner name is not a
-credential. Human edits require an explicit delegation row. Bot principals
-cannot write.
+Cooperative mode only. The database stores SHA-256 digests. The only plaintext
+joehub writes is the human operator token, in one mode-600 file. There is no
+lookup that returns an owner or bot token by name, and owner plaintext is not
+kept on disk.
+
+On one shared OS user that file is readable by every process. It does not
+enforce bot identity. ``docs/TRUST_BOUNDARY.md`` is the accepted-limit note
+and the separate-user proposal. Joe has to accept the limit before this is
+treated as a real boundary.
 """
 
 from __future__ import annotations
@@ -18,8 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from joehub.config import Settings
-from joehub.db import connect_writer
-from joehub.errors import UnauthorizedError
+from joehub.db import _maintenance_connect, connect, migrate
+from joehub.errors import JoehubError, UnauthorizedError
 from joehub.util import utcnow
 
 HUMAN_NAME = "operator"
@@ -35,8 +40,8 @@ class Principal:
     owner_name: str | None
 
 
-def token_path(settings: Settings, name: str) -> Path:
-    return settings.key_dir / "principals" / f"{name}.token"
+def operator_token_path(settings: Settings) -> Path:
+    return settings.key_dir / "principals" / f"{HUMAN_NAME}.token"
 
 
 def token_digest(credential: str) -> str:
@@ -44,16 +49,22 @@ def token_digest(credential: str) -> str:
 
 
 def ensure_principals(settings: Settings) -> None:
-    """Create the human and the three owner principals when they are missing."""
+    """Create the human row and the three owner rows when they are missing.
+
+    Owner plaintext is discarded. A missing operator token is not replaced
+    here: that would not match a restored hash. Restore from the encrypted
+    exports with the age key instead.
+    """
+    migrate(settings.db_path)
     directory = settings.key_dir / "principals"
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(directory, 0o700)
-    conn = connect_writer(settings.db_path)
+    conn = _maintenance_connect(settings.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        _ensure_one(conn, settings, HUMAN_NAME, "human", None)
+        _ensure_operator(conn, settings)
         for name in OWNER_NAMES:
-            _ensure_one(conn, settings, name, "owner", name)
+            _ensure_owner_row(conn, name)
         conn.commit()
     except Exception:
         try:
@@ -65,13 +76,82 @@ def ensure_principals(settings: Settings) -> None:
         conn.close()
 
 
-def token_for(settings: Settings, name: str) -> str:
-    """Read a provisioned token. Does not create a bot token or accept a name as a secret."""
+def operator_token(settings: Settings) -> str:
+    """Read the operator token only. Names of other principals are not accepted."""
     ensure_principals(settings)
-    path = token_path(settings, name)
+    path = operator_token_path(settings)
     if not path.is_file():
-        raise UnauthorizedError("writer credential is not provisioned")
+        raise UnauthorizedError("operator credential is not provisioned")
+    os.chmod(path, 0o600)
     return path.read_text(encoding="utf-8").strip()
+
+
+def install_operator_token(settings: Settings, credential: str) -> None:
+    """Atomically replace the operator token file. Callers must not log the value."""
+    path = operator_token_path(settings)
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(credential + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        if temporary.exists():
+            temporary.unlink()
+        raise
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
+
+
+def reprovision_principals(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    *,
+    authenticated_by_age_key: bool,
+) -> str | None:
+    """Issue a new operator token when the on-disk token is missing or stale.
+
+    Restore calls this only after the age key has decrypted the exports. No
+    previous token file is required. Principal ids, names, kinds, owner names,
+    ``notion_id``, and ``migrated_on`` stay. Every principal hash is rotated so
+    a leftover owner token file stops matching. Only the operator plaintext is
+    returned; owner plaintext is discarded. The caller writes the operator file
+    after the restored database is in place.
+
+    Returns None when the current operator file already matches the row.
+    """
+    if not authenticated_by_age_key:
+        raise JoehubError("reprovisioning requires the age identity that decrypted the exports")
+    rows = list(conn.execute("SELECT * FROM principals ORDER BY name"))
+    operator = next((row for row in rows if row["name"] == HUMAN_NAME), None)
+    if operator is None:
+        raise JoehubError("restored database has no operator principal")
+    path = operator_token_path(settings)
+    if path.is_file():
+        current = path.read_text(encoding="utf-8").strip()
+        if current and hmac.compare_digest(token_digest(current), str(operator["token_sha256"])):
+            return None
+    now = utcnow()
+    minted: str | None = None
+    for row in rows:
+        token = "jht_" + secrets.token_urlsafe(32)
+        conn.execute(
+            """
+            UPDATE principals
+            SET token_sha256 = ?, last_modified_by = 'restore', last_modified_at = ?
+            WHERE id = ?
+            """,
+            (token_digest(token), now, row["id"]),
+        )
+        if row["name"] == HUMAN_NAME:
+            minted = token
+    if minted is None:
+        raise JoehubError("restored database has no operator principal")
+    return minted
 
 
 def resolve_credential(settings: Settings, credential: object) -> Principal:
@@ -80,7 +160,7 @@ def resolve_credential(settings: Settings, credential: object) -> Principal:
     if credential in OWNER_NAMES or credential == HUMAN_NAME:
         raise UnauthorizedError("an owner name is not a writer credential")
     digest = token_digest(credential)
-    conn = connect_writer(settings.db_path)
+    conn = connect(settings.db_path)
     try:
         row = conn.execute(
             "SELECT id, name, kind, owner_name, token_sha256 FROM principals WHERE token_sha256 = ?",
@@ -104,26 +184,40 @@ def resolve_credential(settings: Settings, credential: object) -> Principal:
     )
 
 
-def _ensure_one(
+def _ensure_operator(conn: sqlite3.Connection, settings: Settings) -> None:
+    existing = conn.execute("SELECT id, token_sha256 FROM principals WHERE name = ?", (HUMAN_NAME,)).fetchone()
+    path = operator_token_path(settings)
+    if existing is None:
+        if path.exists():
+            os.chmod(path, 0o600)
+            credential = path.read_text(encoding="utf-8").strip()
+        else:
+            credential = "jht_" + secrets.token_urlsafe(32)
+            _write_new_token(path, credential)
+        _insert_principal(conn, HUMAN_NAME, "human", None, token_digest(credential))
+        return
+    if not path.exists():
+        raise JoehubError(
+            "operator token is missing; restore the encrypted exports with the age key to reprovision"
+        )
+
+
+def _ensure_owner_row(conn: sqlite3.Connection, name: str) -> None:
+    existing = conn.execute("SELECT id FROM principals WHERE name = ?", (name,)).fetchone()
+    if existing is not None:
+        return
+    # Discard the plaintext. Cooperative mode does not keep owner bearer files.
+    credential = "jht_" + secrets.token_urlsafe(32)
+    _insert_principal(conn, name, "owner", name, token_digest(credential))
+
+
+def _insert_principal(
     conn: sqlite3.Connection,
-    settings: Settings,
     name: str,
     kind: str,
     owner_name: str | None,
+    digest: str,
 ) -> None:
-    existing = conn.execute("SELECT id FROM principals WHERE name = ?", (name,)).fetchone()
-    path = token_path(settings, name)
-    if not path.exists():
-        credential = "jht_" + secrets.token_urlsafe(32)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(credential + "\n")
-        os.chmod(path, 0o600)
-    else:
-        os.chmod(path, 0o600)
-        credential = path.read_text(encoding="utf-8").strip()
-    if existing is not None:
-        return
     now = utcnow()
     conn.execute(
         """
@@ -132,5 +226,13 @@ def _ensure_one(
             name, kind, owner_name, token_sha256
         ) VALUES (?, NULL, NULL, 'system', ?, ?, ?, ?, ?)
         """,
-        (str(uuid.uuid4()), now, name, kind, owner_name, token_digest(credential)),
+        (str(uuid.uuid4()), now, name, kind, owner_name, digest),
     )
+
+
+def _write_new_token(path: Path, credential: str) -> None:
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(credential + "\n")
+    os.chmod(path, 0o600)

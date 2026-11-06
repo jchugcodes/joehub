@@ -58,7 +58,9 @@ Privileged maintenance is the only writer of those meta tables. That means the m
 
 ## Writers
 
-A caller presents a server-issued token. The plaintext lives under the key directory (`principals/<name>.token`, mode 600) and the database stores only its SHA-256. Passing the string `Ledger`, `Scout`, or `Cato` does not authenticate. Owner principals may write only their own tables. The human principal `operator` may write a domain table only after `delegations` has an unrevoked row for that human and that owner. Creating that row is an explicit, audited action and only the human credential can do it. A principal with kind `bot` is rejected. The dashboard password unlocks the human session; it does not by itself act as Ledger, Scout, or Cato.
+A caller presents a server-issued credential. The database stores only SHA-256. The only plaintext joehub writes is the operator token (`principals/operator.token`, mode 600). There is no lookup by principal name, and owner plaintext is not kept. Passing the string `Ledger`, `Scout`, or `Cato` does not authenticate. The human principal `operator` may write a domain table only after `delegations` has an unrevoked row for that human and that owner. Creating or revoking that row is an explicit, audited action and only the human credential can do it. A principal with kind `bot` is rejected. The dashboard password unlocks the human session; it does not by itself act as Ledger, Scout, or Cato.
+
+This is cooperative. On one shared OS user it does not enforce bot identity. `docs/TRUST_BOUNDARY.md` says so, and it needs Joe's acceptance. The separate-user writer daemon described there is not running.
 
 ## Writes, locks, and deletes
 
@@ -66,7 +68,9 @@ A caller presents a server-issued token. The plaintext lives under the key direc
 
 `locks` holds one hall pass, `lock_name = hall_pass`, plus a fencing token. The holder and expiry are committed before the domain change. Taking over a stale lock increments `fence`. The holder renews `expires_at` without changing the fence. An apply whose fence no longer matches rolls back. Releasing the pass deletes the row only when the holder id matches. On startup, `WriteLayer` finishes `running` queue rows whose lease has expired, using the stored fingerprint, without the original caller resubmitting. The domain change and the queue row's `committed` status share one transaction. If that transaction rolls back, the domain rows disappear and `errors.persistent` is set to `1`.
 
-`connect()` opens the database read-only (`query_only`). Domain changes go through `WriteLayer`. That does not isolate two processes running as the same OS user: either process can open the SQLite file itself and ignore the writer.
+`connect()` opens the database read-only. It has no writable switch, and turning `query_only` off on that handle still cannot write. Domain changes go through `WriteLayer`. That does not isolate two processes running as the same OS user: either process can open the SQLite file itself and ignore the writer. See `docs/TRUST_BOUNDARY.md`.
+
+A `running` queue row is recovered when its lease expires, including on a later pass after startup. Recovery loads the recorded principal. A human principal is applied only while their delegation is still unrevoked. The table owner is not substituted for that principal. A rejected request does not change an existing queue row unless the authenticated principal and the request fingerprint both match.
 
 Lock contention and a busy database are retried a bounded number of times (`JOEHUB_MAX_RETRIES`). Validation errors, unauthorized owners, and exhausted retries are recorded immediately and are not applied again under the same key.
 
@@ -83,4 +87,4 @@ The age identity is not a column and is not exported.
 
 ## Migrations
 
-`migrations/001_initial.sql` creates this schema and seeds the three owners plus `table_registry`. Later migrations must not drop tables or indexes. `schema_migrations` records the filename of each applied file.
+`migrations/001_initial.sql` creates this schema and seeds the three owners plus `table_registry`. Later migrations must not drop tables or indexes. Each migration's statements and its `schema_migrations` row commit together, and two starters take the migration lock one at a time. `ALTER TABLE ... ADD COLUMN` is skipped when the column is already present so a crash does not wedge the next start.

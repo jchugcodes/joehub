@@ -11,7 +11,7 @@ from joehub.auth import load_password_hash, verify_password
 from joehub.config import load_settings
 from joehub.db import connect, migrate
 from joehub.errors import AuthConfigError, JoehubError
-from joehub.principals import HUMAN_NAME, token_for
+from joehub.principals import HUMAN_NAME, operator_token
 from joehub.registry import ALLOWED_OWNERS
 from joehub.write import WriteLayer
 
@@ -116,7 +116,7 @@ def session_credential() -> str:
     """Load the human token on the server. The browser never supplies an owner name."""
     if st.session_state.get("joehub_principal") != HUMAN_NAME:
         raise AuthConfigError("not signed in")
-    return token_for(load_settings(), HUMAN_NAME)
+    return operator_token(load_settings())
 
 
 def _delegation_panel() -> None:
