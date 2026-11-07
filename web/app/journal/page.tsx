@@ -91,7 +91,8 @@ export default function JournalPage() {
   useEffect(() => () => writeScroll(window.scrollY), []);
   useEffect(() => writeFilter(filter), [filter]);
 
-  const view = resolved ? "feed" : requested === "loading" || requested === "empty" || requested === "error" || requested === "filtered" ? requested : "feed";
+  const special = requested === "loading" || requested === "empty" || requested === "error" || requested === "filtered" ? requested : "feed";
+  const view = (resolved || (special === "filtered" && filter === "feed")) ? "feed" : special;
   const visible = view === "filtered" ? [] : journal.entries.filter((entry) => matches(filter, entry));
   const groups = visible.reduce<{ label: string; entries: typeof visible }[]>((rows, entry) => {
     const last = rows[rows.length - 1];
@@ -108,6 +109,22 @@ export default function JournalPage() {
       setResolved(true);
       setNotice(DEMO_NOTICE);
     }, 300);
+  }
+
+  function showAll() {
+    writeFilter("feed");
+    setFilter("feed");
+    setResolved(true);
+    router.push("/journal");
+  }
+
+  function chooseFilter(next: JournalFilter) {
+    if (next === "feed" && requested === "filtered") {
+      showAll();
+      return;
+    }
+    writeFilter(next);
+    setFilter(next);
   }
 
   const filteredCopy =
@@ -149,7 +166,7 @@ export default function JournalPage() {
                 type="button"
                 aria-pressed={selected}
                 className={`min-h-11 shrink-0 border-b-[2.5px] py-3 text-ui-15 text-ink ${selected ? "border-journal font-bold" : "border-transparent font-medium"}`}
-                onClick={() => setFilter(item.id)}
+                onClick={() => chooseFilter(item.id)}
                 onFocus={(event) => event.currentTarget.scrollIntoView({ inline: "nearest", block: "nearest" })}
               >
                 {item.label}
@@ -236,7 +253,7 @@ export default function JournalPage() {
             <Link href={filteredCopy.href} className="action-link mt-4">
               {filteredCopy.action}
             </Link>
-            <button type="button" className="action-link action-link-secondary mt-3" onClick={() => router.push("/journal")}>
+            <button type="button" className="action-link action-link-secondary mt-3" onClick={showAll}>
               Show all entries
             </button>
           </div>
