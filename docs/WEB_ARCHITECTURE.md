@@ -19,7 +19,7 @@ The Next.js route handlers under `web/app/api/` implement `contract/openapi.json
 
 Both providers serve the `/api/...` paths in `contract/openapi.json`. On the Next.js site origin, `GET /api/finance/accounts` is JSON. `GET /finance/accounts` is the UI page and returns HTML. The optional FastAPI process serves the same `/api/...` paths on its own origin. The contract `servers` list records both origins. Neither URL is a deployed host.
 
-Rate limits use the connecting peer. A client-supplied `X-Forwarded-For` is ignored unless that peer is listed in `JOEHUB_TRUSTED_PROXIES`. The Next.js route handlers cannot see the TCP peer, so they ignore `X-Forwarded-For` and a spoofed hop cannot open a new limit bucket.
+Rate limits use the connecting peer. A client-supplied `X-Forwarded-For` is ignored unless that peer is listed in `JOEHUB_TRUSTED_PROXIES`. The Next.js route handlers cannot see the TCP peer, so they ignore `X-Forwarded-For` and a spoofed hop cannot open a new limit bucket. Those handlers put every caller in one bucket named `direct`. That bucket is not a per-client mitigation on serverless: each isolate has its own memory, and every request in that isolate shares the same bucket.
 
 ## Sessions
 
@@ -63,7 +63,7 @@ Each item below is a SCAFFOLD LIMITATION and a deploy blocker. This pass does no
 
 ### In-memory session, revoke, and rate-limit stores
 
-SCAFFOLD LIMITATION. Deploy blocker. The session store, the revoke list, and the rate-limit buckets live in process memory. A Vercel cold start or a separate function instance drops them, so a cookie issued on one instance is unknown on another and a limit resets when a new instance starts. Minimal requirement: a durable store shared by every instance before this is deployed.
+SCAFFOLD LIMITATION. Deploy blocker. The session store, the revoke list, and the rate-limit buckets live in process memory. A Vercel cold start or a separate function instance drops them, so a cookie issued on one instance is unknown on another and a limit resets when a new instance starts. The Next.js `direct` bucket is one shared counter for that instance, not a per-client limit. Minimal requirement: a durable store shared by every instance before this is deployed.
 
 ### No production login
 
