@@ -81,7 +81,16 @@ function extraOverflowCases() {
 }
 
 function readyExpression(path) {
-  const laidOut = "document.querySelector(\"nav[aria-label='Primary'] a\")?.getBoundingClientRect().width > 0";
+  const laidOut = `(() => {
+    const nav = document.querySelector("nav[aria-label='Primary']");
+    const links = nav ? [...nav.querySelectorAll("a")] : [];
+    if (links.length !== 5 || getComputedStyle(nav).position !== "fixed") return false;
+    const boxes = links.map((link) => link.getBoundingClientRect());
+    const tops = boxes.map((box) => box.top);
+    const row = Math.max(...tops) - Math.min(...tops) < 2;
+    const onScreen = boxes.every((box) => box.width > 8 && box.bottom <= window.innerHeight + 1 && box.top >= 0);
+    return row && onScreen;
+  })()`;
   const value = String(path);
   if (value.startsWith("/jobs") && !value.includes("view=") && !value.includes("/globex")) {
     return `document.querySelector("[aria-label='Jobs sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
@@ -167,14 +176,19 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
       await send("Page.enable");
       await send("Page.navigate", { url: `${BASE}${path}` });
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
-      for (let i = 0; i < 40; i++) {
+      let laidOut = false;
+      for (let i = 0; i < 50; i++) {
         const ready = await send("Runtime.evaluate", {
           expression: readyExpression(path),
           returnByValue: true,
         });
-        if (ready.result?.result?.value === "yes") break;
+        if (ready.result?.result?.value === "yes") {
+          laidOut = true;
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
+      assert.equal(laidOut, true, `${path} at ${width} was measured before the primary nav finished laying out`);
       if (enlarge) {
         await send("Runtime.evaluate", {
           expression: "document.documentElement.style.fontSize = '200%'; new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
