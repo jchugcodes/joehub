@@ -46,15 +46,15 @@ def _realpath(path: Path) -> Path:
 
 
 def _code_root_starts() -> list[Path]:
-    """Places to search for the code tree.
+    """The installed package is the only anchor.
 
-    The installed package is the anchor, so a process whose cwd is elsewhere
-    still finds the tree that provided ``joehub``. The working directory is
-    included for a checkout or release that is the current directory.
+    A working directory that happens to contain ``pyproject.toml`` and
+    ``migrations/`` is not this project. Using it would hide a package that
+    has no code root, and would reject paths inside an unrelated tree.
     """
     import joehub
 
-    return [Path(joehub.__file__), Path(__file__), Path.cwd()]
+    return [Path(joehub.__file__)]
 
 
 def _is_code_root(directory: Path) -> bool:

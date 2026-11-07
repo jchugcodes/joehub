@@ -43,31 +43,51 @@ def test_default_paths_are_outside_the_repo(monkeypatch):
 
 
 def test_repo_paths_are_rejected(monkeypatch):
-    monkeypatch.setenv("JOEHUB_DB_PATH", str(Path.cwd() / "joehub.db"))
+    from joehub.config import repo_roots
+
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(repo_roots()[0] / "joehub.db"))
     with pytest.raises(ConfigError):
         load_settings()
 
 
-def test_source_checkout_is_the_code_root(monkeypatch):
+def _project_tree(path: Path, *, git: bool) -> Path:
+    """A synthetic project. Returns the package ``__init__.py`` inside it."""
+    (path / "migrations").mkdir(parents=True)
+    (path / "pyproject.toml").write_text("[project]\nname = 'joehub'\n", encoding="utf-8")
+    package = path / "src" / "joehub"
+    package.mkdir(parents=True)
+    init = package / "__init__.py"
+    init.write_text("# synthetic\n", encoding="utf-8")
+    if git:
+        (path / ".git").mkdir()
+    return init
+
+
+def _bind_package(monkeypatch, init: Path) -> None:
+    import joehub
+
+    monkeypatch.setattr(joehub, "__file__", str(init))
+
+
+def test_synthetic_checkout_is_a_code_root(tmp_path, monkeypatch):
     from joehub.config import assert_outside_repo, repo_roots
 
+    checkout = tmp_path / "checkout"
+    init = _project_tree(checkout, git=True)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    _bind_package(monkeypatch, init)
+    monkeypatch.chdir(unrelated)
     roots = repo_roots()
-    checkout = Path(os.path.realpath(Path(__file__).resolve().parents[1]))
-    assert checkout in roots
-    assert checkout.parent not in roots
-    assert (checkout / "pyproject.toml").is_file()
-    assert (checkout / "migrations").is_dir()
-    assert (checkout / ".git").exists()
+    checkout_real = Path(os.path.realpath(checkout))
+    assert roots == [checkout_real]
+    assert checkout_real.parent not in roots
+    assert (checkout_real / ".git").is_dir()
+    assert (checkout_real / "pyproject.toml").is_file()
+    assert (checkout_real / "migrations").is_dir()
     with pytest.raises(ConfigError):
-        assert_outside_repo(checkout / "joehub.db")
-    for name in ("JOEHUB_DB_PATH", "JOEHUB_EXPORT_DIR", "JOEHUB_KEY_DIR", "JOEHUB_AUTH_HASH_FILE"):
-        monkeypatch.delenv(name, raising=False)
-    settings = load_settings()
-    assert settings.db_path == DEFAULT_DB_PATH
-    assert settings.export_dir == DEFAULT_EXPORT_DIR
-    assert settings.key_dir == DEFAULT_KEY_DIR
-    for path in (settings.db_path, settings.export_dir, settings.key_dir):
-        assert not Path(os.path.realpath(path)).is_relative_to(checkout)
+        assert_outside_repo(checkout_real / "joehub.db")
+    assert_outside_repo(unrelated / "joehub.db")
 
 
 def _tarball_release(tmp_path: Path) -> dict[str, Path]:
@@ -105,7 +125,10 @@ def test_tarball_release_symlink_sibling_and_defaults(tmp_path, monkeypatch):
     release = layout["release"]
     base = layout["base"]
     assert not (release / ".git").exists()
-    monkeypatch.setattr("joehub.config._code_root_starts", lambda: [layout["package"]])
+    _bind_package(monkeypatch, layout["package"])
+    decoy = tmp_path / "unrelated-cwd"
+    _project_tree(decoy, git=False)
+    monkeypatch.chdir(decoy)
     roots = repo_roots()
     release_real = Path(os.path.realpath(release))
     assert roots == [release_real]
@@ -152,18 +175,58 @@ def test_tarball_release_symlink_sibling_and_defaults(tmp_path, monkeypatch):
         assert not Path(os.path.realpath(path)).is_relative_to(release_real)
 
 
-def test_missing_code_root_fails_closed(tmp_path, monkeypatch):
+def test_unrelated_cwd_cannot_mask_a_missing_package_root(tmp_path, monkeypatch):
     from joehub.config import repo_roots
 
-    empty = tmp_path / "not-a-release"
-    empty.mkdir()
-    (empty / ".git").mkdir()
-    (empty / "pyproject.toml").write_text("[project]\nname = 'nope'\n", encoding="utf-8")
-    monkeypatch.setattr("joehub.config._code_root_starts", lambda: [empty])
+    installed = tmp_path / "site-packages" / "joehub"
+    installed.mkdir(parents=True)
+    init = installed / "__init__.py"
+    init.write_text("# installed without the project tree\n", encoding="utf-8")
+    (installed.parent / ".git").mkdir()
+    decoy = tmp_path / "other-project"
+    _project_tree(decoy, git=True)
+    _bind_package(monkeypatch, init)
+    monkeypatch.chdir(decoy)
     with pytest.raises(ConfigError, match="code root"):
         repo_roots()
     with pytest.raises(ConfigError, match="code root"):
         load_settings()
+
+
+def test_real_package_anchor_ignores_unrelated_cwd(tmp_path, monkeypatch):
+    import joehub
+    from joehub.config import assert_outside_repo, repo_roots
+
+    decoy = tmp_path / "unrelated"
+    _project_tree(decoy, git=True)
+    monkeypatch.chdir(decoy)
+    roots = repo_roots()
+    package = Path(os.path.realpath(joehub.__file__))
+    expected = package.parent
+    while expected.parent != expected:
+        if (expected / "pyproject.toml").is_file() and (expected / "migrations").is_dir():
+            break
+        expected = expected.parent
+    expected = Path(os.path.realpath(expected))
+    assert roots == [expected]
+    assert Path(os.path.realpath(decoy)) not in roots
+    assert expected != Path(os.path.realpath(decoy))
+    with pytest.raises(ConfigError):
+        assert_outside_repo(expected / "joehub.db")
+    assert_outside_repo(decoy / "joehub.db")
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(expected / "joehub.db"))
+    monkeypatch.setenv("JOEHUB_EXPORT_DIR", str(decoy / "exports"))
+    monkeypatch.setenv("JOEHUB_KEY_DIR", str(decoy / "keys"))
+    with pytest.raises(ConfigError):
+        load_settings()
+    for name in ("JOEHUB_DB_PATH", "JOEHUB_EXPORT_DIR", "JOEHUB_KEY_DIR", "JOEHUB_AUTH_HASH_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    settings = load_settings()
+    assert settings.db_path == DEFAULT_DB_PATH
+    assert settings.export_dir == DEFAULT_EXPORT_DIR
+    assert settings.key_dir == DEFAULT_KEY_DIR
+    for path in (settings.db_path, settings.export_dir, settings.key_dir):
+        assert not Path(os.path.realpath(path)).is_relative_to(expected)
 
 
 def test_password_hash_round_trip_and_missing_config(tmp_path, monkeypatch):
