@@ -42,17 +42,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
+  const composing = pathname.startsWith("/journal/compose");
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const nav = navRef.current;
-    if (!nav) return;
+    if (!nav) {
+      document.documentElement.style.setProperty("--primary-nav-height", "0px");
+      return;
+    }
     const apply = () => document.documentElement.style.setProperty("--primary-nav-height", `${nav.offsetHeight}px`);
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(nav);
     return () => observer.disconnect();
-  }, []);
+  }, [composing]);
 
   return (
     <div data-theme={dark ? "dark" : "light"} className="min-h-screen bg-page text-ink">
@@ -60,9 +64,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       {/* The frames are 390px. Wider viewports keep that column centered. */}
-      <main id="content" className="mx-auto w-full min-w-0 max-w-phone pb-[calc(var(--primary-nav-height,84px)+28px)] pt-2">
+      <main
+        id="content"
+        className={`mx-auto w-full min-w-0 max-w-phone pt-2 ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+      >
         {children}
       </main>
+      {composing ? null : (
       <nav ref={navRef} aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex justify-center">
         <ul className="flex min-h-[84px] w-full min-w-0 max-w-phone items-stretch border-t border-tab-line bg-tab px-2 py-2 backdrop-blur">
           {tabs.map((tab) => {
@@ -85,6 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </ul>
       </nav>
+      )}
     </div>
   );
 }
