@@ -49,6 +49,19 @@ Recorded 7 Nov 2026. READY FOR BUILD unless the line says EXPLORATORY.
 - Sheets add Escape and a Tab loop. The HTML shows a close mark and does not specify keyboard behavior. Opening the category sheet moves focus to that close control, so the focus outline is visible. The frame does not draw that outline.
 - Controls that look tappable stay on the page and do not call the API.
 
+## Finance increment 2
+
+Design version is the local increment after the pixel review of `f4a2065`. There are no Figma node ids. Frames: `I2-01-cap-editor`, `I2-02-cap-editor-error`, `I2-03-goal-detail`, `I2-04-accounts`, `I2-05-accounts-empty`.
+
+The cap editor, the student-loan goal detail, and Accounts replace the placeholders. Preview and the read-only screens say “Demo only. Nothing was saved.” Empty Accounts is `/finance/accounts?view=empty`. The invalid cap draft is `/finance/caps?view=error`.
+
+## Increment gaps
+
+- Only the Student loan payoff detail is drawn. The other goals do not get that layout.
+- Cancel leaves the draft behind. A dirty-discard confirmation is not drawn.
+- Real saving, cap reset, bank linking, and account credentials are outside this increment.
+- Dark mode and a wider layout for these screens are not drawn. The 390px column stays centered.
+
 ## API
 
 Fixture route handlers in Next.js remain the synthetic path. The FastAPI service is still optional and has no host config.
