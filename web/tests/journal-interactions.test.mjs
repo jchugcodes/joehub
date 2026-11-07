@@ -1,22 +1,25 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
 
-const PORT = 3700 + (process.pid % 200);
-const CDP = 9700 + (process.pid % 200);
-const BASE = `http://127.0.0.1:${PORT}`;
+let port = 0;
+let cdp = 0;
+const base = () => `http://127.0.0.1:${port}`;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const chromeBin = ["google-chrome", "google-chrome-stable"].find((bin) => spawnSync("which", [bin]).status === 0);
 const skip = chromeBin ? false : "google-chrome is not installed";
 
 let child;
 let chrome;
-let output = "";
+let release = async () => {};
 
 async function boot() {
-  output = "";
-  child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
+  release = await acquireBrowserLock();
+  port = await reservePort();
+  cdp = await reservePort();
+  const started = spawnLogged(["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH,
@@ -27,65 +30,19 @@ async function boot() {
       JOEHUB_DEV_AUTH: "1",
       JOEHUB_SESSION_SECRET: "journal-test-secret-value",
     },
-    stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
+  child = started.child;
+  await waitForHttp(`${base()}/journal`, {
+    child,
+    log: started.log,
+    accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
   });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
-  const deadline = Date.now() + 90000;
-  while (Date.now() < deadline) {
-    if (child.exitCode != null) throw new Error(`next dev exited\n${output.slice(-2000)}`);
-    try {
-      const response = await fetch(`${BASE}/journal`, { signal: AbortSignal.timeout(2000) });
-      if (response.status === 200) break;
-    } catch {
-      // still booting
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  let chromeError = "chrome did not open a debugging port";
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    chrome = spawn(
-      chromeBin,
-      [
-        "--headless=new",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        `--remote-debugging-port=${CDP}`,
-        `--user-data-dir=/tmp/chrome-journal-${process.pid}-${attempt}`,
-        "about:blank",
-      ],
-      { stdio: ["ignore", "ignore", "pipe"] },
-    );
-    let chromeLog = "";
-    chrome.stderr.on("data", (chunk) => {
-      chromeLog += chunk;
-    });
-    let opened = false;
-    for (let i = 0; i < 80; i += 1) {
-      if (chrome.exitCode != null) break;
-      try {
-        await fetch(`http://127.0.0.1:${CDP}/json/version`, { signal: AbortSignal.timeout(1000) });
-        opened = true;
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
-    if (opened) return;
-    chromeError = `chrome did not open a debugging port (attempt ${attempt}, exit ${chrome.exitCode})\n${chromeLog.slice(-500)}`;
-    chrome.kill();
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  throw new Error(chromeError);
+  chrome = startChrome(chromeBin, cdp, `/tmp/chrome-journal-${process.pid}`);
+  await waitForChrome(cdp, chrome);
 }
 
 async function openPage(path, width, height) {
-  const created = await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(`${BASE}${path}`)}`, { method: "PUT" }).then((response) => response.json());
+  const created = await fetch(`http://127.0.0.1:${cdp}/json/new?${encodeURIComponent(`${base()}${path}`)}`, { method: "PUT" }).then((response) => response.json());
   const ws = new WebSocket(created.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener("open", resolve);
@@ -108,19 +65,23 @@ async function openPage(path, width, height) {
     });
   await send("Page.enable");
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 500 });
-  for (let i = 0; i < 50; i++) {
+  const readyBy = Date.now() + 45000;
+  let readyValue = "";
+  while (Date.now() < readyBy) {
     const ready = await send("Runtime.evaluate", {
       expression: "(() => { const h1 = document.querySelector('h1'); return document.querySelector(\"[data-ready='true']\") && h1 && parseFloat(getComputedStyle(h1).fontSize) > 10 ? 'yes' : ''; })()",
       returnByValue: true,
     });
-    if (ready.result?.result?.value === "yes") break;
+    readyValue = ready.result?.result?.value || "";
+    if (readyValue === "yes") break;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  if (readyValue !== "yes") throw new Error(`journal page was not ready for ${path}`);
   return {
     send,
     async close() {
       ws.close();
-      await fetch(`http://127.0.0.1:${CDP}/json/close/${created.id}`);
+      await fetch(`http://127.0.0.1:${cdp}/json/close/${created.id}`);
     },
   };
 }
@@ -150,9 +111,10 @@ test.before(async () => {
   await boot();
 });
 
-test.after(() => {
-  chrome?.kill();
-  child?.kill();
+test.after(async () => {
+  await stopProcess(chrome);
+  await stopProcess(child);
+  await release();
 });
 
 test("journal pages stay inside 320px and 200% text", { timeout: 180000, skip }, async () => {

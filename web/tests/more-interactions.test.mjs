@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
 
-const PORT = 3800 + (process.pid % 200);
-const CDP = 9800 + (process.pid % 200);
-const BASE = `http://127.0.0.1:${PORT}`;
+let port = 0;
+let cdp = 0;
+const base = () => `http://127.0.0.1:${port}`;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
 const chromeBin = ["google-chrome", "google-chrome-stable"].find((bin) => spawnSync("which", [bin]).status === 0);
@@ -14,11 +15,13 @@ const skip = chromeBin ? false : "google-chrome is not installed";
 
 let child;
 let chrome;
-let output = "";
+let release = async () => {};
 
 async function boot() {
-  output = "";
-  child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
+  release = await acquireBrowserLock();
+  port = await reservePort();
+  cdp = await reservePort();
+  const started = spawnLogged(["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH,
@@ -30,54 +33,18 @@ async function boot() {
       JOEHUB_SESSION_SECRET: "more-test-secret-value",
       JOEHUB_SCREENSHOTS: "1",
     },
-    stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
-  const deadline = Date.now() + 90000;
-  while (Date.now() < deadline) {
-    if (child.exitCode != null) throw new Error(`next dev exited\n${output.slice(-2000)}`);
-    try {
-      const response = await fetch(`${BASE}/more`, { signal: AbortSignal.timeout(2000) });
-      if (response.status === 200) break;
-    } catch {
-      // still booting
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  let chromeError = "chrome did not open a debugging port";
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    chrome = spawn(
-      chromeBin,
-      ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", `--remote-debugging-port=${CDP}`, `--user-data-dir=/tmp/chrome-more-${process.pid}-${attempt}`, "about:blank"],
-      { stdio: ["ignore", "ignore", "pipe"] },
-    );
-    let chromeLog = "";
-    chrome.stderr.on("data", (chunk) => {
-      chromeLog += chunk;
-    });
-    for (let i = 0; i < 80; i += 1) {
-      if (chrome.exitCode != null) break;
-      try {
-        await fetch(`http://127.0.0.1:${CDP}/json/version`, { signal: AbortSignal.timeout(1000) });
-        return;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
-    chromeError = `chrome did not open a debugging port (attempt ${attempt}, exit ${chrome.exitCode})\n${chromeLog.slice(-500)}`;
-    chrome.kill();
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  throw new Error(chromeError);
+  child = started.child;
+  const html = (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html");
+  await waitForHttp(`${base()}/more`, { child, log: started.log, accept: html });
+  await waitForHttp(`${base()}/more/database`, { child, log: started.log, accept: html });
+  await waitForHttp(`${base()}/finance/accounts?from=more`, { child, log: started.log, accept: html });
+  chrome = startChrome(chromeBin, cdp, `/tmp/chrome-more-${process.pid}`);
+  await waitForChrome(cdp, chrome);
 }
 
 async function openPage() {
-  const created = await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(`${BASE}/more`)}`, { method: "PUT" }).then((response) => response.json());
+  const created = await fetch(`http://127.0.0.1:${cdp}/json/new?${encodeURIComponent(`${base()}/more`)}`, { method: "PUT" }).then((response) => response.json());
   const ws = new WebSocket(created.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener("open", resolve);
@@ -100,7 +67,7 @@ async function openPage() {
     });
   await send("Page.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
-  return { send, async close() { ws.close(); await fetch(`http://127.0.0.1:${CDP}/json/close/${created.id}`); } };
+  return { send, async close() { ws.close(); await fetch(`http://127.0.0.1:${cdp}/json/close/${created.id}`); } };
 }
 
 async function evalValue(send, expression) {
@@ -110,7 +77,8 @@ async function evalValue(send, expression) {
 }
 
 async function waitFor(send, expression) {
-  for (let i = 0; i < 60; i += 1) {
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
     const value = await evalValue(send, expression);
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -120,7 +88,7 @@ async function waitFor(send, expression) {
 
 async function go(send, path, width = 390) {
   await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
-  await send("Page.navigate", { url: `${BASE}${path}` });
+  await send("Page.navigate", { url: `${base()}${path}` });
   await waitFor(send, "document.querySelector(\"[data-ready='true']\") && document.querySelector('h1') ? 'yes' : ''");
   await waitFor(send, "parseFloat(getComputedStyle(document.querySelector('h1')).fontSize) > 10 ? 'yes' : ''");
 }
@@ -149,9 +117,10 @@ test.before(async () => {
   await boot();
 });
 
-test.after(() => {
-  chrome?.kill();
-  child?.kill();
+test.after(async () => {
+  await stopProcess(chrome);
+  await stopProcess(child);
+  await release();
 });
 
 test("more menu routes into the transactions table and finance accounts", { timeout: 240000, skip }, async () => {

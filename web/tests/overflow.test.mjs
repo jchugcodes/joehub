@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
 
-const PORT = 3400 + (process.pid % 200);
-const CDP = 9400 + (process.pid % 200);
-const BASE = `http://127.0.0.1:${PORT}`;
+let port = 0;
+let cdp = 0;
+const base = () => `http://127.0.0.1:${port}`;
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const chromeBin = ["google-chrome", "google-chrome-stable"].find((bin) => spawnSync("which", [bin]).status === 0);
 
@@ -52,21 +53,6 @@ function measureSource() {
   })()`;
 }
 
-async function waitForPage(child, log) {
-  const deadline = Date.now() + 90000;
-  while (Date.now() < deadline) {
-    if (child.exitCode != null) throw new Error(`next dev exited\n${log()}`);
-    try {
-      const response = await fetch(`${BASE}/finance/goals`);
-      if (response.status === 200 && (response.headers.get("content-type") || "").includes("text/html")) return;
-    } catch {
-      // still booting
-    }
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-  throw new Error(`next dev did not serve the goals page\n${log()}`);
-}
-
 function extraOverflowCases() {
   const dir = fileURLToPath(new URL("./overflow-cases/", import.meta.url));
   try {
@@ -102,8 +88,10 @@ function readyExpression(path) {
 }
 
 test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
-  let output = "";
-  const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
+  const release = await acquireBrowserLock();
+  port = await reservePort();
+  cdp = await reservePort();
+  const started = spawnLogged(["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH,
@@ -114,35 +102,16 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
       JOEHUB_DEV_AUTH: "1",
       JOEHUB_SESSION_SECRET: "overflow-test-secret-value",
     },
-    stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
-  const log = () => output.slice(-4000);
-  const udd = `/tmp/chrome-overflow-test-${process.pid}`;
-  const chrome = spawn(chromeBin, [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    `--remote-debugging-port=${CDP}`,
-    `--user-data-dir=${udd}`,
-    "about:blank",
-  ], { stdio: "ignore" });
+  const child = started.child;
+  const chrome = startChrome(chromeBin, cdp, `/tmp/chrome-overflow-test-${process.pid}`);
   try {
-    await waitForPage(child, log);
-    for (let i = 0; i < 40; i++) {
-      try {
-        await fetch(`http://127.0.0.1:${CDP}/json/version`);
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }
+    await waitForHttp(`${base()}/finance/goals`, {
+      child,
+      log: started.log,
+      accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
+    });
+    await waitForChrome(cdp, chrome);
     const cases = [
       ["/finance/goals", 320, 700, false],
       ["/finance/accounts", 320, 700, false],
@@ -152,7 +121,7 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
       ["/finance", 390, 900, true],
     ].concat(extraOverflowCases());
     for (const [path, width, height, enlarge] of cases) {
-      const created = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+      const created = await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
       const ws = new WebSocket(created.webSocketDebuggerUrl);
       await new Promise((resolve, reject) => {
         ws.addEventListener("open", resolve);
@@ -174,7 +143,7 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
           ws.send(JSON.stringify({ id, method, params }));
         });
       await send("Page.enable");
-      await send("Page.navigate", { url: `${BASE}${path}` });
+      await send("Page.navigate", { url: `${base()}${path}` });
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
       let laidOut = false;
       for (let i = 0; i < 50; i++) {
@@ -338,10 +307,11 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
         }
       }
       ws.close();
-      await fetch(`http://127.0.0.1:${CDP}/json/close/${created.id}`);
+      await fetch(`http://127.0.0.1:${cdp}/json/close/${created.id}`);
     }
   } finally {
-    chrome.kill();
-    child.kill();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
   }
 });
