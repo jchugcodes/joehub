@@ -92,6 +92,11 @@ body {
   color: #c2577a;
 }
 
+.action-link-busy {
+  background: #e6e8e4;
+  color: #1f2a24;
+}
+
 .journal-filters {
   scrollbar-width: none;
 }

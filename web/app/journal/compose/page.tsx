@@ -20,7 +20,7 @@ const ratings: JournalRating[] = ["Loved", "Meh", "Never again"];
 
 function seeded(mode: JournalMode, view: string | null): JournalDraft {
   const base = blankDraft(mode);
-  if (view === "typing" || view === "saving" || view === "saved") {
+  if (view === "typing" || view === "saving" || view === "saved" || view === "failed") {
     if (mode === "date") return { ...base, place: "Lilia", dateNote: "Cacio e pepe fritelle." };
     return { ...base, winText: "Finished Globex take-home." };
   }
@@ -36,7 +36,9 @@ export default function ComposePage() {
   const restore = view == null && stored.dirty;
   const initial = restore ? stored : seeded(queryMode, view);
   const [draft, setDraft] = useState<JournalDraft>(initial);
-  const [phase, setPhase] = useState<"edit" | "saving" | "saved">(view === "saving" ? "saving" : view === "saved" ? "saved" : "edit");
+  const [phase, setPhase] = useState<"edit" | "saving" | "saved" | "failed">(
+    view === "saving" ? "saving" : view === "saved" ? "saved" : view === "failed" ? "failed" : "edit",
+  );
   const [error, setError] = useState(view === "error" ? (queryMode === "date" ? PLACE_ERROR : WIN_ERROR) : "");
   const [notice, setNotice] = useState(view === "saved" ? DEMO_NOTICE : "");
   const [ready, setReady] = useState(false);
@@ -82,9 +84,11 @@ export default function ComposePage() {
   }
 
   function submit() {
-    if (phase !== "edit") return;
+    if (phase === "saving" || phase === "saved") return;
+    const retrying = phase === "failed";
     const problem = draft.mode === "win" ? (draft.winText.trim() ? "" : WIN_ERROR) : draft.place.trim() ? "" : PLACE_ERROR;
     if (problem) {
+      setPhase("edit");
       setError(problem);
       (draft.mode === "date" ? placeRef.current : winRef.current)?.focus();
       return;
@@ -95,6 +99,10 @@ export default function ComposePage() {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       if (epoch.current !== snap) return;
+      if (retrying) {
+        setPhase("failed");
+        return;
+      }
       clearDraft();
       setPhase("saved");
       setNotice(DEMO_NOTICE);
@@ -201,7 +209,7 @@ export default function ComposePage() {
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? "entry-error" : undefined}
               placeholder="Add a place"
-              className={`min-h-11 w-full rounded-xl border bg-white px-3 text-ui-15 text-ink ${error ? "border-finance-dining" : "border-subtle-border"}`}
+              className={`min-h-11 w-full rounded-xl bg-white px-3 text-ui-15 text-ink ${error ? "border-2 border-finance-dining" : "border border-subtle-border"}`}
               onChange={(event) => update({ ...draft, place: event.target.value })}
             />
             <fieldset className="mt-4" disabled={saving}>
@@ -210,7 +218,7 @@ export default function ComposePage() {
                 {ratings.map((rating) => (
                   <label
                     key={rating}
-                    className={`rating-choice relative flex min-h-11 items-center justify-center rounded-full border px-2 text-center text-ui-12 font-semibold text-ink ${draft.rating === rating ? "border-journal bg-support-paleRose" : "border-line bg-white"}`}
+                    className={`rating-choice relative flex min-h-11 items-center justify-center rounded-xl px-2 text-center text-ui-12.5 font-semibold text-ink ${draft.rating === rating ? "border-2 border-finance-primary bg-[#2E8B6A14]" : "border border-subtle-border bg-white"}`}
                   >
                     <input
                       type="radio"
@@ -229,7 +237,7 @@ export default function ComposePage() {
         )}
 
         {error ? (
-          <p id="entry-error" className="mt-2 text-ui-14 text-ink">
+          <p id="entry-error" className={draft.mode === "date" ? "mt-2 text-ui-13 font-semibold text-ink" : "mt-2 text-ui-14 text-ink"}>
             {error}
           </p>
         ) : null}
@@ -260,8 +268,15 @@ export default function ComposePage() {
           onChange={(event) => update({ ...draft, entryDate: event.target.value })}
         />
         <p className="mt-3 text-ui-12 text-ink">Photo and mood are not part of this build.</p>
-        <button type="submit" className="action-link mt-5" disabled={saving}>
-          {saving ? "Saving…" : "Add to journal"}
+        {phase === "failed" ? (
+          <div role="alert" className="mt-5 rounded-xl border border-finance-dining bg-white p-3 text-ink">
+            <h2 className="text-ui-16 font-bold">Entry wasn’t saved.</h2>
+            <p className="mt-1 text-ui-13">Your draft is still here.</p>
+            <p className="mt-2 text-ui-14 font-semibold">{DEMO_NOTICE}</p>
+          </div>
+        ) : null}
+        <button type="submit" className={`action-link mt-5 ${saving ? "action-link-busy" : ""}`} disabled={saving}>
+          {saving ? "Saving…" : phase === "failed" ? "Retry saving" : "Add to journal"}
         </button>
         {saving ? (
           <p role="status" className="mt-3 text-ui-14 text-ink">
