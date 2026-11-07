@@ -109,7 +109,7 @@ def test_cooperative_mode_has_no_token_lookup_and_no_writable_connect(settings):
             conn.execute("CREATE TABLE should_not_exist (id TEXT)")
     finally:
         conn.close()
-    text = Path("docs/TRUST_BOUNDARY.md").read_text(encoding="utf-8")
+    text = (Path(__file__).resolve().parents[1] / "docs" / "TRUST_BOUNDARY.md").read_text(encoding="utf-8")
     lowered = text.lower()
     assert "cooperative" in lowered
     assert "does not enforce bot identity" in lowered

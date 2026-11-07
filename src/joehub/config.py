@@ -41,16 +41,60 @@ class Settings:
         return self.key_dir / "age-identity.txt"
 
 
+def _realpath(path: Path) -> Path:
+    return Path(os.path.realpath(os.fspath(path)))
+
+
+def _code_root_starts() -> list[Path]:
+    """The installed package is the only anchor.
+
+    A working directory that happens to contain ``pyproject.toml`` and
+    ``migrations/`` is not this project. Using it would hide a package that
+    has no code root, and would reject paths inside an unrelated tree.
+    """
+    import joehub
+
+    return [Path(joehub.__file__)]
+
+
+def _is_code_root(directory: Path) -> bool:
+    """A code root contains this project, not merely an ancestor of it.
+
+    ``pyproject.toml`` plus ``migrations/`` identifies both a git checkout and
+    a GitHub tarball, which has no ``.git`` directory. The filesystem root is
+    never a code root. A ``.git`` directory is not a marker.
+    """
+    if directory.parent == directory:
+        return False
+    return (directory / "pyproject.toml").is_file() and (directory / "migrations").is_dir()
+
+
+def _nearest_code_root(start: Path) -> Path | None:
+    real = _realpath(start)
+    if real.is_file():
+        real = real.parent
+    for candidate in [real, *real.parents]:
+        if _is_code_root(candidate):
+            return _realpath(candidate)
+    return None
+
+
 def repo_roots() -> list[Path]:
-    """Directories that look like this checkout. Data must not be written inside them."""
+    """Real paths of the code tree. Data must not be written inside them.
+
+    Raises ``ConfigError`` when no code root can be found. An empty result
+    would silently disable the guard, which is what a tarball release did
+    when the only marker was ``.git``.
+    """
     roots: list[Path] = []
-    starts = [Path.cwd().resolve(), Path(__file__).resolve()]
-    for start in starts:
-        for candidate in [start, *start.parents]:
-            if (candidate / ".git").exists() and (candidate / "migrations").exists():
-                if candidate not in roots:
-                    roots.append(candidate)
-                break
+    for start in _code_root_starts():
+        root = _nearest_code_root(start)
+        if root is not None and root not in roots:
+            roots.append(root)
+    if not roots:
+        raise ConfigError(
+            "could not determine the joehub code root; refusing to skip the path guard"
+        )
     return roots
 
 
@@ -69,9 +113,10 @@ def _path_contains(parent: Path, child: Path) -> bool:
 
 
 def assert_outside_repo(path: Path) -> None:
-    resolved = path.resolve()
+    resolved = _realpath(path)
     for root in repo_roots():
-        if resolved == root or resolved.is_relative_to(root):
+        root_real = _realpath(root)
+        if resolved == root_real or resolved.is_relative_to(root_real):
             raise ConfigError(f"{resolved} is inside the repository; choose a path outside it")
 
 
