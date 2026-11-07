@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -62,17 +63,32 @@ async function waitForPage(child, log) {
   throw new Error(`next dev did not serve the goals page\n${log()}`);
 }
 
+function extraOverflowCases() {
+  const dir = fileURLToPath(new URL("./overflow-cases/", import.meta.url));
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+      .flatMap((name) => JSON.parse(readFileSync(new URL(`./overflow-cases/${name}`, import.meta.url), "utf8")));
+  } catch (error) {
+    if (error && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 function readyExpression(path) {
   const laidOut = "document.querySelector(\"nav[aria-label='Primary'] a\")?.getBoundingClientRect().width > 0";
   const value = String(path);
   if (value.startsWith("/jobs") && !value.includes("view=") && !value.includes("/globex")) {
     return `document.querySelector("[aria-label='Jobs sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
   }
-  if (value.startsWith("/jobs") || value === "/finance") return `document.querySelector('h1') && ${laidOut} ? 'yes' : ''`;
+  if (value.startsWith("/jobs") || value === "/finance" || value.startsWith("/finance/caps") || /\/goals\/[^/?]+/.test(value)) {
+    return `document.querySelector('h1') && ${laidOut} ? 'yes' : ''`;
+  }
   return `document.querySelector("[aria-label='Finance sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
 }
 
-test("finance and jobs pages do not widen the page", { timeout: 180000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   let output = "";
   const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
     cwd: ROOT,
@@ -121,16 +137,7 @@ test("finance and jobs pages do not widen the page", { timeout: 180000, skip: ch
       ["/finance/goals", 390, 844, false],
       ["/finance/goals", 390, 900, true],
       ["/finance", 390, 900, true],
-      ["/jobs", 320, 900, false],
-      ["/jobs", 390, 1100, true],
-      ["/jobs/globex", 320, 900, false],
-      ["/jobs/globex", 390, 1100, true],
-      ["/jobs?view=loading", 320, 800, false],
-      ["/jobs?view=empty", 320, 800, false],
-      ["/jobs?view=error", 320, 800, false],
-      ["/jobs/globex/stage", 320, 800, false],
-      ["/jobs/globex/stage?sheet=open", 320, 900, false],
-    ];
+    ].concat(extraOverflowCases());
     for (const [path, width, height, enlarge] of cases) {
       const created = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
       const ws = new WebSocket(created.webSocketDebuggerUrl);

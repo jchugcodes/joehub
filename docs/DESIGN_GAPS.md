@@ -49,6 +49,10 @@ Recorded 7 Nov 2026. READY FOR BUILD unless the line says EXPLORATORY.
 - Sheets add Escape and a Tab loop. The HTML shows a close mark and does not specify keyboard behavior. Opening the category sheet moves focus to that close control, so the focus outline is visible. The frame does not draw that outline.
 - Controls that look tappable stay on the page and do not call the API.
 
+## API
+
+Fixture route handlers in Next.js remain the synthetic path. The FastAPI service is still optional and has no host config.
+
 ## Slice 2 — Jobs pipeline and job detail
 
 Design version v2. Local handoff only. `v2/PUBLICATION-BLOCKED.md` says the Figma page was not created, so these frames have no Figma node ids. The zip at `/workspace/joehub-design/joehub-v2-designs.zip` was not on the box, and the uploaded zip has no `v2-jobs/README.md`. This slice is built from `v2/sources/J01` through `J09` and `v2/manifest.json`.
@@ -69,9 +73,12 @@ Filled job actions use `#2C6CA6`. Loading, empty, and error are fixture views at
 
 The board row scrolls on its own. The jobs section links scroll on their own, and the swipe hint sits outside that scroller. The page stays the centered 390px column. No jobs frame draws a wider layout.
 
+`review-round2.md` was not in the uploaded tarball or the v2 zip. The empty and error cards therefore use the Finance card tokens: left-aligned text, a 16px radius (the same exception as `.card.merchant-summary`), and 12px gaps (`mt-3`). The action buttons sit outside the card. The Jobs header uses only the shared 8px top inset from the app shell.
+
 ## Jobs gaps
 
 - `v2-jobs/README.md` was not in the available zip.
+- `review-round2.md` was not in the upload. Empty and error cards follow the Finance tokens above.
 - Filter has no result.
 - "See all 24" has no destination.
 - "drag cards · swipe" is a label. Stage change does not use drag and drop, and no drag result is drawn.
@@ -81,11 +88,7 @@ The board row scrolls on its own. The jobs section links scroll on their own, an
 - The detail "more" control has no menu. The more-menu frames are EXPLORATORY and are not built.
 - Open posting has no URL.
 - Only Globex has a detail frame. The other board cards do not open a page.
-- Save stage shows the J08 notice and then "Demo only. Nothing was saved." It does not persist, send mail, create a calendar event, or invent a next-step date.
+- Save stage previews the stage the user picked, then shows "Demo only. Nothing was saved." It does not persist, send mail, create a calendar event, or invent a next-step date. Closing the sheet drops a preview that has not finished.
 - Undo stays on the page. The history control for after the notice expires is not drawn.
 - Explore matches opens the fixture matches on the populated pipeline. An empty matches list is not drawn.
 - Loading, empty, and error are query views of the fixtures. They are not a network load.
-
-## API
-
-Fixture route handlers in Next.js remain the synthetic path. The FastAPI service is still optional and has no host config.

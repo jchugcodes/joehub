@@ -25,6 +25,44 @@ export default function StagePage() {
   const [shown, setShown] = useState<Stage>(search.get("notice") === "saved" ? "Interviewing" : "Applied");
   const [failed, setFailed] = useState(search.get("notice") === "failed");
   const [notice, setNotice] = useState(search.get("notice") === "saved" || search.get("notice") === "failed" ? DEMO : "");
+  const timerRef = useRef<number | null>(null);
+  const saveEpoch = useRef(0);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  function cancelPending() {
+    saveEpoch.current += 1;
+    if (timerRef.current != null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function closeSheet() {
+    cancelPending();
+    setOpen(false);
+    setPending(false);
+  }
+
+  function save() {
+    if (pending) return;
+    const stage = selected;
+    const epoch = saveEpoch.current + 1;
+    saveEpoch.current = epoch;
+    setPending(true);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      if (saveEpoch.current !== epoch) return;
+      setPending(false);
+      setFailed(false);
+      setShown(stage);
+      setNotice(DEMO);
+      setOpen(false);
+    }, 300);
+  }
+
+  const closeSheetRef = useRef(closeSheet);
+  closeSheetRef.current = closeSheet;
 
   useEffect(() => {
     if (!open) return;
@@ -37,8 +75,7 @@ export default function StagePage() {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setOpen(false);
-        setPending(false);
+        closeSheetRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -63,30 +100,13 @@ export default function StagePage() {
 
   if (params.id !== jobDetail.id) {
     return (
-      <div className="px-5">
+      <div className="px-5" data-ready={mounted ? "true" : "false"}>
         <Link href="/jobs" className="inline-flex min-h-11 items-center gap-2 font-semibold">
           <Icon name="back" size={22} /> Back to pipeline
         </Link>
         <h1 className="mt-4 text-ui-22 font-bold">No stage screen for this role</h1>
       </div>
     );
-  }
-
-  function closeSheet() {
-    setOpen(false);
-    setPending(false);
-  }
-
-  function save() {
-    if (pending) return;
-    setPending(true);
-    window.setTimeout(() => {
-      setPending(false);
-      setFailed(false);
-      setShown("Interviewing");
-      setNotice(DEMO);
-      setOpen(false);
-    }, 300);
   }
 
   function undo() {
@@ -116,8 +136,8 @@ export default function StagePage() {
   }
 
   return (
-    <div className="min-w-0">
-      <header className="flex items-center gap-3 px-5 pt-2">
+    <div className="min-w-0" data-ready={mounted ? "true" : "false"}>
+      <header className="flex items-center gap-3 px-5">
         <Link href="/jobs/globex" className="grid h-11 w-11 place-items-center" aria-label="Back to job">
           <Icon name="back" size={22} />
         </Link>

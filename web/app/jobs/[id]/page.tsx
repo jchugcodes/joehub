@@ -25,7 +25,7 @@ export default function JobDetailPage() {
   }
   return (
     <div className="min-w-0">
-      <header className="flex items-center gap-2 px-4 pt-2">
+      <header className="flex items-center gap-2 px-4">
         <Link href="/jobs" className="grid h-11 w-11 place-items-center" aria-label="Back to pipeline">
           <Icon name="back" size={24} />
         </Link>

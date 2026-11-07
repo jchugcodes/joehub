@@ -1,0 +1,11 @@
+[
+  ["/jobs", 320, 900, false],
+  ["/jobs", 390, 1100, true],
+  ["/jobs/globex", 320, 900, false],
+  ["/jobs/globex", 390, 1100, true],
+  ["/jobs?view=loading", 320, 800, false],
+  ["/jobs?view=empty", 320, 800, false],
+  ["/jobs?view=error", 320, 800, false],
+  ["/jobs/globex/stage", 320, 800, false],
+  ["/jobs/globex/stage?sheet=open", 320, 900, false]
+]
