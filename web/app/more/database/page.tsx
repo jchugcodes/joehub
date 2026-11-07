@@ -179,11 +179,17 @@ export default function DatabasePage() {
             />
           </div>
         </div>
-        <p id="table-hint" className="mx-4 mt-2.5 text-ui-12 leading-relaxed text-[#46544B]">
-          Swipe horizontally for more columns.
-          <br />
-          Merchant stays pinned. Tap a row for details.
-        </p>
+        {phase === "loading" ? (
+          <p id="table-hint" className="mx-4 mt-2.5 text-ui-12 leading-relaxed text-[#46544B]">
+            Loading transactions…
+          </p>
+        ) : showTable ? (
+          <p id="table-hint" className="mx-4 mt-2.5 text-ui-12 leading-relaxed text-[#46544B]">
+            Swipe horizontally for more columns.
+            <br />
+            Merchant stays pinned. Tap a row for details.
+          </p>
+        ) : null}
         <p className="sr-only" role="status">
           {phase === "loading" ? "Loading transactions" : status}
         </p>
@@ -293,17 +299,17 @@ export default function DatabasePage() {
         {phase === "loading" ? <p className="mx-4 mt-3 text-ui-14 leading-relaxed">Loading your table. No counts until it resolves.</p> : null}
         {phase === "empty" ? (
           <StateCard title="No transactions yet" body="Your table is ready for its first transaction. No example balances or zero totals have been inferred.">
-            <Link href="/more#database" className="mt-4 flex min-h-12 items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white">
+            <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white">
               Back to More
             </Link>
           </StateCard>
         ) : null}
         {phase === "error" ? (
           <StateCard title="Table unavailable" body="We couldn’t load transactions. Your saved data hasn’t been changed.">
-            <button type="button" className="mt-4 flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white" onClick={retry}>
+            <button type="button" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white" onClick={retry}>
               Retry
             </button>
-            <Link href="/more#database" className="mt-3 flex min-h-12 items-center justify-center rounded-2xl border border-ink bg-white px-4 text-ui-16 font-bold">
+            <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl border border-ink bg-white px-4 text-ui-16 font-bold">
               Back to More
             </Link>
           </StateCard>
@@ -312,7 +318,7 @@ export default function DatabasePage() {
           <StateCard title="No matching transactions" body={`No rows match ${filterSentence(filters)}. Your other transactions are still in the table.`}>
             <button
               type="button"
-              className="mt-4 flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white"
+              className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white"
               onClick={() => {
                 setFilters({ month: "all", amount: "all", account: "all" });
                 document.getElementById("filter-month")?.focus();
@@ -320,7 +326,7 @@ export default function DatabasePage() {
             >
               Clear filters
             </button>
-            <Link href="/more#database" className="mt-3 flex min-h-12 items-center justify-center rounded-2xl border border-ink bg-white px-4 text-ui-16 font-bold">
+            <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl border border-ink bg-white px-4 text-ui-16 font-bold">
               Back to More
             </Link>
           </StateCard>
@@ -431,11 +437,13 @@ function SortHeader({
 
 function StateCard({ title, body, children }: { title: string; body: string; children: ReactNode }) {
   return (
-    <section className="card mx-4 mt-4 p-4">
-      <h2 className="text-ui-22 font-bold">{title}</h2>
-      <p className="mt-2.5 text-ui-14 leading-relaxed">{body}</p>
-      {children}
-    </section>
+    <div className="mx-4 mt-4">
+      <section data-state-card="" className="card p-4">
+        <h2 className="text-ui-22 font-bold">{title}</h2>
+        <p className="mt-2.5 text-ui-14 leading-relaxed">{body}</p>
+      </section>
+      <div className="mt-4 space-y-3">{children}</div>
+    </div>
   );
 }
 
@@ -479,8 +487,8 @@ function Detail({ row, onClose }: { row: Transaction; onClose: () => void }) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
-      <div className="absolute inset-0 bg-ink/45" />
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div data-scrim="" className="absolute inset-0 bg-[#1F2A2470]" />
       <div
         ref={ref}
         role="dialog"
@@ -490,15 +498,19 @@ function Detail({ row, onClose }: { row: Transaction; onClose: () => void }) {
       >
         <div className="mx-auto mb-3 h-[5px] w-10 rounded-full bg-support-handle" aria-hidden="true" />
         <div className="flex items-center justify-between gap-3">
-          <p className="text-ui-13 text-[#46544B]">Transaction · read-only</p>
-          <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-subtle-border text-ui-22" aria-label="Close" onClick={onClose}>
+          <div>
+            <p className="mb-1 text-ui-13 text-[#46544B]">Transaction · read-only</p>
+            <h2 id={titleId} className="text-ui-20 font-bold">
+              {row.merchant}
+            </h2>
+          </div>
+          <button type="button" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-subtle-border text-ui-22" aria-label="Close" onClick={onClose}>
             ×
           </button>
         </div>
-        <h2 id={titleId} className="mt-2 text-ui-22 font-bold">
-          {row.merchant}
-        </h2>
-        <p className={`text-ui-40 font-bold tabular-nums ${row.amount > 0 ? "text-[#246C53]" : ""}`}>{formatSheetAmount(row.amount)}</p>
+        <p data-amount="" className={`mb-0.5 mt-4 text-[32px] font-bold leading-none tabular-nums ${row.amount > 0 ? "text-[#246C53]" : ""}`}>
+          {formatSheetAmount(row.amount)}
+        </p>
         <p className="text-ui-13 text-[#46544B]">{formatLong(row.date)} · Synthetic example</p>
         <dl className="mt-4">
           {[

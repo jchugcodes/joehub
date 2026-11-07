@@ -205,6 +205,7 @@ test("more menu routes into the transactions table and finance accounts", { time
           search: document.querySelector('input') ? 'yes' : '',
           sort: document.querySelector('th[aria-sort]')?.innerText.trim(),
           width: document.querySelector('table').getBoundingClientRect().width,
+          hint: document.getElementById('table-hint')?.innerText || '',
         };
       })()`,
     );
@@ -215,6 +216,7 @@ test("more menu routes into the transactions table and finance accounts", { time
     assert.equal(table.search, "");
     assert.match(table.sort, /Date/);
     assert.ok(table.width > 540 && table.width < 590);
+    assert.match(table.hint, /Swipe horizontally for more columns/);
 
     await click(send, `document.querySelector('button[aria-label^="Sort"]').click();`);
     await waitFor(send, "document.querySelector('tbody th button')?.textContent.trim() === 'Loan pmt' ? 'yes' : ''");
@@ -236,6 +238,20 @@ test("more menu routes into the transactions table and finance accounts", { time
     await go(send, "/more/database?month=2026-11&amount=income&account=Card%20A");
     await waitFor(send, "document.querySelector('[data-state=\"filtered-empty\"]') ? 'yes' : ''");
     assert.match(await evalValue(send, "document.body.innerText"), /No rows match Nov 2026, Income only and Card A/);
+    const filtered = await evalValue(
+      send,
+      `(() => {
+        const card = document.querySelector('[data-state-card]');
+        const clear = [...document.querySelectorAll('button')].find((node) => node.textContent.trim() === 'Clear filters');
+        const back = [...document.querySelectorAll('a')].find((node) => node.textContent.trim() === 'Back to More');
+        return {
+          outside: Boolean(card && clear && back && !card.contains(clear) && !card.contains(back)),
+          swipe: document.body.innerText.includes('Swipe horizontally'),
+        };
+      })()`,
+    );
+    assert.equal(filtered.outside, true);
+    assert.equal(filtered.swipe, false);
     await click(send, `[...document.querySelectorAll('button')].find((node) => node.textContent.trim() === 'Clear filters').click();`);
     await waitFor(send, "document.querySelectorAll('tbody th button').length === 14 ? 'yes' : ''");
 
@@ -284,6 +300,11 @@ test("more menu routes into the transactions table and finance accounts", { time
           reviewed: dialog.innerText.includes('Yes'),
           fields: dialog.querySelectorAll('input, textarea').length,
           inert: document.querySelector('[data-ready] > div')?.hasAttribute('inert'),
+          titleSize: parseFloat(getComputedStyle(dialog.querySelector('h2')).fontSize),
+          amountSize: parseFloat(getComputedStyle(dialog.querySelector('[data-amount]')).fontSize),
+          grouped: dialog.querySelector('h2').parentElement.querySelector('p')?.textContent.includes('read-only') === true && dialog.querySelector('h2').parentElement.querySelector('button') == null,
+          scrim: getComputedStyle(document.querySelector('[data-scrim]')).backgroundColor,
+          close: dialog.querySelector('[aria-label="Close"]').getBoundingClientRect().width,
         };
       })()`,
     );
@@ -292,6 +313,14 @@ test("more menu routes into the transactions table and finance accounts", { time
     assert.equal(detail.reviewed, true);
     assert.equal(detail.fields, 0);
     assert.equal(detail.inert, true);
+    assert.equal(detail.titleSize, 20);
+    assert.equal(detail.amountSize, 32);
+    assert.equal(detail.grouped, true);
+    assert.equal(detail.close, 44);
+    const scrim = String(detail.scrim).match(/rgba?\(\s*31,\s*42,\s*36(?:,\s*([0-9.]+))?\)/);
+    assert.ok(scrim, detail.scrim);
+    const scrimAlpha = scrim[1] === undefined ? 1 : Number(scrim[1]);
+    assert.ok(scrimAlpha > 0.43 && scrimAlpha < 0.45, detail.scrim);
     await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await waitFor(send, "document.querySelector('[role=dialog]') ? '' : 'closed'");
@@ -319,19 +348,45 @@ test("more menu routes into the transactions table and finance accounts", { time
         busy: document.getElementById('table-scroll')?.getAttribute('aria-busy'),
         pizza: document.body.innerText.includes("Joe's Pizza"),
         disabled: document.querySelector('button[aria-label^="Sort"]').disabled,
+        hint: document.getElementById('table-hint')?.innerText.trim(),
+        status: document.body.innerText.includes('Loading your table. No counts until it resolves.'),
+        swipe: document.body.innerText.includes('Swipe horizontally'),
       }))()`,
     );
     assert.equal(loading.state, "loading");
     assert.equal(loading.busy, "true");
     assert.equal(loading.pizza, false);
     assert.equal(loading.disabled, true);
+    assert.equal(loading.hint, "Loading transactions…");
+    assert.equal(loading.status, true);
+    assert.equal(loading.swipe, false);
 
     await go(send, "/more/database?view=empty");
     assert.match(await evalValue(send, "document.body.innerText"), /No transactions yet/);
     assert.equal(await evalValue(send, "document.body.innerText.includes(\"Joe's Pizza\")"), false);
+    const empty = await evalValue(
+      send,
+      `(() => {
+        const card = document.querySelector('[data-state-card]');
+        const back = [...document.querySelectorAll('a')].find((node) => node.textContent.trim() === 'Back to More');
+        return { outside: Boolean(card && back && !card.contains(back)), swipe: document.body.innerText.includes('Swipe horizontally') };
+      })()`,
+    );
+    assert.equal(empty.outside, true);
+    assert.equal(empty.swipe, false);
 
     await go(send, "/more/database?view=error&fresh=1");
     assert.match(await evalValue(send, "document.body.innerText"), /Table unavailable/);
+    const error = await evalValue(
+      send,
+      `(() => {
+        const card = document.querySelector('[data-state-card]');
+        const retry = [...document.querySelectorAll('button')].find((node) => node.textContent.trim() === 'Retry');
+        const back = [...document.querySelectorAll('a')].find((node) => node.textContent.trim() === 'Back to More');
+        return { outside: Boolean(card && retry && back && !card.contains(retry) && !card.contains(back)) };
+      })()`,
+    );
+    assert.equal(error.outside, true);
     await click(send, `[...document.querySelectorAll('button')].find((node) => node.textContent.trim() === 'Retry').click();`);
     await waitFor(send, "document.body.innerText.includes(\"Joe's Pizza\") ? 'yes' : ''");
 
@@ -341,16 +396,11 @@ test("more menu routes into the transactions table and finance accounts", { time
     assert.equal(await evalValue(send, "document.body.innerText.includes(\"Joe's Pizza\")"), true);
 
     const shots = [
-      ["/more", "more_m01_menu", true],
-      ["/more/database", "more_m02_default", true],
-      ["/more/database?sort=amount-asc", "more_m03_sort", true],
-      ["/more/database?month=2026-11&amount=expense", "more_m04_filters", true],
-      ["/more/database", "more_m05_sticky", true],
-      ["/more/database", "more_m06_detail", false],
-      ["/more/database?view=loading", "more_m07_loading", true],
-      ["/more/database?view=empty", "more_m08_empty", true],
-      ["/more/database?view=error&fresh=1", "more_m09_error", true],
-      ["/more/database?month=2026-11&amount=income&account=Card%20A", "more_m10_filtered_empty", true],
+      ["/more/database", "more_fix_m06_detail", false],
+      ["/more/database?view=loading", "more_fix_m07_loading", true],
+      ["/more/database?view=empty", "more_fix_m08_empty", true],
+      ["/more/database?view=error&fresh=1", "more_fix_m09_error", true],
+      ["/more/database?month=2026-11&amount=income&account=Card%20A", "more_fix_m10_filtered_empty", true],
     ];
     for (const [path, name, full] of shots) {
       for (const width of [390, 1280]) {
