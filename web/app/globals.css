@@ -53,6 +53,24 @@ body {
   border-radius: 9999px;
 }
 
+.card.merchant-summary {
+  border-radius: 16px;
+}
+
+.finance-sections {
+  container-type: inline-size;
+}
+
+.finance-sections .swipe-hint {
+  display: none;
+}
+
+@container (min-width: 391px) {
+  .finance-sections .swipe-hint {
+    display: flex;
+  }
+}
+
 .mut {
   color: var(--muted);
 }

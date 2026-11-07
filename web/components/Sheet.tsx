@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
+import { Icon } from "./Icon";
 
 /** Local sheet. Escape closes it and Tab stays inside. Not part of the API. */
 export function Sheet({
   title,
   onClose,
   children,
+  frame = false,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  /** Finance category sheet (frame 1:10). Journal keeps the earlier sheet. */
+  frame?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -59,15 +63,17 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-sheetTop bg-surface p-4 pb-8 shadow-2xl"
+        className={`relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-sheetTop bg-surface pb-8 shadow-2xl ${
+          frame ? "max-w-phone px-5 pt-3" : "max-w-lg p-4"
+        }`}
       >
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line" />
-        <div className="mb-2 flex items-center justify-between">
-          <h2 id={titleId} className="text-xl font-semibold">
+        <div className={`mx-auto rounded-full ${frame ? "h-1.5 w-10 bg-support-handle" : "mb-3 h-1 w-10 bg-line"}`} />
+        <div className={`flex items-center justify-between ${frame ? "mt-4" : "mb-2"}`}>
+          <h2 id={titleId} className={frame ? "text-ui-18 font-bold" : "text-xl font-semibold"}>
             {title}
           </h2>
-          <button type="button" className="rounded-full px-2 py-1 text-xl leading-none" onClick={onClose} aria-label="Close">
-            ×
+          <button type="button" className={frame ? "border-0 bg-transparent p-0 text-muted" : "rounded-full px-2 py-1 text-xl leading-none"} onClick={onClose} aria-label="Close">
+            {frame ? <Icon name="close" size={22} /> : "×"}
           </button>
         </div>
         {children}
