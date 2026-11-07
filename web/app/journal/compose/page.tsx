@@ -210,7 +210,7 @@ export default function ComposePage() {
                 {ratings.map((rating) => (
                   <label
                     key={rating}
-                    className={`relative flex min-h-11 items-center justify-center rounded-full border px-2 text-center text-ui-12 font-semibold text-ink ${draft.rating === rating ? "border-journal bg-support-paleRose" : "border-line bg-white"}`}
+                    className={`rating-choice relative flex min-h-11 items-center justify-center rounded-full border px-2 text-center text-ui-12 font-semibold text-ink ${draft.rating === rating ? "border-journal bg-support-paleRose" : "border-line bg-white"}`}
                   >
                     <input
                       type="radio"

@@ -260,6 +260,40 @@ test("journal filters and the composer are keyboard reachable", { timeout: 12000
   await compose.close();
 });
 
+test("the selected rating shows a focus ring on its label", { timeout: 120000, skip }, async () => {
+  const page = await openPage("/journal/compose?mode=date", 390, 844);
+  await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  let ring = null;
+  for (let step = 0; step < 12; step += 1) {
+    await tab(page.send);
+    ring = await evalValue(
+      page.send,
+      `(() => {
+        const input = document.activeElement;
+        if (!(input instanceof HTMLInputElement) || input.type !== "radio") return null;
+        const label = input.closest("label");
+        const style = getComputedStyle(label);
+        return {
+          value: input.value,
+          checked: input.checked,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: parseFloat(style.outlineWidth),
+          outlineColor: style.outlineColor,
+          shadow: style.boxShadow,
+        };
+      })()`,
+    );
+    if (ring && ring.checked) break;
+  }
+  assert.ok(ring, "tab did not reach a rating");
+  assert.equal(ring.value, "Loved");
+  assert.equal(ring.checked, true);
+  const outlined = ring.outlineStyle !== "none" && ring.outlineWidth >= 2;
+  const shadowed = ring.shadow && ring.shadow !== "none";
+  assert.ok(outlined || shadowed, JSON.stringify(ring));
+  await page.close();
+});
+
 test("saving previews the demo sentence and cancel drops a pending save", { timeout: 120000, skip }, async () => {
   const compose = await openPage("/journal/compose", 390, 844);
   await evalValue(compose.send, "document.querySelector('form').requestSubmit()");
