@@ -1,156 +1,81 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect } from "react";
 import { Icon } from "../../components/Icon";
-import { transactions } from "../../lib/design-fixtures";
 
-const sets = ["Transactions", "Jobs", "Journal", "Dates", "Goals"] as const;
+function DatabaseIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M3 15h18M9 4v16" />
+    </svg>
+  );
+}
 
 export default function MorePage() {
-  const [setName, setSetName] = useState<(typeof sets)[number]>("Transactions");
-  const [query, setQuery] = useState("");
-  const [month, setMonth] = useState(true);
-  const [outflow, setOutflow] = useState(false);
-  const [ascending, setAscending] = useState(false);
-  const [darkFinance, setDarkFinance] = useState(false);
-  const [notice, setNotice] = useState("");
-
   useEffect(() => {
-    setDarkFinance(localStorage.getItem("joehub-finance-theme") === "dark");
+    const focusHash = () => {
+      const id = window.location.hash.replace("#", "");
+      if (id === "database" || id === "accounts") document.getElementById(`more-${id}`)?.focus();
+    };
+    focusHash();
+    window.addEventListener("hashchange", focusHash);
+    return () => window.removeEventListener("hashchange", focusHash);
   }, []);
 
-  const rows = useMemo(() => {
-    const order = (date: string) => {
-      const [monthName, day] = date.split(" ");
-      const months: Record<string, number> = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
-      return (months[monthName] ?? 0) * 100 + Number(day);
-    };
-    const filtered = transactions.filter((row) => {
-      const haystack = row.join(" ").toLowerCase();
-      if (query && !haystack.includes(query.toLowerCase())) return false;
-      if (month && !row[1].startsWith("Nov") && !row[1].startsWith("Oct")) return false;
-      if (outflow && row[3].startsWith("+")) return false;
-      return true;
-    });
-    return filtered.sort((left, right) => (ascending ? order(left[1]) - order(right[1]) : order(right[1]) - order(left[1])));
-  }, [query, month, outflow, ascending]);
-
   return (
-    <div className="space-y-4 px-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Database · {setName}</h1>
-        <button
-          type="button"
-          className="grid h-10 w-10 place-items-center rounded-full bg-surface"
-          aria-pressed={darkFinance}
-          aria-label="Use dark appearance on Finance home"
-          onClick={() => {
-            const next = !darkFinance;
-            setDarkFinance(next);
-            localStorage.setItem("joehub-finance-theme", next ? "dark" : "light");
-            window.dispatchEvent(new Event("joehub-theme"));
-            setNotice(
-              next
-                ? "Finance home will use the dark frame. This page stays light."
-                : "Finance home will use the light frame.",
-            );
-          }}
-        >
-          <Icon name="sun" />
-        </button>
+    <div data-ready="true" className="min-w-0">
+      <header className="px-5 pt-3">
+        <p className="text-ui-13 text-[#46544B]">joehub</p>
+        <h1 className="text-ui-22 font-bold">More</h1>
+        <p className="mt-2 text-ui-13 leading-relaxed text-[#46544B]">Your secondary views, in one place.</p>
       </header>
-      <div role="tablist" aria-label="Record set" className="flex gap-2 overflow-x-auto">
-        {sets.map((name) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            aria-selected={setName === name}
-            onClick={() => setSetName(name)}
-            className={`shrink-0 rounded-full px-3 py-1 text-sm ${
-              setName === name ? "bg-ink text-white" : "bg-surface text-ink"
-            }`}
-          >
-            {name}
-          </button>
-        ))}
+      <div className="mt-5 space-y-3 px-4">
+        <Link id="more-database" href="/more/database" className="card flex min-h-24 items-center gap-3 p-4">
+          <DatabaseIcon />
+          <span className="min-w-0 flex-1">
+            <span className="block text-ui-16 font-semibold">Database</span>
+            <span className="mt-1 block text-ui-12 leading-snug text-muted">Transactions, jobs, journal, dates and goals</span>
+          </span>
+          <Icon name="chevron" size={20} className="shrink-0 text-muted" />
+        </Link>
+        <Link id="more-accounts" href="/finance/accounts?from=more" className="card flex min-h-24 items-center gap-3 p-4 text-finance-primary">
+          <Icon name="finance" size={22} />
+          <span className="min-w-0 flex-1 text-ink">
+            <span className="block text-ui-16 font-semibold">Accounts</span>
+            <span className="mt-1 block text-ui-12 leading-snug text-muted">Open Finance → Accounts · read-only balances</span>
+          </span>
+          <Icon name="chevron" size={20} className="shrink-0 text-muted" />
+        </Link>
+        <div className="card flex min-h-24 items-center gap-3 p-4">
+          <Icon name="more" size={22} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-ui-16 font-semibold">Appearance</span>
+            <span className="mt-1 block text-ui-12 leading-snug text-muted">Planned · settings are not available in this slice</span>
+          </span>
+          <span className="self-start rounded-md bg-line px-1.5 py-1 text-ui-10 font-medium text-ink">Planned</span>
+        </div>
+        <div className="card flex min-h-24 items-center gap-3 p-4">
+          <Icon name="subscriptions" size={22} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-ui-16 font-semibold">Sync status</span>
+            <span className="mt-1 block text-ui-12 leading-snug text-muted">Planned · connection details are not available yet</span>
+          </span>
+          <span className="self-start rounded-md bg-line px-1.5 py-1 text-ui-10 font-medium text-ink">Planned</span>
+        </div>
+        <p className="rounded-xl border border-subtle-border bg-white p-3 text-ui-13 leading-relaxed">
+          <span className="font-bold">Database is an inspection view.</span>
+          <br />
+          Start with Transactions. Other database collections are planned, not active destinations.
+        </p>
+        <p className="rounded-xl border border-subtle-border bg-white p-3 text-ui-13 leading-relaxed">
+          <span className="font-bold">Accounts stays in Finance.</span>
+          <br />
+          Open balances from here, then return to More. No sixth primary tab.
+        </p>
+        <p className="px-1 pt-2 text-ui-12 leading-relaxed text-[#46544B]">Example data only. Notion is the authoritative source when connected.</p>
       </div>
-      {setName === "Transactions" ? (
-        <>
-          <label className="sr-only" htmlFor="row-search">
-            Search transactions
-          </label>
-          <input
-            id="row-search"
-            className="w-full rounded-xl border border-line bg-surface px-3 py-2"
-            placeholder="Search 412 rows"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className="flex flex-wrap gap-2">
-            <button type="button" aria-pressed={month} className="rounded-full border border-line px-3 py-1 text-sm" onClick={() => setMonth((value) => !value)}>
-              Month: Nov+Oct {month ? "×" : ""}
-            </button>
-            <button
-              type="button"
-              aria-pressed={outflow}
-              className="rounded-full border border-line px-3 py-1 text-sm"
-              onClick={() => setOutflow((value) => !value)}
-            >
-              Amount &lt; 0 {outflow ? "×" : ""}
-            </button>
-            <button type="button" className="rounded-full border border-dashed border-line px-3 py-1 text-sm" onClick={() => setNotice("No other filters were designed.")}>
-              Add filter
-            </button>
-            <button type="button" className="rounded-full border border-line px-3 py-1 text-sm" onClick={() => setAscending((value) => !value)} aria-pressed={ascending}>
-              Date {ascending ? "↑" : "↓"}
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">Example transactions from the frame. Not live records.</caption>
-              <thead className="bg-table-header">
-                <tr>
-                  <th scope="col" className="px-2 py-2 font-medium">
-                    Merchant
-                  </th>
-                  <th scope="col" className="px-2 py-2 font-medium">
-                    Date
-                  </th>
-                  <th scope="col" className="px-2 py-2 font-medium">
-                    Category
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-right font-medium">
-                    Amount
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.join("-")} className="border-b border-line">
-                    <th scope="row" className="px-2 py-2 font-normal">
-                      {row[0]}
-                    </th>
-                    <td className="px-2 py-2">{row[1]}</td>
-                    <td className="px-2 py-2">{row[2]}</td>
-                    <td className={`px-2 py-2 text-right ${row[3].startsWith("+") ? "text-finance-primary" : ""}`}>{row[3]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-muted">The frame shows these columns first. Editing a cell is not designed.</p>
-        </>
-      ) : (
-        <p className="card p-4 text-sm text-muted">
-          {setName} has no table frame. The transactions table is the only designed More screen.
-        </p>
-      )}
-      {notice ? (
-        <p role="status" className="text-sm text-muted">
-          {notice}
-        </p>
-      ) : null}
     </div>
   );
 }
