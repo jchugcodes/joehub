@@ -71,6 +71,40 @@ body {
   }
 }
 
+.action-link {
+  display: flex;
+  width: 100%;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: #c2577a;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 1.1875rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.action-link-secondary {
+  border: 1px solid #c2577a;
+  background: #fff;
+  color: #c2577a;
+}
+
+.action-link-busy {
+  background: #e6e8e4;
+  color: #1f2a24;
+}
+
+.journal-filters {
+  scrollbar-width: none;
+}
+
+.journal-filters::-webkit-scrollbar {
+  display: none;
+}
+
 .mut {
   color: var(--muted);
 }
@@ -88,6 +122,11 @@ body {
 }
 
 :focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.rating-choice:has(:focus-visible) {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }

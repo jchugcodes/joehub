@@ -1,213 +1,342 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
-import { Sheet } from "../../components/Sheet";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { journal } from "../../lib/design-fixtures";
+import { DEMO_NOTICE, readFilter, readScroll, writeFilter, writeScroll, type JournalFilter } from "../../lib/journal-session";
 
-const moods = [
-  { id: "Loved", tone: "border-finance-primary text-finance-primary" },
-  { id: "Meh", tone: "border-finance-shopping text-finance-shopping" },
-  { id: "Never again", tone: "border-finance-dining text-finance-dining" },
+const filters: { id: JournalFilter; label: string }[] = [
+  { id: "feed", label: "Feed" },
+  { id: "wins", label: "Wins" },
+  { id: "dates", label: "Dates" },
+  { id: "places", label: "Places" },
 ];
 
-function JournalScreen() {
-  const params = useSearchParams();
-  const [open, setOpen] = useState(params.get("compose") === "1");
-  const [tab, setTab] = useState<"win" | "date">("date");
-  const [place, setPlace] = useState("Kiki's, Lower East Side");
-  const [mood, setMood] = useState("Loved");
-  const [note, setNote] = useState("");
-  const [entries, setEntries] = useState(journal.entries);
-  const [status, setStatus] = useState("");
+function matches(filter: JournalFilter, entry: (typeof journal.entries)[number]) {
+  if (filter === "wins") return entry.kind === "win";
+  if (filter === "dates") return entry.kind === "date";
+  if (filter === "places") return entry.kind === "date" && entry.place.length > 0;
+  return true;
+}
 
+function Streak() {
   return (
-    <div className="space-y-4 px-4">
-      <header className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted">Journal</p>
-          <h1 className="text-ui-22 font-bold">Wins & dates</h1>
-        </div>
-        <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-surface" aria-label="Search journal">
-          ⌕
-        </button>
-      </header>
-      <nav aria-label="Journal sections" className="flex gap-4 text-sm">
-        <a href="#feed" className="border-b-2 border-journal pb-2 font-semibold" aria-current="page">
-          Feed
-        </a>
-        <a href="#wins" className="pb-2 text-muted">
-          Wins
-        </a>
-        <a href="#dates" className="pb-2 text-muted">
-          Dates
-        </a>
-        <a href="#places" className="pb-2 text-muted">
-          Places
-        </a>
-      </nav>
-      <section
-        className="rounded-card p-4 text-white"
-        style={{ background: "linear-gradient(135deg,#C2577A,#8E5BA8)" }}
-        aria-label="Streak"
-      >
-        <div className="flex items-end justify-between">
+    <>
+      <section className="mx-4 mt-4 rounded-card bg-gradient-to-br from-journal to-support-journalGradientEnd p-4 text-white" aria-label="Streak">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-ui-26 font-extrabold leading-none">{journal.streak}</p>
-            <p className="text-sm">{journal.streakNote}</p>
+            <p className="mt-1 inline-block rounded-lg bg-ink/40 px-1 py-0.5 text-ui-12 text-white">{journal.streakNote}</p>
           </div>
-          <div className="text-right text-sm">
-            <p>{journal.month}</p>
-            <p>{journal.monthNote}</p>
-          </div>
+          <p className="max-w-full rounded-lg bg-ink/40 px-1 py-0.5 text-right text-ui-12 text-white">
+            {journal.month}
+            <br />
+            <b className="text-ui-15">{journal.monthNote}</b>
+          </p>
         </div>
       </section>
-      <ul className="grid grid-cols-7 gap-2 text-center text-xs" aria-label="This week">
+      <div className="card mx-4 mt-2.5 flex justify-between px-3 py-3" aria-hidden="true">
         {journal.days.map((day, index) => (
-          <li key={`${day}-${index}`}>
-            <p className="text-muted">{day}</p>
-            <span
-              className={`mt-1 grid h-8 w-8 place-items-center rounded-full ${
-                journal.done[index] ? "bg-journal text-white" : "bg-line text-muted"
-              }`}
-            >
+          <div key={`${day}-${index}`} className="flex flex-col items-center gap-1">
+            <span className="text-ui-10.5 text-ink">{day}</span>
+            <span className={`grid h-8 w-8 place-items-center rounded-full text-ui-12 ${journal.done[index] ? "bg-journal text-white" : "bg-line text-ink"}`}>
               {journal.done[index] ? "✓" : ""}
             </span>
-          </li>
+          </div>
         ))}
-      </ul>
-      <section id="wins" className="card p-4">
-        <div className="flex justify-between text-xs font-semibold tracking-wide text-muted">
-          <h2>NIGHTLY WINS</h2>
-          <p>Tonight · Fri</p>
-        </div>
-        <ul className="mt-2 space-y-1 text-sm">
-          {journal.wins.map((win) => (
-            <li key={win.text}>
-              <span className={win.ok ? "text-finance-primary" : "text-finance-dining"}>{win.ok ? "✓" : "✕"}</span> {win.text}
-            </li>
-          ))}
-        </ul>
-      </section>
-      <ul id="dates" className="space-y-3">
-        {entries.map((entry) => (
-          <li key={entry.title} id="places" className="card p-4">
-            <p className="text-xs text-muted">{entry.place}</p>
-            <div className="mt-1 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">{entry.title}</h2>
-              <p className="text-sm text-finance-primary">{entry.mood}</p>
-            </div>
-            <p className="text-sm text-muted">{entry.when}</p>
-            <p className="mt-2">{entry.body}</p>
-          </li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        className="fixed bottom-[100px] right-4 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-24 text-white shadow-xl lg:bottom-8"
-        aria-label="Add to journal"
-        onClick={() => setOpen(true)}
-      >
-        +
-      </button>
-      {open ? (
-        <Sheet title="Add to journal" onClose={() => setOpen(false)}>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              setEntries((current) => [
-                { place, title: place, when: "Tonight", mood, body: note || "No note." },
-                ...current,
-              ]);
-              setStatus("Added on this page only. Not sent to the API.");
-              setOpen(false);
-            }}
-          >
-            <fieldset className="grid grid-cols-2 gap-2 rounded-2xl bg-page p-1">
-              <legend className="sr-only">Entry kind</legend>
-              {(["win", "date"] as const).map((kind) => (
-                <label key={kind} className="cursor-pointer">
-                  <input
-                    className="sr-only"
-                    type="radio"
-                    name="entry-kind"
-                    value={kind}
-                    checked={tab === kind}
-                    onChange={() => setTab(kind)}
-                  />
-                  <span
-                    className={`block rounded-xl py-2 text-center ${
-                      tab === kind ? "bg-surface font-semibold text-journal shadow-sm" : "bg-page"
-                    }`}
-                  >
-                    {kind === "win" ? "Nightly win" : "Date"}
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-            <label htmlFor="place" className="mt-4 block text-sm">
-              Place
-            </label>
-            <input
-              id="place"
-              className="mt-1 w-full rounded-xl border border-journal px-3 py-2"
-              value={place}
-              onChange={(event) => setPlace(event.target.value)}
-            />
-            <fieldset className="mt-4">
-              <legend className="text-sm">How was it?</legend>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                {moods.map((item) => (
-                  <label
-                    key={item.id}
-                    className={`rounded-xl border p-2 text-center text-sm ${
-                      mood === item.id ? `${item.tone} bg-page font-semibold` : "border-line text-muted"
-                    }`}
-                  >
-                    <input
-                      className="sr-only"
-                      type="radio"
-                      name="mood"
-                      value={item.id}
-                      checked={mood === item.id}
-                      onChange={() => setMood(item.id)}
-                    />
-                    {item.id}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <label htmlFor="journal-note" className="mt-4 block text-sm">
-              Note
-            </label>
-            <textarea
-              id="journal-note"
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-              rows={3}
-              placeholder="What stood out?"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-            <button type="submit" className="mt-4 w-full rounded-full bg-journal py-3 font-semibold text-white">
-              Add to journal
-            </button>
-            <p className="mt-2 text-center text-xs tracking-wide text-muted">EXAMPLE DATA</p>
-          </form>
-        </Sheet>
-      ) : null}
-      {status ? (
-        <p role="status" className="text-sm text-muted">
-          {status}
-        </p>
-      ) : null}
-    </div>
+      </div>
+      <p className="sr-only">Example week. Monday through Friday are marked. Saturday and Sunday are open. These are not buttons.</p>
+    </>
   );
 }
 
 export default function JournalPage() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const requested = params.get("view");
+  const queryFilter = params.get("filter");
+  const [filter, setFilter] = useState<JournalFilter>(() => {
+    if (params.get("view") === "filtered") {
+      if (queryFilter === "wins" || queryFilter === "dates" || queryFilter === "places") return queryFilter;
+      return "places";
+    }
+    if (queryFilter === "wins" || queryFilter === "dates" || queryFilter === "places") return queryFilter;
+    return readFilter();
+  });
+  const [resolved, setResolved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setReady(true);
+    const id = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+    if (id) {
+      const node = document.getElementById(id);
+      if (node instanceof HTMLElement) {
+        node.focus();
+        node.scrollIntoView({ block: "center" });
+      }
+      return;
+    }
+    if (params.get("view") === "filtered") {
+      const selected = document.querySelector("[aria-label='Journal filters'] [aria-pressed='true']");
+      if (selected instanceof HTMLElement) selected.focus();
+    }
+    const y = readScroll();
+    if (y > 0) window.scrollTo(0, y);
+  }, []);
+
+  useEffect(() => () => writeScroll(window.scrollY), []);
+  useEffect(() => writeFilter(filter), [filter]);
+
+  const special = requested === "loading" || requested === "empty" || requested === "error" || requested === "filtered" ? requested : "feed";
+  const view = (resolved || (special === "filtered" && filter === "feed")) ? "feed" : special;
+  const visible = view === "filtered" ? [] : journal.entries.filter((entry) => matches(filter, entry));
+  const groups = visible.reduce<{ label: string; entries: typeof visible }[]>((rows, entry) => {
+    const last = rows[rows.length - 1];
+    if (last && last.label === entry.group) last.entries.push(entry);
+    else rows.push({ label: entry.group, entries: [entry] });
+    return rows;
+  }, []);
+
+  function retry() {
+    if (busy) return;
+    setBusy(true);
+    window.setTimeout(() => {
+      setBusy(false);
+      setResolved(true);
+      setNotice(DEMO_NOTICE);
+    }, 300);
+  }
+
+  function showAll() {
+    writeFilter("feed");
+    setFilter("feed");
+    setResolved(true);
+    router.push("/journal");
+  }
+
+  function chooseFilter(next: JournalFilter) {
+    if (next === "feed" && requested === "filtered") {
+      showAll();
+      return;
+    }
+    writeFilter(next);
+    setFilter(next);
+  }
+
+  const filteredCopy =
+    filter === "wins"
+      ? {
+          title: "No wins yet",
+          body: "No nightly wins match this filter. Your other entries are still in Feed.",
+          action: "Write your first entry",
+          href: "/journal/compose",
+        }
+      : filter === "dates"
+        ? {
+            title: "No dates yet",
+            body: "No date entries match this filter. Your other entries are still in Feed.",
+            action: "Add a date",
+            href: "/journal/compose?mode=date",
+          }
+        : {
+            title: "No places yet",
+            body: "No entries with a place match this filter. Your other entries are still in Feed.",
+            action: "Add a date",
+            href: "/journal/compose?mode=date",
+          };
+  const showFiltered = view === "filtered" || (view === "feed" && groups.length === 0);
+
   return (
-    <Suspense fallback={<p>Loading journal</p>}>
-      <JournalScreen />
-    </Suspense>
+    <div data-ready={ready ? "true" : "false"}>
+      <header className="px-5">
+        <p className="text-ui-13 text-ink">Journal</p>
+        <h1 className="text-ui-22 font-bold">Wins & dates</h1>
+      </header>
+      <div className="journal-filters mt-3 w-full min-w-0 overflow-x-auto border-b border-line" role="group" aria-label="Journal filters">
+        <div className="flex w-max min-w-full gap-6 px-5">
+          {filters.map((item) => {
+            const selected = filter === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={selected}
+                className={`min-h-11 shrink-0 border-b-[2.5px] py-3 text-ui-15 text-ink ${selected ? "border-journal font-bold" : "border-transparent font-medium"}`}
+                onClick={() => chooseFilter(item.id)}
+                onFocus={(event) => event.currentTarget.scrollIntoView({ inline: "nearest", block: "nearest" })}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {notice ? (
+        <p role="status" className="px-4 pt-3 text-ui-14 text-ink">
+          {notice}
+        </p>
+      ) : null}
+
+      {view === "loading" ? (
+        <div className="mt-4 px-4" aria-busy="true">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className={`card p-4 ${item === 0 ? "" : "mt-3"}`} aria-hidden="true">
+              <div className="h-4 w-32 rounded bg-line" />
+              <div className="mt-4 h-24 rounded-xl bg-line" />
+            </div>
+          ))}
+          <p role="status" className="mt-5 text-ui-13 text-ink">
+            Loading your journal…
+          </p>
+        </div>
+      ) : null}
+
+      {view === "empty" ? (
+        <div className="mt-4 px-4">
+          <div className="card p-4 text-left">
+            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
+              ＋
+            </div>
+            <h2 className="text-ui-20 font-bold">A small win counts</h2>
+            <p className="mt-2 text-ui-14 leading-relaxed text-ink">A good meal, a kind moment, getting through today. Start with one thing you want to remember.</p>
+          </div>
+          <div className="mt-4 space-y-3">
+            <Link href="/journal/compose" className="action-link">
+              Write your first entry
+            </Link>
+            <Link href="/journal/compose?mode=date" className="action-link action-link-secondary">
+              Add a date
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {view === "error" ? (
+        <div className="mt-4 px-4">
+          <div className="card p-4 text-left">
+            <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
+              ↻
+            </div>
+            <h2 className="text-ui-20 font-bold">Journal unavailable</h2>
+            <p className="mt-2 text-ui-14 leading-relaxed text-ink">We couldn’t load your entries. Your saved journal hasn’t been changed.</p>
+          </div>
+          <button
+            type="button"
+            className="action-link mt-4"
+            onClick={retry}
+            disabled={busy}
+            aria-busy={busy}
+          >
+            {busy ? "Retrying…" : "Retry"}
+          </button>
+          <p className="mt-5 text-ui-12 text-ink">No cached entries available</p>
+        </div>
+      ) : null}
+
+      {showFiltered ? (
+        <div>
+          <Streak />
+          <div className="mt-3 px-4">
+            <div className="card p-4 text-left">
+              <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
+                ＋
+              </div>
+              <h2 className="text-ui-20 font-bold" role="status">
+                {filteredCopy.title}
+              </h2>
+              <p className="mt-2 text-ui-14 leading-relaxed text-ink">{filteredCopy.body}</p>
+            </div>
+            <Link href={filteredCopy.href} className="action-link mt-4">
+              {filteredCopy.action}
+            </Link>
+            <button type="button" className="action-link action-link-secondary mt-3" onClick={showAll}>
+              Show all entries
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {view === "feed" && groups.length > 0 ? (
+        <div className="pb-[64px]">
+          <Streak />
+          <div className="mt-3 space-y-2.5 px-4">
+            {groups.map((group) => (
+              <section key={group.label}>
+                <h2 className="pt-2 text-ui-12 font-semibold text-ink">{group.label}</h2>
+                <div className="mt-2 space-y-2.5">
+                  {group.entries.map((entry) => (
+                    <Link
+                      key={entry.slug}
+                      id={entry.slug}
+                      href={`/journal/${entry.slug}`}
+                      className="card block overflow-hidden text-left"
+                    >
+                      {entry.kind === "win" ? (
+                        <span className="block p-4">
+                          <span className="flex items-center justify-between gap-3">
+                            <span className="text-ui-12 font-bold uppercase tracking-wide text-ink">{entry.title}</span>
+                            <span className="text-ui-12 text-ink">{entry.badge}</span>
+                          </span>
+                          <span className="mt-2 block space-y-1.5 text-ui-14">
+                            {entry.checks.map((check) => (
+                              <span key={check.text} className="flex gap-2 text-ink">
+                                <span aria-hidden="true" className={check.ok ? "text-finance-primary" : "text-finance-dining"}>
+                                  {check.ok ? "✓" : "×"}
+                                </span>
+                                {check.text}
+                              </span>
+                            ))}
+                          </span>
+                        </span>
+                      ) : (
+                        <>
+                          <span
+                            className={`relative block h-20 ${entry.media === "lilac" ? "bg-gradient-to-br from-finance-subscriptions to-support-paleRose" : "bg-gradient-to-br from-journal to-support-paleRose"}`}
+                            aria-hidden="true"
+                          >
+                            <span className="absolute bottom-2 left-3 rounded-lg bg-white px-2 py-1 text-ui-12 font-semibold text-ink">{entry.place}</span>
+                          </span>
+                          <span className="block p-4">
+                            <span className="flex items-center justify-between gap-3">
+                              <span className="min-w-0 flex-1 break-words text-ui-16 font-bold text-ink">{entry.title}</span>
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-ui-12 font-bold text-ink ${entry.rating === "Never again" ? "bg-finance-dining/15" : "bg-finance-primary/15"}`}
+                              >
+                                {entry.rating}
+                              </span>
+                            </span>
+                            <span className="mt-0.5 block text-ui-12 text-ink">{entry.when}</span>
+                            <span className="mt-2 block text-ui-14 text-ink">{entry.note}</span>
+                          </span>
+                        </>
+                      )}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {view === "feed" && groups.length > 0 ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center">
+          <div className="relative h-0 w-full max-w-phone">
+            <Link
+              id="new-entry"
+              href="/journal/compose"
+              aria-label="New entry"
+              className="pointer-events-auto absolute bottom-[calc(var(--primary-nav-height,84px)+16px)] right-5 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-28 font-bold text-white"
+            >
+              <span aria-hidden="true">+</span>
+            </Link>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
