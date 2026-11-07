@@ -16,17 +16,24 @@ Built from Figma file `SQTyJdMUAGvbk08UMuAdlC`, page `joehub Mobile v1` (`0:1`).
 
 Frames used: `1:4` Finance home, `1:6` Finance home dark, `1:8` Finance goals, `1:10` Finance category and sheet, and the bottom tab bar drawn on those frames (the same marks as `1:2`). Jobs (`1:12`, `1:14`), Journal (`1:16`, `1:18`), More (`1:20`), and the Home body (`1:2`) are later slices.
 
-The 390px column stays centered past the phone width. No desktop composition was designed, so this slice does not add one.
+The 390px column stays centered past the phone width.
 
-## Questions this slice does not answer
+## Artie's answers
 
-- The chevron beside 1W / 1M / YTD / 1Y / All has no destination. Only the YTD series is drawn. Choosing another range does not invent a second chart.
-- "Edit caps" has no destination. Only Dining Out has a category frame, so only that tile opens `1:10`. The other weekly caps stay on the overview.
-- Goal-card chevrons have no destination. "New goal" is the dashed control from the frame. Activating it does not create a goal.
+Recorded 7 Nov 2026. READY FOR BUILD unless the line says EXPLORATORY.
+
+- READY FOR BUILD. The range chevron sits to the right of the chart-period pills. Only the YTD series is drawn.
+- READY FOR BUILD. Edit caps sits beside the Weekly caps header. It opens one editor for all six caps. That editor is not designed yet, so `/finance/caps` is a placeholder and does not save.
+- READY FOR BUILD. A goal chevron opens a read-only goal detail inside Finance. That detail is not designed yet, so the page is a placeholder and does not save.
+- READY FOR BUILD. Accounts is a Finance sub-view, never a sixth app tab. The accounts screen is not designed yet, so `/finance/accounts` is a placeholder and does not save.
+- READY FOR BUILD. Goal rows have no swipe. The swipe hint belongs to the Finance subtab strip and stays outside the scrolling tabs.
+- EXPLORATORY. A two-column layout at 1024px and up is not built. Desktop keeps the 390px column centered.
+
+## Still unspecified
+
 - The category pencil, "Edit name", and the `$80` cap chip have no editing result. Save does not write anything.
 - "Categories" opens the only designed category screen, Dining Out. A category index is not drawn.
-- Accounts is a tab label on the goals frame and has no frame of its own.
-- The goals tab row says "swipe". No swipe result is drawn.
+- "New goal" does not create a goal.
 - What the $4,204 plan, the pace marker, and the weekly caps mean as live figures is not in the handoff. The numbers on screen are the HTML examples.
 
 ## What the handoff still does not specify
@@ -37,7 +44,7 @@ The 390px column stays centered past the phone width. No desktop composition was
 - Tab and Finance marks use the HTML paths. The More sun control is still a stand-in. The generator called the paths lucide-style. They are not a verified Lucide export.
 - Names, amounts, and dates are the HTML example copy. They are not mapped from the API or from SQLite.
 - The sparkline paths are the HTML series. They are not a read from the API.
-- Finance home does not show the section tabs. Those tabs are on Goals. Accounts has no frame.
+- Finance home does not show the section tabs. Those tabs are on the Finance sub-views. Accounts has no designed frame, so the page is a placeholder.
 - The More HTML draws an "Amount < 0" chip and also a positive payroll row. The chip starts off so the pictured rows stay visible.
 - Sheets add Escape and a Tab loop. The HTML shows a close mark and does not specify keyboard behavior. Opening the category sheet moves focus to that close control, so the focus outline is visible. The frame does not draw that outline.
 - Controls that look tappable stay on the page and do not call the API.

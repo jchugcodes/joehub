@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Sparkline } from "../../components/Charts";
 import { Icon } from "../../components/Icon";
@@ -45,8 +46,8 @@ export default function FinancePage() {
       <div className="mt-2">
         <Sparkline />
       </div>
-      <div className="flex items-center justify-between px-5">
-      <fieldset className="flex gap-1">
+      <div className="flex min-w-0 items-center justify-between gap-2 px-5">
+      <fieldset className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
         <legend className="sr-only">Chart range</legend>
         {finance.ranges.map((item) => (
           <label key={item} className="cursor-pointer">
@@ -112,7 +113,9 @@ export default function FinancePage() {
       </ul>
       <div className="mt-5 flex items-baseline justify-between px-5">
         <h2 className="text-ui-17 font-bold">Weekly caps</h2>
-        <span className="text-ui-13 font-semibold text-finance-primary">Edit caps</span>
+        <Link href="/finance/caps" className="shrink-0 text-ui-13 font-semibold text-finance-primary">
+          Edit caps
+        </Link>
       </div>
       <ul className="mx-4 mt-2.5 grid grid-cols-2 gap-2.5">
         {finance.caps.map((cap) => {

@@ -49,11 +49,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       {/* The frames are 390px. Wider viewports keep that column centered. */}
-      <main id="content" className="mx-auto w-full max-w-phone pb-28 pt-2">
+      <main id="content" className="mx-auto w-full min-w-0 max-w-phone pb-28 pt-2">
         {children}
       </main>
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex justify-center">
-        <ul className="flex h-[84px] w-full max-w-phone justify-around border-t border-tab-line bg-tab px-2 pt-2 backdrop-blur">
+        <ul className="flex h-[84px] w-full min-w-0 max-w-phone justify-around overflow-x-auto border-t border-tab-line bg-tab px-2 pt-2 backdrop-blur">
           {tabs.map((tab) => {
             const current = tab.match(pathname);
             const tone = current ? activeText[tab.label] : "text-inactive";

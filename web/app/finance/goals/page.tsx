@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { FinanceTabs } from "../../../components/FinanceTabs";
 import { Icon } from "../../../components/Icon";
@@ -79,7 +80,9 @@ export default function GoalsPage() {
               </p>
               <p className={`mt-0.5 text-ui-12 ${noteClass[goal.tone]}`}>{goal.note}</p>
             </div>
-            <Icon name="chevron" size={18} />
+            <Link href={`/finance/goals/${goal.slug}`} aria-label={`Open ${goal.name}`} className="shrink-0 text-inactive">
+              <Icon name="chevron" size={18} />
+            </Link>
           </li>
         ))}
       </ul>

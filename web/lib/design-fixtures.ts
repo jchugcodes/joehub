@@ -55,6 +55,7 @@ export const finance = {
 
 export const goals = [
   {
+    slug: "student-loan-payoff",
     name: "Student loan payoff",
     detail: "Debt · auto-pay $400/mo",
     progress: "$12,400 / $20,000",
@@ -67,6 +68,7 @@ export const goals = [
     dash: "134.4 216.8",
   },
   {
+    slug: "emergency-fund",
     name: "Emergency fund",
     detail: "Savings · 3 months expenses",
     progress: "$5,170 / $12,600",
@@ -79,6 +81,7 @@ export const goals = [
     dash: "88.9 216.8",
   },
   {
+    slug: "nyc-move-fund",
     name: "NYC move fund",
     detail: "Savings · target Aug 2027",
     progress: "$2,240 / $8,000",
@@ -91,6 +94,7 @@ export const goals = [
     dash: "60.7 216.8",
   },
   {
+    slug: "travel-japan",
     name: "Travel — Japan",
     detail: "Savings",
     progress: "$450 / $3,000",
