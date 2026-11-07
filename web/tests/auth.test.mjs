@@ -148,7 +148,11 @@ test("oidc state is single use and the signature is checked", async () => {
   assert.equal(ok.claims.sub, "owner-subject");
   const again = await completeOidc({ code: "abc", state, config, store, redirectUri: "http://127.0.0.1/api/auth/callback", now, fetchImpl });
   assert.equal(again.status, 401);
-  const bad = sign(privateKey, { iss: config.issuer, aud: config.clientId, sub: "owner-subject", email: "owner@example.com", nonce: "nope", exp: Math.floor(now / 1000) + 60 }).replace(/.$/, "a");
+  const signed = sign(privateKey, { iss: config.issuer, aud: config.clientId, sub: "owner-subject", email: "owner@example.com", nonce: "nope", exp: Math.floor(now / 1000) + 60 });
+  const [header, payload, signature] = signed.split(".");
+  const signatureBytes = Buffer.from(signature, "base64url");
+  signatureBytes[0] ^= 0xff;
+  const bad = `${header}.${payload}.${signatureBytes.toString("base64url")}`;
   const { verifyIdToken } = await import("../lib/oidc.mjs");
   const jwks = `${config.issuer}/jwks`;
   assert.equal(await verifyIdToken(bad, jwks, config, "nope", now, fetchImpl), null);
