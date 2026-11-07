@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  // Screenshot runs hide the Next dev badge so it does not sit on the frames.
+  ...(process.env.JOEHUB_SCREENSHOTS === "1" ? { devIndicators: false as const } : {}),
   // fixtures.mjs reads this file with a URL next to the module. The tracer
   // does not always follow that read, so the standalone output includes it
   // for the routes that serve or render the synthetic rows.
