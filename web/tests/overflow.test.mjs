@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -38,6 +39,10 @@ function measureSource() {
       goal: goal ? parseFloat(getComputedStyle(goal).fontSize) : 0,
       tabLabel: tabs[0] ? parseFloat(getComputedStyle(tabs[0]).fontSize) : 0,
       tabLabels: tabs.map((tab) => (tab.textContent || "").replace(/\\s+/g, " ").trim()),
+      tabBoxes: tabs.map((tab) => {
+        const box = tab.getBoundingClientRect();
+        return { text: (tab.textContent || "").trim(), left: Math.round(box.left), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom) };
+      }),
       tabsInside: tabs.every((tab) => {
         const box = tab.getBoundingClientRect();
         return box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
@@ -62,7 +67,32 @@ async function waitForPage(child, log) {
   throw new Error(`next dev did not serve the goals page\n${log()}`);
 }
 
-test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+function extraOverflowCases() {
+  const dir = fileURLToPath(new URL("./overflow-cases/", import.meta.url));
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+      .flatMap((name) => JSON.parse(readFileSync(new URL(`./overflow-cases/${name}`, import.meta.url), "utf8")));
+  } catch (error) {
+    if (error && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function readyExpression(path) {
+  const laidOut = "document.querySelector(\"nav[aria-label='Primary'] a\")?.getBoundingClientRect().width > 0";
+  const value = String(path);
+  if (value.startsWith("/jobs") && !value.includes("view=") && !value.includes("/globex")) {
+    return `document.querySelector("[aria-label='Jobs sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
+  }
+  if (value.startsWith("/jobs") || value === "/finance" || value.startsWith("/finance/caps") || /\/goals\/[^/?]+/.test(value)) {
+    return `document.querySelector('h1') && ${laidOut} ? 'yes' : ''`;
+  }
+  return `document.querySelector("[aria-label='Finance sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
+}
+
+test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   let output = "";
   const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
     cwd: ROOT,
@@ -111,7 +141,7 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       ["/finance/goals", 390, 844, false],
       ["/finance/goals", 390, 900, true],
       ["/finance", 390, 900, true],
-    ];
+    ].concat(extraOverflowCases());
     for (const [path, width, height, enlarge] of cases) {
       const created = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
       const ws = new WebSocket(created.webSocketDebuggerUrl);
@@ -139,21 +169,24 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
       for (let i = 0; i < 40; i++) {
         const ready = await send("Runtime.evaluate", {
-          expression: "document.querySelector(\"[aria-label='Finance sections'] [data-hydrated='true']\") ? 'yes' : document.readyState",
+          expression: readyExpression(path),
           returnByValue: true,
         });
-        if (ready.result?.result?.value === "yes" || (path === "/finance" && ready.result?.result?.value === "complete" && i > 4)) break;
+        if (ready.result?.result?.value === "yes") break;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
       if (enlarge) {
-        await send("Runtime.evaluate", { expression: "document.documentElement.style.fontSize = '200%'" });
+        await send("Runtime.evaluate", {
+          expression: "document.documentElement.style.fontSize = '200%'; new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+          awaitPromise: true,
+        });
       }
       const measured = await send("Runtime.evaluate", { expression: measureSource(), returnByValue: true });
       const value = measured.result?.result?.value;
       assert.ok(value, `no measurement for ${path} at ${width}`);
       assert.ok(value.overflow <= 1, `${path} at ${width}${enlarge ? " text 200%" : ""} overflows by ${value.overflow}px`);
       assert.deepEqual(value.tabLabels, ["Home", "Finance", "Jobs", "Journal", "More"], JSON.stringify(value.tabLabels));
-      assert.equal(value.tabsInside, true, `a primary tab is clipped ${JSON.stringify(value.tabLabels)}`);
+      assert.equal(value.tabsInside, true, `a primary tab is clipped on ${path} at ${width} enlarge=${enlarge} ${JSON.stringify(value.tabBoxes)} inner check`);
       assert.ok(value.tabOverflow <= 1, `primary nav overflows by ${value.tabOverflow}px`);
       if (path === "/finance/goals") {
         assert.equal(value.contained, "contained", `served an old tab row ${JSON.stringify(value)}`);

@@ -1,0 +1,10 @@
+[
+  ["/finance/caps", 320, 900, false],
+  ["/finance/caps?view=error", 320, 900, false],
+  ["/finance/goals/student-loan-payoff", 320, 900, false],
+  ["/finance/accounts?view=empty", 320, 800, false],
+  ["/finance/caps", 390, 1000, true],
+  ["/finance/accounts", 390, 1000, true],
+  ["/finance/accounts?view=empty", 390, 1000, true],
+  ["/finance/goals/student-loan-payoff", 390, 1100, true]
+]
