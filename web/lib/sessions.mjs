@@ -5,6 +5,11 @@ export const COOKIE_NAME = "joehub_session";
 const DEV_USERNAME = "synthetic";
 const DEV_PASSWORD = "synthetic";
 
+function txnStorageKey(state, binding) {
+  if (!state || !binding) return "";
+  return `joehub:txn:${state}:${binding}`;
+}
+
 export function createStore() {
   const sessions = new Map();
   const devices = new Map();
@@ -23,12 +28,15 @@ export function createStore() {
     });
   };
   store.putTxn = async (txn) => {
-    txns.set(txn.state, txn);
+    const key = txnStorageKey(txn.state, txn.binding);
+    if (key) txns.set(key, txn);
   };
-  store.getTxn = async (state) => txns.get(state) || null;
-  store.takeTxn = async (state) => {
-    const txn = txns.get(state) || null;
-    txns.delete(state);
+  store.getTxn = async (state, binding) => txns.get(txnStorageKey(state, binding)) || null;
+  store.takeTxn = (state, binding) => {
+    const key = txnStorageKey(state, binding);
+    const txn = key ? txns.get(key) : null;
+    if (!txn || txn.binding !== binding) return null;
+    txns.delete(key);
     return txn;
   };
   store.getSession = async (id) => sessions.get(id) || null;

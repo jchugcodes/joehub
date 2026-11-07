@@ -40,6 +40,13 @@ export async function startFakeUpstash() {
       expires.delete(key);
       return 1;
     }
+    if (op === "GETDEL") {
+      if (!live(key)) return null;
+      const value = values.get(key) ?? null;
+      values.delete(key);
+      expires.delete(key);
+      return value;
+    }
     if (op === "INCR") {
       const next = Number(live(key) ? values.get(key) : 0) + 1;
       values.set(key, String(next));

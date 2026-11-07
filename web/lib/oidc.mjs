@@ -13,6 +13,11 @@ export function createPkce() {
   return { verifier, challenge };
 }
 
+export function browserBinding(browser) {
+  if (!browser) return "";
+  return createHash("sha256").update(String(browser)).digest("base64url");
+}
+
 async function discover(issuer, fetchImpl) {
   const cacheable = fetchImpl === fetch;
   if (cacheable && discoveryCache.has(issuer)) return discoveryCache.get(issuer);
@@ -95,6 +100,7 @@ export async function beginOidc(config, store, redirectUri, now, fetchImpl = fet
   const discovery = await discover(config.issuer, fetchImpl);
   const { verifier, challenge } = createPkce();
   const browser = randomBytes(32).toString("base64url");
+  const binding = browserBinding(browser);
   const txn = {
     state: randomBytes(16).toString("hex"),
     nonce: randomBytes(16).toString("hex"),
@@ -102,6 +108,7 @@ export async function beginOidc(config, store, redirectUri, now, fetchImpl = fet
     challenge,
     redirectUri,
     browser,
+    binding,
     createdAt: now,
   };
   await store.putTxn(txn, now);
@@ -129,11 +136,12 @@ function txnFresh(txn, redirectUri, browser, now) {
 
 export async function completeOidc({ code, state, browser, config, store, redirectUri, now, fetchImpl = fetch }) {
   if (!code || !state || !browser) return { status: 401, error: "authentication required" };
-  const pending = await store.getTxn(state);
+  const binding = browserBinding(browser);
+  const pending = await store.getTxn(state, binding);
   if (!txnFresh(pending, redirectUri, browser, now)) {
     return { status: 401, error: "authentication required" };
   }
-  const txn = await store.takeTxn(state);
+  const txn = await store.takeTxn(state, binding);
   if (!txnFresh(txn, redirectUri, browser, now)) {
     return { status: 401, error: "authentication required" };
   }

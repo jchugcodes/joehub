@@ -9,6 +9,11 @@ function ttlSeconds(expiresAt, now) {
   return Math.max(1, Math.ceil((expiresAt - now) / 1000));
 }
 
+function txnStorageKey(state, binding) {
+  if (!state || !binding) return "";
+  return `joehub:txn:${state}:${binding}`;
+}
+
 export function createUpstashStore({ url, token, fetchImpl = fetch }) {
   async function command(args) {
     let response;
@@ -101,16 +106,28 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
       return true;
     },
     async putTxn(txn, now) {
+      const key = txnStorageKey(txn.state, txn.binding);
+      if (!key) return;
       const life = ttlSeconds(txn.createdAt + 10 * 60 * 1000, now);
-      await command(["SET", `joehub:txn:${txn.state}`, JSON.stringify(txn), "EX", String(life)]);
+      await command(["SET", key, JSON.stringify(txn), "EX", String(life)]);
     },
-    async getTxn(state) {
-      return readJson(`joehub:txn:${state}`);
+    async getTxn(state, binding) {
+      const key = txnStorageKey(state, binding);
+      if (!key) return null;
+      return readJson(key);
     },
-    async takeTxn(state) {
-      const txn = await readJson(`joehub:txn:${state}`);
-      await command(["DEL", `joehub:txn:${state}`]);
-      return txn;
+    async takeTxn(state, binding) {
+      const key = txnStorageKey(state, binding);
+      if (!key) return null;
+      const raw = await command(["GETDEL", key]);
+      if (raw == null) return null;
+      try {
+        const txn = JSON.parse(raw);
+        if (!txn || txn.binding !== binding) return null;
+        return txn;
+      } catch {
+        throw new StoreError();
+      }
     },
     async hit(bucket, key, limit, windowMs, now) {
       const windowId = Math.floor(now / windowMs);

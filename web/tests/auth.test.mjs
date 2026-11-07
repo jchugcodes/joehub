@@ -4,7 +4,7 @@ import test from "node:test";
 import { readAuthConfig } from "../lib/auth-config.mjs";
 import { clientIp, publicOrigin } from "../lib/client-ip.mjs";
 import { decide } from "../lib/gate.mjs";
-import { beginOidc, completeOidc, ownerAllowed } from "../lib/oidc.mjs";
+import { beginOidc, browserBinding, completeOidc, ownerAllowed } from "../lib/oidc.mjs";
 import { seal as webSeal } from "../lib/seal.mjs";
 import { createStore, login, resolveSession, revokeAll, revokeDevice, seal, SESSION_TTL_MS } from "../lib/sessions.mjs";
 import { assertSafeToStart } from "../lib/startup.mjs";
@@ -156,7 +156,7 @@ test("oidc state is single use and the signature is checked", async () => {
   };
   const started = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
   const state = new URL(started.url).searchParams.get("state");
-  txn = store.txns.get(state);
+  txn = await store.getTxn(state, browserBinding(started.browser));
   const stranger = await completeOidc({
     code: "abc",
     state,
@@ -168,7 +168,7 @@ test("oidc state is single use and the signature is checked", async () => {
     fetchImpl,
   });
   assert.equal(stranger.status, 401);
-  assert.equal(store.txns.has(state), true);
+  assert.equal((await store.getTxn(state, browserBinding(started.browser))).nonce, txn.nonce);
   const ok = await completeOidc({
     code: "abc",
     state,
@@ -215,7 +215,7 @@ test("oidc state is single use and the signature is checked", async () => {
   };
   const againStarted = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
   const againState = new URL(againStarted.url).searchParams.get("state");
-  txn = store.txns.get(againState);
+  txn = await store.getTxn(againState, browserBinding(againStarted.browser));
   const forbidden = await completeOidc({
     code: "abc",
     state: againState,
@@ -228,6 +228,93 @@ test("oidc state is single use and the signature is checked", async () => {
   });
   assert.equal(forbidden.status, 403);
   assert.equal(store.sessions.size, 0);
+});
+
+test("parallel callbacks consume a transaction once", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: "jwk" });
+  jwk.kid = "test";
+  const now = 1_700_000_000_000;
+  const config = {
+    issuer: "https://issuer.example",
+    clientId: "client-test",
+    clientSecret: "client-secret-test",
+    ownerEmail: "owner@example.com",
+    ownerSub: "owner-subject",
+  };
+  const redirectUri = "http://127.0.0.1/api/auth/callback";
+  async function race(store) {
+    let nonce = "";
+    const fetchImpl = async (url) => {
+      const target = String(url);
+      if (target.endsWith("/.well-known/openid-configuration")) {
+        return json({
+          issuer: config.issuer,
+          authorization_endpoint: `${config.issuer}/authorize`,
+          token_endpoint: `${config.issuer}/token`,
+          jwks_uri: `${config.issuer}/jwks`,
+        });
+      }
+      if (target.endsWith("/jwks")) return json({ keys: [{ ...jwk, kid: "test", alg: "RS256", use: "sig" }] });
+      const token = sign(privateKey, {
+        iss: config.issuer,
+        aud: config.clientId,
+        sub: "owner-subject",
+        email: "owner@example.com",
+        email_verified: true,
+        nonce,
+        exp: Math.floor(now / 1000) + 60,
+      });
+      return json({ id_token: token });
+    };
+    const started = await beginOidc(config, store, redirectUri, now, fetchImpl);
+    const state = new URL(started.url).searchParams.get("state");
+    const binding = browserBinding(started.browser);
+    nonce = (await store.getTxn(state, binding)).nonce;
+    const strangers = await Promise.all(
+      [0, 1].map(() =>
+        completeOidc({
+          code: "abc",
+          state,
+          browser: "other-browser",
+          config,
+          store,
+          redirectUri,
+          now,
+          fetchImpl,
+        }),
+      ),
+    );
+    assert.deepEqual(
+      strangers.map((result) => result.status),
+      [401, 401],
+    );
+    assert.equal((await store.getTxn(state, binding)).nonce, nonce);
+    const results = await Promise.all(
+      [0, 1, 2, 3].map(() =>
+        completeOidc({
+          code: "abc",
+          state,
+          browser: started.browser,
+          config,
+          store,
+          redirectUri,
+          now,
+          fetchImpl,
+        }),
+      ),
+    );
+    assert.equal(results.filter((result) => result.status === 200).length, 1);
+    assert.equal(results.filter((result) => result.status === 401).length, 3);
+    assert.equal(await store.getTxn(state, binding), null);
+  }
+  await race(createStore());
+  const fake = await startFakeUpstash();
+  try {
+    await race(createUpstashStore({ url: fake.url, token: fake.token }));
+  } finally {
+    fake.stop();
+  }
 });
 
 function json(body, status = 200) {
