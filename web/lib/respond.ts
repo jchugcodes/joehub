@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientIp as peerAddress } from "./client-ip.mjs";
 
-const COOKIE = {
+export const sessionCookie = {
   httpOnly: true,
   secure: true,
   sameSite: "lax" as const,
@@ -27,9 +27,9 @@ export function jsonResult(result: {
     status: result.status,
     headers: { "cache-control": "no-store" },
   });
-  if (result.cookie) response.cookies.set("joehub_session", result.cookie, COOKIE);
+  if (result.cookie) response.cookies.set("joehub_session", result.cookie, sessionCookie);
   if (result.clearCookie) {
-    response.cookies.set("joehub_session", "", { ...COOKIE, maxAge: 0 });
+    response.cookies.set("joehub_session", "", { ...sessionCookie, maxAge: 0 });
   }
   return response;
 }

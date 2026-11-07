@@ -73,14 +73,14 @@ test("revoke and production fake login", () => {
   assert.equal(headers.get().includes(second.cookie), true);
 });
 
-test("reads require a session and rate limit", () => {
+test("reads require a session and rate limit", async () => {
   const store = createStore();
   const limiter = createLimiter(2);
   const now = 50;
-  const denied = handleGet("transactions", { get: () => "" }, devEnv, store, limiter, now, "ip");
+  const denied = await handleGet("transactions", { get: () => "" }, devEnv, store, limiter, now, "ip");
   assert.equal(denied.status, 401);
   assert.equal(JSON.stringify(denied.body).includes("SYNTHETIC-ACORN-PAYEE"), false);
-  const logged = handleLogin(
+  const logged = await handleLogin(
     { username: "synthetic", password: "synthetic" },
     devEnv,
     store,
@@ -89,8 +89,8 @@ test("reads require a session and rate limit", () => {
     "ip",
   );
   const headers = { get: () => `joehub_session=${logged.cookie}` };
-  assert.equal(handleGet("transactions", headers, devEnv, store, limiter, now, "ip").status, 200);
-  assert.equal(handleGet("transactions", headers, devEnv, store, limiter, now, "ip").status, 429);
+  assert.equal((await handleGet("transactions", headers, devEnv, store, limiter, now, "ip")).status, 200);
+  assert.equal((await handleGet("transactions", headers, devEnv, store, limiter, now, "ip")).status, 429);
 });
 
 test("spoofed x-forwarded-for cannot bypass the limit", () => {

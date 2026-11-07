@@ -1,10 +1,13 @@
 import { loadFixtures } from "./fixtures.mjs";
+import { StoreError } from "./store-upstash.mjs";
 import {
   COOKIE_NAME,
   listDevices,
   login,
   logout,
+  openCookie,
   resolveSession,
+  revokeAll,
   revokeDevice,
 } from "./sessions.mjs";
 
@@ -19,24 +22,55 @@ export function readCookie(headers) {
   return "";
 }
 
-function limited(limiter, ip, now) {
-  if (limiter && !limiter.allow(ip || "local", now)) {
-    return { status: 429, body: { detail: "rate limit" } };
+async function limited(limiter, ip, now) {
+  if (!limiter) return null;
+  try {
+    const allowed = await limiter.allow(ip || "direct", now);
+    if (!allowed) return { status: 429, body: { detail: "rate limit" } };
+    return null;
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
   }
-  return null;
 }
 
-export function handleGet(kind, headers, env, store, limiter, now, ip) {
-  const blocked = limited(limiter, ip, now);
+function presentDevice(device) {
+  return {
+    id: device.id,
+    label: device.label,
+    created_at: new Date(device.createdAt).toISOString(),
+    expires_at: new Date(device.expiresAt).toISOString(),
+    revoked: device.revoked,
+  };
+}
+
+async function resolveStored(cookie, env, store, now) {
+  if (store && typeof store.getSession === "function" && !store.sessions) {
+    const secret = env.JOEHUB_SESSION_SECRET || "";
+    const sessionId = openCookie(secret, cookie);
+    if (!sessionId) return null;
+    const session = await store.getSession(sessionId, now);
+    if (!session || session.revoked || now >= session.expiresAt) return null;
+    return session;
+  }
+  return resolveSession(cookie, env, store, now);
+}
+
+export async function handleGet(kind, headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
   if (blocked) return blocked;
-  if (!resolveSession(readCookie(headers), env, store, now)) {
-    return { status: 401, body: { detail: "authentication required" } };
+  try {
+    if (!(await resolveStored(readCookie(headers), env, store, now))) {
+      return { status: 401, body: { detail: "authentication required" } };
+    }
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
   }
   return { status: 200, body: loadFixtures()[kind] };
 }
 
-export function handleLogin(body, env, store, limiter, now, ip) {
-  const blocked = limited(limiter, ip, now);
+export async function handleLogin(body, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
   if (blocked) return blocked;
   const result = login(body || {}, env, store, now);
   if (result.cookie) {
@@ -45,25 +79,74 @@ export function handleLogin(body, env, store, limiter, now, ip) {
   return { status: result.status, body: { detail: result.error } };
 }
 
-export function handleLogout(headers, env, store, limiter, now, ip) {
-  const blocked = limited(limiter, ip, now);
+export async function handleLogout(headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
   if (blocked) return blocked;
-  logout(readCookie(headers), env, store, now);
+  try {
+    if (store && typeof store.revokeSession === "function" && !store.sessions) {
+      const secret = env.JOEHUB_SESSION_SECRET || "";
+      const sessionId = openCookie(secret, readCookie(headers));
+      if (sessionId) await store.revokeSession(sessionId, now);
+    } else {
+      logout(readCookie(headers), env, store, now);
+    }
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+  }
   return { status: 200, body: { ok: true }, clearCookie: true };
 }
 
-export function handleDevices(headers, env, store, limiter, now, ip) {
-  const blocked = limited(limiter, ip, now);
+export async function handleDevices(headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
   if (blocked) return blocked;
+  try {
+    const session = await resolveStored(readCookie(headers), env, store, now);
+    if (!session) return { status: 401, body: { detail: "authentication required" } };
+    if (store && typeof store.listDevices === "function" && !store.sessions) {
+      const rows = await store.listDevices(session.owner, now);
+      return { status: 200, body: rows.map(presentDevice) };
+    }
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+  }
   const result = listDevices(readCookie(headers), env, store, now);
   if (result.status !== 200) return { status: result.status, body: { detail: result.error } };
   return { status: 200, body: result.devices };
 }
 
-export function handleRevoke(deviceId, headers, env, store, limiter, now, ip) {
-  const blocked = limited(limiter, ip, now);
+export async function handleRevoke(deviceId, headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
   if (blocked) return blocked;
+  try {
+    if (store && typeof store.revokeDevice === "function" && !store.sessions) {
+      const session = await resolveStored(readCookie(headers), env, store, now);
+      if (!session) return { status: 401, body: { detail: "authentication required" } };
+      const found = await store.revokeDevice(deviceId, now);
+      if (!found) return { status: 404, body: { detail: "unknown device" } };
+      return { status: 200, body: { device_id: deviceId } };
+    }
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+  }
   const result = revokeDevice(readCookie(headers), env, store, now, deviceId);
   if (result.status !== 200) return { status: result.status, body: { detail: result.error } };
   return { status: 200, body: { device_id: result.device_id } };
+}
+
+export async function handleRevokeAll(headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
+  if (blocked) return blocked;
+  try {
+    const session = await resolveStored(readCookie(headers), env, store, now);
+    if (!session) return { status: 401, body: { detail: "authentication required" } };
+    if (store && typeof store.revokeAll === "function" && !store.sessions) {
+      await store.revokeAll(session.owner, now);
+      return { status: 200, body: { ok: true } };
+    }
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+  }
+  const result = revokeAll(readCookie(headers), env, store, now);
+  if (result.status !== 200) return { status: result.status, body: { detail: result.error } };
+  return { status: 200, body: { ok: true } };
 }

@@ -7,6 +7,6 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   return jsonResult(
-    handleRevoke(id, request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)),
+    await handleRevoke(id, request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)),
   );
 }
