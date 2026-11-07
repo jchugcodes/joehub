@@ -20,22 +20,21 @@ The 390px column stays centered past the phone width.
 
 ## Slice 3 — Journal
 
-Design version v2-journal, the local package. There are no new Figma node ids. The earlier v1 frames `1:16` and `1:18` are not these rasters. Built frames, all READY FOR BUILD: `JR01-feed-full`, `JR02-feed-loading`, `JR03-feed-empty`, `JR04-feed-error`, `JR05-composer-default`, `JR06-composer-typing`, `JR07-composer-validation`, `JR08-composer-saving`, `JR09-composer-saved`, `JR10-entry-detail`, `JR11-composer-date`.
+Design version v2-journal, the local package, including the round-3 addendum. There are no new Figma node ids. The earlier v1 frames `1:16` and `1:18` are not these rasters. Built frames, all READY FOR BUILD: `JR01-feed-full`, `JR02-feed-loading`, `JR03-feed-empty`, `JR04-feed-error`, `JR05-composer-default`, `JR06-composer-typing`, `JR07-composer-validation`, `JR08-composer-saving`, `JR09-composer-saved`, `JR10-entry-detail`, `JR11-composer-date`, `JR14-composer-save-failed`, and `JR15-feed-filtered-empty`.
 
-`JR12` and `JR13` are EXPLORATORY and are not built. Photo, mood, and upload are not on the page. Journal dark mode and a wider layout are not drawn. The 390px column stays centered.
+`JR12` and `JR13` are EXPLORATORY and are not built. Photo, mood, and upload are not on the page. Search is EXPLORATORY and deferred: the feed has no search control and does not reserve a space for one. Journal dark mode and a wider layout are not drawn. The 390px column stays centered.
 
-The feed, the empty and error states, and the composer are synthetic. Adding an entry shows “Demo only. Nothing was saved.” and does not write. A pending save timer is cancelled when Cancel closes the composer and when the page unmounts. Dates, the streak, and the month counts are the fixture examples, not the browser clock.
+The feed and the composer are synthetic. Adding an entry shows “Demo only. Nothing was saved.” and does not write. A failed save keeps the draft, says “Entry wasn’t saved.” and “Your draft is still here.”, and Retry returns through the saving state without showing success. A pending save timer is cancelled when Cancel closes the composer and when the page unmounts. Dates, the streak, and the month counts are the fixture examples, not the browser clock. `/journal?view=filtered` is a separate Places fixture. It keeps the streak and does not remove places from the full feed.
 
 ## Journal gaps
 
-- Search is not in the handoff, so the feed has no search control.
-- The date-mode error frame does not give a sentence. Empty Place uses “Add a place before adding this date.” with the same dark text and coral border as the nightly-win error.
-- The saved frame’s date-mode line is not drawn. Date mode reuses “Entry added” and says “A date, remembered.”
-- Failure has no raster. The unused sentence is “Entry wasn’t saved. Your draft is still here.”
-- A filtered feed with no rows has no PNG. It reuses the empty card and says “No [filter] entries yet”.
+- Search stays deferred until it has results, empty, and error frames.
+- “Add a place before adding this date.” and “A date, remembered.” are the approved round-3 sentences.
+- JR15 is drawn for Places. Wins and Dates reuse that layout with their own sentences.
+- Loading, empty, and error have no new-entry button. The full feed keeps the 56px button, 20px from the right side of the column, sitting one nav-height plus 16px above the bottom. The feed reserves extra room so the last card clears that button.
 - An untouched Cancel returns to the feed. A dirty draft stays in memory for this page session only. Refresh clears it. It is not stored on the device.
 - Back restores the card or the new-entry control when that target is on the feed. Filter and scroll restoration are best-effort for the same session.
-- Small essential Journal text is ink. Muted on the page is 4.45:1, and white on `#C2577A` is 4.25:1, so the pink actions are 19px and 700 weight with a 48px minimum height.
+- Small essential Journal text is ink. Muted on the page is 4.45:1, and white on `#C2577A` is 4.25:1, so the pink actions are 19px and 700 weight with a 48px minimum height. The saving button uses the line color with ink text.
 - The shared tab bar is unchanged. Its inactive gray and the active Journal pink are the existing small-text pairs.
 
 ## Artie's answers

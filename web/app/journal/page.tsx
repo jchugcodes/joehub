@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { journal } from "../../lib/design-fixtures";
 import { DEMO_NOTICE, readFilter, readScroll, writeFilter, writeScroll, type JournalFilter } from "../../lib/journal-session";
@@ -20,11 +20,47 @@ function matches(filter: JournalFilter, entry: (typeof journal.entries)[number])
   return true;
 }
 
+function Streak() {
+  return (
+    <>
+      <section className="mx-4 mt-4 rounded-card bg-gradient-to-br from-journal to-support-journalGradientEnd p-4 text-white" aria-label="Streak">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-ui-26 font-extrabold leading-none">{journal.streak}</p>
+            <p className="mt-1 inline-block rounded-lg bg-ink/40 px-1 py-0.5 text-ui-12 text-white">{journal.streakNote}</p>
+          </div>
+          <p className="max-w-full rounded-lg bg-ink/40 px-1 py-0.5 text-right text-ui-12 text-white">
+            {journal.month}
+            <br />
+            <b className="text-ui-15">{journal.monthNote}</b>
+          </p>
+        </div>
+      </section>
+      <div className="card mx-4 mt-2.5 flex justify-between px-3 py-3" aria-hidden="true">
+        {journal.days.map((day, index) => (
+          <div key={`${day}-${index}`} className="flex flex-col items-center gap-1">
+            <span className="text-ui-10.5 text-ink">{day}</span>
+            <span className={`grid h-8 w-8 place-items-center rounded-full text-ui-12 ${journal.done[index] ? "bg-journal text-white" : "bg-line text-ink"}`}>
+              {journal.done[index] ? "✓" : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="sr-only">Example week. Monday through Friday are marked. Saturday and Sunday are open. These are not buttons.</p>
+    </>
+  );
+}
+
 export default function JournalPage() {
+  const router = useRouter();
   const params = useSearchParams();
   const requested = params.get("view");
   const queryFilter = params.get("filter");
   const [filter, setFilter] = useState<JournalFilter>(() => {
+    if (params.get("view") === "filtered") {
+      if (queryFilter === "wins" || queryFilter === "dates" || queryFilter === "places") return queryFilter;
+      return "places";
+    }
     if (queryFilter === "wins" || queryFilter === "dates" || queryFilter === "places") return queryFilter;
     return readFilter();
   });
@@ -44,6 +80,10 @@ export default function JournalPage() {
       }
       return;
     }
+    if (params.get("view") === "filtered") {
+      const selected = document.querySelector("[aria-label='Journal filters'] [aria-pressed='true']");
+      if (selected instanceof HTMLElement) selected.focus();
+    }
     const y = readScroll();
     if (y > 0) window.scrollTo(0, y);
   }, []);
@@ -51,8 +91,8 @@ export default function JournalPage() {
   useEffect(() => () => writeScroll(window.scrollY), []);
   useEffect(() => writeFilter(filter), [filter]);
 
-  const view = resolved ? "feed" : requested === "loading" || requested === "empty" || requested === "error" ? requested : "feed";
-  const visible = journal.entries.filter((entry) => matches(filter, entry));
+  const view = resolved ? "feed" : requested === "loading" || requested === "empty" || requested === "error" || requested === "filtered" ? requested : "feed";
+  const visible = view === "filtered" ? [] : journal.entries.filter((entry) => matches(filter, entry));
   const groups = visible.reduce<{ label: string; entries: typeof visible }[]>((rows, entry) => {
     const last = rows[rows.length - 1];
     if (last && last.label === entry.group) last.entries.push(entry);
@@ -70,10 +110,28 @@ export default function JournalPage() {
     }, 300);
   }
 
-  const emptyCopy =
-    filter === "feed"
-      ? { title: "A small win counts", body: "A good meal, a kind moment, getting through today. Start with one thing you want to remember." }
-      : { title: `No ${filters.find((item) => item.id === filter)?.label.toLowerCase()} entries yet`, body: "A good meal, a kind moment, getting through today. Start with one thing you want to remember." };
+  const filteredCopy =
+    filter === "wins"
+      ? {
+          title: "No wins yet",
+          body: "No nightly wins match this filter. Your other entries are still in Feed.",
+          action: "Write your first entry",
+          href: "/journal/compose",
+        }
+      : filter === "dates"
+        ? {
+            title: "No dates yet",
+            body: "No date entries match this filter. Your other entries are still in Feed.",
+            action: "Add a date",
+            href: "/journal/compose?mode=date",
+          }
+        : {
+            title: "No places yet",
+            body: "No entries with a place match this filter. Your other entries are still in Feed.",
+            action: "Add a date",
+            href: "/journal/compose?mode=date",
+          };
+  const showFiltered = view === "filtered" || (view === "feed" && groups.length === 0);
 
   return (
     <div data-ready={ready ? "true" : "false"}>
@@ -100,26 +158,34 @@ export default function JournalPage() {
           })}
         </div>
       </div>
-      <p role="status" className={view === "loading" || !notice ? "sr-only" : "px-4 pt-3 text-ui-14 text-ink"}>
-        {view === "loading" ? "Loading your journal…" : notice}
-      </p>
+      {notice ? (
+        <p role="status" className="px-4 pt-3 text-ui-14 text-ink">
+          {notice}
+        </p>
+      ) : null}
 
       {view === "loading" ? (
-        <div className="space-y-3 px-4" aria-busy="true">
-          <div className="h-24 rounded-card bg-line" aria-hidden="true" />
-          <div className="h-24 rounded-card bg-line" aria-hidden="true" />
-          <div className="h-24 rounded-card bg-line" aria-hidden="true" />
+        <div className="mt-4 px-4" aria-busy="true">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className={`card p-4 ${item === 0 ? "" : "mt-3"}`} aria-hidden="true">
+              <div className="h-4 w-32 rounded bg-line" />
+              <div className="mt-4 h-24 rounded-xl bg-line" />
+            </div>
+          ))}
+          <p role="status" className="mt-5 text-ui-13 text-ink">
+            Loading your journal…
+          </p>
         </div>
       ) : null}
 
-      {view === "empty" || (view === "feed" && groups.length === 0) ? (
-        <div className="px-4">
+      {view === "empty" ? (
+        <div className="mt-4 px-4">
           <div className="card p-4 text-left">
             <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
               ＋
             </div>
-            <h2 className="text-ui-20 font-bold">{emptyCopy.title}</h2>
-            <p className="mt-2 text-ui-14 leading-relaxed text-ink">{emptyCopy.body}</p>
+            <h2 className="text-ui-20 font-bold">A small win counts</h2>
+            <p className="mt-2 text-ui-14 leading-relaxed text-ink">A good meal, a kind moment, getting through today. Start with one thing you want to remember.</p>
           </div>
           <div className="mt-4 space-y-3">
             <Link href="/journal/compose" className="action-link">
@@ -133,7 +199,7 @@ export default function JournalPage() {
       ) : null}
 
       {view === "error" ? (
-        <div className="px-4">
+        <div className="mt-4 px-4">
           <div className="card p-4 text-left">
             <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
               ↻
@@ -154,32 +220,32 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {view === "feed" && groups.length > 0 ? (
+      {showFiltered ? (
         <div>
-          <section className="mx-4 mt-3 rounded-card bg-gradient-to-br from-journal to-support-journalGradientEnd p-4 text-white" aria-label="Streak">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-ui-26 font-extrabold leading-none">{journal.streak}</p>
-                <p className="mt-1 inline-block rounded-lg bg-ink/40 px-1 py-0.5 text-ui-12 text-white">{journal.streakNote}</p>
+          <Streak />
+          <div className="mt-3 px-4">
+            <div className="card p-4 text-left">
+              <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
+                ＋
               </div>
-              <p className="max-w-full rounded-lg bg-ink/40 px-1 py-0.5 text-right text-ui-12 text-white">
-                {journal.month}
-                <br />
-                <b className="text-ui-15">{journal.monthNote}</b>
-              </p>
+              <h2 className="text-ui-20 font-bold" role="status">
+                {filteredCopy.title}
+              </h2>
+              <p className="mt-2 text-ui-14 leading-relaxed text-ink">{filteredCopy.body}</p>
             </div>
-          </section>
-          <div className="card mx-4 mt-2.5 flex justify-between px-3 py-3" aria-hidden="true">
-            {journal.days.map((day, index) => (
-              <div key={`${day}-${index}`} className="flex flex-col items-center gap-1">
-                <span className="text-ui-10.5 text-ink">{day}</span>
-                <span className={`grid h-8 w-8 place-items-center rounded-full text-ui-12 ${journal.done[index] ? "bg-journal text-white" : "bg-line text-ink"}`}>
-                  {journal.done[index] ? "✓" : ""}
-                </span>
-              </div>
-            ))}
+            <Link href={filteredCopy.href} className="action-link mt-4">
+              {filteredCopy.action}
+            </Link>
+            <button type="button" className="action-link action-link-secondary mt-3" onClick={() => router.push("/journal")}>
+              Show all entries
+            </button>
           </div>
-          <p className="sr-only">Example week. Monday through Friday are marked. Saturday and Sunday are open. These are not buttons.</p>
+        </div>
+      ) : null}
+
+      {view === "feed" && groups.length > 0 ? (
+        <div className="pb-[64px]">
+          <Streak />
           <div className="mt-3 space-y-2.5 px-4">
             {groups.map((group) => (
               <section key={group.label}>
@@ -240,18 +306,20 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center">
-        <div className="relative h-0 w-full max-w-phone">
-          <Link
-            id="new-entry"
-            href="/journal/compose"
-            aria-label="New entry"
-            className="pointer-events-auto absolute bottom-[calc(var(--primary-nav-height,84px)+16px)] right-4 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-28 font-bold text-white"
-          >
-            <span aria-hidden="true">+</span>
-          </Link>
+      {view === "feed" && groups.length > 0 ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center">
+          <div className="relative h-0 w-full max-w-phone">
+            <Link
+              id="new-entry"
+              href="/journal/compose"
+              aria-label="New entry"
+              className="pointer-events-auto absolute bottom-[calc(var(--primary-nav-height,84px)+16px)] right-5 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-28 font-bold text-white"
+            >
+              <span aria-hidden="true">+</span>
+            </Link>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
