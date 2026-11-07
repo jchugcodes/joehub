@@ -14,10 +14,17 @@ const accounts = [
 ];
 
 export default function AccountsPage() {
-  const empty = useSearchParams().get("view") === "empty";
+  const params = useSearchParams();
+  const empty = params.get("view") === "empty";
+  const fromMore = params.get("from") === "more";
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-from={fromMore ? "more" : "finance"}>
       <header className="px-5">
+        {fromMore ? (
+          <Link href="/more#accounts" className="inline-flex min-h-11 items-center pr-2 text-ui-14 font-semibold">
+            ‹ More
+          </Link>
+        ) : null}
         <p className="text-ui-13 text-muted">Finance</p>
         <h1 className="text-ui-22 font-bold">Accounts</h1>
       </header>
@@ -34,10 +41,10 @@ export default function AccountsPage() {
             <h2 className="mt-4 text-ui-22 font-bold">No accounts to show</h2>
             <p className="mt-2 text-ui-14 text-muted">Balances appear after an account snapshot is available. An empty list does not mean your net worth is $0.</p>
             <Link
-              href="/finance"
+              href={fromMore ? "/more#accounts" : "/finance"}
               className="mt-4 flex min-h-12 items-center justify-center rounded-xl border border-finance-primary px-4 text-ui-19 font-bold text-finance-primary"
             >
-              Back to overview
+              {fromMore ? "Back to More" : "Back to overview"}
             </Link>
           </section>
         </>
