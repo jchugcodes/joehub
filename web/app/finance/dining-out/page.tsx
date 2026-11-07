@@ -42,7 +42,7 @@ export default function DiningOutPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between px-4 pt-2">
+      <div className="flex items-center justify-between px-4">
         <Link href="/finance" aria-label="Back to Finance" className="text-ink">
           <Icon name="back" size={24} />
         </Link>
@@ -101,7 +101,7 @@ export default function DiningOutPage() {
       </ul>
       {open ? (
         <Sheet title="Recategorize" frame onClose={() => setOpen(false)}>
-          <div className="card flex justify-between rounded-2xl p-3">
+          <div className="card merchant-summary mt-3 flex justify-between p-3">
             <div>
               <p className="text-ui-15 font-semibold">Sweetgreen</p>
               <p className="text-ui-12 mut">Wed Nov 4 · −$16.25</p>
@@ -126,11 +126,13 @@ export default function DiningOutPage() {
                       onChange={() => setChoice(category)}
                     />
                     <span
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-ui-13.5 font-semibold ${
-                        selected ? "border-transparent bg-finance-primary text-white" : "border-line"
-                      } ${selected ? "" : chipColor[category]}`}
+                      className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-ui-13.5 font-semibold ${
+                        selected ? "border-transparent bg-finance-primary text-white" : "border-line bg-white text-ink"
+                      }`}
                     >
-                      <Icon name={chipIcon[category]} size={15} />
+                      <span className={selected ? "text-white" : chipColor[category]}>
+                        <Icon name={chipIcon[category]} size={15} />
+                      </span>
                       {category}
                     </span>
                   </label>

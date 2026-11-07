@@ -19,7 +19,7 @@ export default function FinancePage() {
   const [range, setRange] = useState("YTD");
   return (
     <div>
-      <header className="flex items-center justify-between px-5 pt-2">
+      <header className="flex items-center justify-between px-5">
         <div>
           <p className="text-ui-13 mut">Finance</p>
           <h1 className="text-ui-22 font-bold">Net worth</h1>

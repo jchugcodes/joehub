@@ -12,7 +12,7 @@ export default async function GoalDetailPlaceholderPage({ params }: { params: Pr
   if (!goal) notFound();
   return (
     <div>
-      <p className="px-5 pt-2 text-ui-13 mut">Finance · Goals</p>
+      <p className="px-5 text-ui-13 mut">Finance · Goals</p>
       <h1 className="px-5 text-ui-22 font-bold">{goal.name}</h1>
       <div className="mx-4 mt-4 card p-4">
         <p className="text-ui-13 font-semibold text-finance-primary">Not designed yet</p>

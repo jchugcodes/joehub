@@ -4,7 +4,7 @@ import { FinanceTabs } from "../../../components/FinanceTabs";
 export default function AccountsPage() {
   return (
     <div>
-      <p className="px-5 pt-2 text-ui-13 mut">Finance</p>
+      <p className="px-5 text-ui-13 mut">Finance</p>
       <h1 className="px-5 text-ui-22 font-bold">Accounts</h1>
       <FinanceTabs />
       <div className="mx-4 mt-4 card p-4">

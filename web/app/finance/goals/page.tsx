@@ -17,7 +17,7 @@ export default function GoalsPage() {
   const [demo, setDemo] = useState("");
   return (
     <div>
-      <p className="px-5 pt-2 text-ui-13 mut">Finance</p>
+      <p className="px-5 text-ui-13 mut">Finance</p>
       <h1 className="mb-3 px-5 text-ui-22 font-bold">Goals</h1>
       <FinanceTabs hint />
       <section className="mx-4 mt-4">

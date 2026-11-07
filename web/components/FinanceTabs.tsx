@@ -35,7 +35,7 @@ export function FinanceTabs({ hint = false }: { hint?: boolean }) {
     return () => scroller.removeEventListener("focusin", onFocus);
   }, []);
   return (
-    <nav aria-label="Finance sections" data-tabs="contained" className="flex w-full min-w-0 items-end border-b border-line">
+    <nav aria-label="Finance sections" data-tabs="contained" className="finance-sections flex w-full min-w-0 items-end border-b border-line">
       <div ref={scrollerRef} className="flex min-w-0 flex-1 items-end gap-6 overflow-x-auto overflow-y-hidden px-5 scroll-px-5">
         {links.map((link) => {
           const current = pathname === link.href;
@@ -61,7 +61,7 @@ export function FinanceTabs({ hint = false }: { hint?: boolean }) {
         })}
       </div>
       {hint ? (
-        <span className="flex shrink-0 items-center gap-1 pb-2.5 pr-5 text-ui-11 text-muted">
+        <span className="swipe-hint flex shrink-0 items-center gap-1 pb-2.5 pr-5 text-ui-11 text-muted">
           swipe <Icon name="swipe" size={14} />
         </span>
       ) : null}

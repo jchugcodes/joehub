@@ -15,10 +15,34 @@ function measureSource() {
     const nav = document.querySelector("nav[aria-label='Finance sections']");
     const scroller = nav ? nav.querySelector(":scope > div") : null;
     const hint = nav ? [...nav.children].find((el) => (el.textContent || "").includes("swipe")) : null;
+    const primary = document.querySelector("nav[aria-label='Primary'] ul");
+    const tabs = primary ? [...primary.querySelectorAll("a")] : [];
+    const h1 = document.querySelector("h1");
+    const goal = document.querySelector(".text-ui-16");
+    const root = getComputedStyle(doc).fontSize;
     return {
       overflow: doc.scrollWidth - doc.clientWidth,
       hintOutside: hint ? !scroller.contains(hint) && nav.contains(hint) : null,
+      hintWidth: hint ? hint.getBoundingClientRect().width : 0,
+      accountsFit: (() => {
+        if (!scroller) return null;
+        const link = [...scroller.querySelectorAll("a")].find((el) => (el.textContent || "").trim() === "Accounts");
+        if (!link) return false;
+        const box = link.getBoundingClientRect();
+        const view = scroller.getBoundingClientRect();
+        return scroller.scrollLeft <= 1 && box.left >= view.left - 1 && box.right <= view.right + 1;
+      })(),
       contained: nav ? nav.dataset.tabs || "" : "",
+      root,
+      title: h1 ? parseFloat(getComputedStyle(h1).fontSize) : 0,
+      goal: goal ? parseFloat(getComputedStyle(goal).fontSize) : 0,
+      tabLabel: tabs[0] ? parseFloat(getComputedStyle(tabs[0]).fontSize) : 0,
+      tabLabels: tabs.map((tab) => (tab.textContent || "").replace(/\\s+/g, " ").trim()),
+      tabsInside: tabs.every((tab) => {
+        const box = tab.getBoundingClientRect();
+        return box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+      }),
+      tabOverflow: primary ? primary.scrollWidth - primary.clientWidth : 0,
     };
   })()`;
 }
@@ -84,8 +108,9 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       ["/finance/goals", 320, 700, false],
       ["/finance/accounts", 320, 700, false],
       ["/finance", 320, 700, false],
-      ["/finance/goals", 390, 844, true],
-      ["/finance", 390, 844, true],
+      ["/finance/goals", 390, 844, false],
+      ["/finance/goals", 390, 900, true],
+      ["/finance", 390, 900, true],
     ];
     for (const [path, width, height, enlarge] of cases) {
       const created = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
@@ -127,9 +152,50 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       const value = measured.result?.result?.value;
       assert.ok(value, `no measurement for ${path} at ${width}`);
       assert.ok(value.overflow <= 1, `${path} at ${width}${enlarge ? " text 200%" : ""} overflows by ${value.overflow}px`);
+      assert.deepEqual(value.tabLabels, ["Home", "Finance", "Jobs", "Journal", "More"], JSON.stringify(value.tabLabels));
+      assert.equal(value.tabsInside, true, `a primary tab is clipped ${JSON.stringify(value.tabLabels)}`);
+      assert.ok(value.tabOverflow <= 1, `primary nav overflows by ${value.tabOverflow}px`);
       if (path === "/finance/goals") {
         assert.equal(value.contained, "contained", `served an old tab row ${JSON.stringify(value)}`);
         assert.equal(value.hintOutside, true);
+        assert.equal(value.hintWidth, 0, "swipe hint still reserves width inside the 390 column");
+        if (enlarge) {
+          assert.ok(Math.abs(value.title - 44) < 0.6, `Goals title computed ${value.title}px, root ${value.root}`);
+          assert.ok(Math.abs(value.goal - 32) < 0.6, `goal title computed ${value.goal}px`);
+          assert.ok(Math.abs(value.tabLabel - 21) < 0.6, `tab label computed ${value.tabLabel}px`);
+        } else if (width === 390) {
+          assert.equal(value.accountsFit, true, "Accounts is cut off at 390px");
+          assert.ok(Math.abs(value.title - 22) < 0.6, `Goals title computed ${value.title}px at normal size`);
+          const fontReport = await send("Runtime.evaluate", {
+            expression: `(() => {
+              const heading = document.querySelector("h1");
+              const style = getComputedStyle(heading);
+              const family = style.fontFamily.split(",")[0].trim().replace(/^['"]|['"]$/g, "");
+              return document.fonts.ready.then(() => ({
+                family: style.fontFamily,
+                weight: style.fontWeight,
+                optical: style.fontOpticalSizing,
+                size: style.fontSize,
+                loaded: document.fonts.check(style.fontWeight + " " + style.fontSize + " \\"" + family + "\\""),
+                faces: [...document.fonts].filter((face) => /dm/i.test(face.family)).map((face) => face.family + " " + face.weight + " " + face.status),
+              }));
+            })()`,
+            awaitPromise: true,
+            returnByValue: true,
+          });
+          const font = fontReport.result?.result?.value;
+          assert.equal(font.loaded, true, `DM Sans did not load ${JSON.stringify(font)}`);
+          assert.match(font.family, /DM Sans|__DM_Sans/i, JSON.stringify(font));
+          assert.equal(font.optical, "auto", JSON.stringify(font));
+          await send("DOM.enable");
+          await send("CSS.enable");
+          const documentNode = await send("DOM.getDocument", { depth: 0 });
+          const heading = await send("DOM.querySelector", { nodeId: documentNode.result.root.nodeId, selector: "h1" });
+          const platform = await send("CSS.getPlatformFontsForNode", { nodeId: heading.result.nodeId });
+          const names = (platform.result?.fonts || []).map((item) => item.familyName);
+          assert.ok(names.some((name) => /DM Sans/i.test(name)), `platform fonts ${JSON.stringify(platform.result?.fonts)}`);
+          console.log("FONT", JSON.stringify({ ...font, platform: names }));
+        }
         await send("Emulation.setFocusEmulationEnabled", { enabled: true });
         await send("Runtime.evaluate", {
           expression: "document.querySelector(\"[aria-label='Finance sections'] a\").focus()",

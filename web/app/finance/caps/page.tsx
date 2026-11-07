@@ -4,7 +4,7 @@ import { finance } from "../../../lib/design-fixtures";
 export default function CapsPlaceholderPage() {
   return (
     <div>
-      <p className="px-5 pt-2 text-ui-13 mut">Finance</p>
+      <p className="px-5 text-ui-13 mut">Finance</p>
       <h1 className="px-5 text-ui-22 font-bold">Edit caps</h1>
       <div className="mx-4 mt-4 card p-4">
         <p className="text-ui-13 font-semibold text-finance-primary">Not designed yet</p>

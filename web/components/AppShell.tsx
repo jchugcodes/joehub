@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 const tabs = [
@@ -42,6 +42,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const apply = () => document.documentElement.style.setProperty("--primary-nav-height", `${nav.offsetHeight}px`);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div data-theme={dark ? "dark" : "light"} className="min-h-screen bg-page text-ink">
@@ -49,25 +60,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       {/* The frames are 390px. Wider viewports keep that column centered. */}
-      <main id="content" className="mx-auto w-full min-w-0 max-w-phone pb-28 pt-2">
+      <main id="content" className="mx-auto w-full min-w-0 max-w-phone pb-[calc(var(--primary-nav-height,84px)+28px)] pt-2">
         {children}
       </main>
-      <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex justify-center">
-        <ul className="flex h-[84px] w-full min-w-0 max-w-phone justify-around overflow-x-auto border-t border-tab-line bg-tab px-2 pt-2 backdrop-blur">
+      <nav ref={navRef} aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex justify-center">
+        <ul className="flex min-h-[84px] w-full min-w-0 max-w-phone items-stretch border-t border-tab-line bg-tab px-2 py-2 backdrop-blur">
           {tabs.map((tab) => {
             const current = tab.match(pathname);
             const tone = current ? activeText[tab.label] : "text-inactive";
             return (
-              <li key={tab.href}>
+              <li key={tab.href} className="flex min-w-0 flex-1 basis-0">
                 <Link
                   href={tab.href}
                   aria-current={current ? "page" : undefined}
-                  className={`flex w-14 flex-col items-center gap-1 text-ui-10.5 ${current ? "font-semibold" : "font-medium"} ${tone}`}
+                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center text-ui-10.5 leading-tight ${current ? "font-semibold" : "font-medium"} ${tone}`}
                 >
                   <span className={`rounded-full px-3 py-1 ${current ? `${activePill[tab.label]} ${tone}` : ""}`}>
                     <Icon name={tab.icon} size={22} strokeWidth={current ? 2.2 : 1.8} />
                   </span>
-                  {tab.label}
+                  <span className="w-full whitespace-normal break-words">{tab.label}</span>
                 </Link>
               </li>
             );
