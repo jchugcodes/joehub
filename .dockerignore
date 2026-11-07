@@ -1,0 +1,14 @@
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.age
+**/.env
+**/.env.*
+**/keys
+**/*.token
+**/.git
+**/node_modules
+**/.next
+**/__pycache__
+**/.venv
+**/venv
