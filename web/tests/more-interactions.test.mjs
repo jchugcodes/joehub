@@ -424,3 +424,97 @@ test("more menu routes into the transactions table and finance accounts", { time
     await page.close();
   }
 });
+
+async function tab(send) {
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+}
+
+test("more pages stay inside 320px and 200% text and answer the Tab key", { timeout: 180000, skip }, async () => {
+  const page = await openPage();
+  const { send } = page;
+  try {
+    const cases = [
+      ["/more", 320, false],
+      ["/more/database", 320, false],
+      ["/more/database?view=loading", 320, false],
+      ["/more/database?view=empty", 320, false],
+      ["/more/database?view=error&fresh=1", 320, false],
+      ["/more/database?month=2026-11&amount=income&account=Card%20A", 320, false],
+      ["/more", 390, true],
+      ["/more/database", 390, true],
+      ["/more/database?view=empty", 390, true],
+    ];
+    for (const [path, width, enlarge] of cases) {
+      await go(send, path, width);
+      if (enlarge) {
+        await send("Runtime.evaluate", { expression: "document.documentElement.style.fontSize = '200%'" });
+        await send("Runtime.evaluate", {
+          expression: "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+          awaitPromise: true,
+        });
+      }
+      const value = await evalValue(
+        send,
+        `(() => {
+          const doc = document.documentElement;
+          const primary = document.querySelector("nav[aria-label='Primary'] ul");
+          const tabs = primary ? [...primary.querySelectorAll("a")] : [];
+          const h1 = document.querySelector("h1");
+          return {
+            overflow: doc.scrollWidth - doc.clientWidth,
+            title: h1 ? parseFloat(getComputedStyle(h1).fontSize) : 0,
+            tabs: tabs.map((tab) => (tab.textContent || "").replace(/\\s+/g, " ").trim()),
+            tabsInside: tabs.every((tab) => {
+              const box = tab.getBoundingClientRect();
+              return box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+            }),
+          };
+        })()`,
+      );
+      assert.ok(value.overflow <= 1, `${path} at ${width}${enlarge ? " text 200%" : ""} overflows by ${value.overflow}px`);
+      assert.deepEqual(value.tabs, ["Home", "Finance", "Jobs", "Journal", "More"]);
+      assert.equal(value.tabsInside, true, `${path} clips a primary tab`);
+      if (enlarge) assert.ok(Math.abs(value.title - 44) < 0.6, `${path} title computed ${value.title}px`);
+    }
+
+    await go(send, "/more", 320);
+    await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+    let guard = 0;
+    while ((await evalValue(send, "document.activeElement?.id || ''")) !== "more-database" && guard < 12) {
+      await tab(send);
+      guard += 1;
+    }
+    assert.equal(await evalValue(send, "document.activeElement?.id"), "more-database");
+    await tab(send);
+    assert.equal(await evalValue(send, "document.activeElement?.id"), "more-accounts");
+    await tab(send);
+    const afterAccounts = await evalValue(send, "(document.activeElement?.innerText || '').trim()");
+    assert.match(afterAccounts, /Home/);
+    assert.equal(await evalValue(send, "document.body.innerText.includes('Appearance')"), true);
+    assert.equal(afterAccounts.includes("Appearance"), false);
+
+    await go(send, "/more/database", 320);
+    guard = 0;
+    while (!(await evalValue(send, "document.activeElement?.getAttribute('aria-label') || ''")).startsWith("Sort") && guard < 12) {
+      await tab(send);
+      guard += 1;
+    }
+    assert.match(await evalValue(send, "document.activeElement?.getAttribute('aria-label') || ''"), /^Sort/);
+    await tab(send);
+    assert.equal(await evalValue(send, "document.activeElement?.id"), "filter-month");
+    await tab(send);
+    assert.match(await evalValue(send, "document.activeElement?.innerText || ''"), /amounts|Expenses|Income/);
+    const seen = [];
+    let steps = 0;
+    while (steps < 8 && !(await evalValue(send, "(document.activeElement?.id || '').startsWith('tx-')"))) {
+      seen.push(await evalValue(send, "(document.activeElement?.innerText || '').trim()"));
+      await tab(send);
+      steps += 1;
+    }
+    assert.equal(seen.some((label) => String(label).includes("planned")), false);
+    assert.match(await evalValue(send, "document.activeElement?.id || ''"), /^tx-/);
+  } finally {
+    await page.close();
+  }
+});
