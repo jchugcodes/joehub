@@ -22,6 +22,6 @@ export async function POST(request: Request) {
     return jsonResult({ status: 400, body: { detail: "malformed auth" } });
   }
   return jsonResult(
-    handleLogin(body, process.env, store, loginLimiter, Date.now(), clientIp(request)),
+    await handleLogin(body, process.env, store, loginLimiter, Date.now(), clientIp(request)),
   );
 }

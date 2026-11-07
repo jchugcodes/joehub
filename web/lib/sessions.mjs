@@ -6,11 +6,57 @@ const DEV_USERNAME = "synthetic";
 const DEV_PASSWORD = "synthetic";
 
 export function createStore() {
-  return { sessions: new Map(), devices: new Map() };
+  const sessions = new Map();
+  const devices = new Map();
+  const txns = new Map();
+  const store = { sessions, devices, txns };
+  store.putSession = async (session) => {
+    sessions.set(session.id, session);
+    devices.set(session.deviceId, {
+      id: session.deviceId,
+      label: session.label || "device",
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      sessionId: session.id,
+      revoked: !!session.revoked,
+      owner: session.owner,
+    });
+  };
+  store.putTxn = async (txn) => {
+    txns.set(txn.state, txn);
+  };
+  store.takeTxn = async (state) => {
+    const txn = txns.get(state) || null;
+    txns.delete(state);
+    return txn;
+  };
+  store.getSession = async (id) => sessions.get(id) || null;
+  store.revokeSession = async (id) => {
+    const session = sessions.get(id);
+    if (!session) return;
+    session.revoked = true;
+    const device = devices.get(session.deviceId);
+    if (device) device.revoked = true;
+  };
+  store.revokeAll = async (owner, now) => {
+    for (const session of sessions.values()) {
+      if (session.owner === owner && session.createdAt <= now) {
+        session.revoked = true;
+        const device = devices.get(session.deviceId);
+        if (device) device.revoked = true;
+      }
+    }
+  };
+  return store;
 }
 
 function production(env) {
-  return env.JOEHUB_API_ENV === "production" || env.NODE_ENV === "production";
+  return (
+    env.JOEHUB_API_ENV === "production" ||
+    env.NODE_ENV === "production" ||
+    env.VERCEL_ENV === "production" ||
+    env.VERCEL_ENV === "preview"
+  );
 }
 
 function devAuthEnabled(env) {
@@ -57,6 +103,7 @@ export function login(body, env, store, nowMs) {
     createdAt: nowMs,
     expiresAt: nowMs + SESSION_TTL_MS,
     revoked: false,
+    owner: "dev:synthetic",
   };
   store.sessions.set(sessionId, session);
   store.devices.set(deviceId, {
@@ -68,6 +115,18 @@ export function login(body, env, store, nowMs) {
     revoked: false,
   });
   return { status: 200, cookie: seal(secret, sessionId), deviceId };
+}
+
+export function newOwnerSession(owner, nowMs) {
+  return {
+    id: randomBytes(32).toString("hex"),
+    deviceId: randomBytes(16).toString("hex"),
+    createdAt: nowMs,
+    expiresAt: nowMs + SESSION_TTL_MS,
+    revoked: false,
+    owner,
+    label: "browser",
+  };
 }
 
 export function resolveSession(cookie, env, store, nowMs) {
@@ -113,4 +172,17 @@ export function revokeDevice(cookie, env, store, nowMs, deviceId) {
   const target = store.sessions.get(device.sessionId);
   if (target) target.revoked = true;
   return { status: 200, device_id: deviceId };
+}
+
+export function revokeAll(cookie, env, store, nowMs) {
+  const session = resolveSession(cookie, env, store, nowMs);
+  if (!session) return { status: 401, error: "authentication required" };
+  for (const item of store.sessions.values()) {
+    if (item.owner === session.owner && item.createdAt <= nowMs) {
+      item.revoked = true;
+      const device = store.devices.get(item.deviceId);
+      if (device) device.revoked = true;
+    }
+  }
+  return { status: 200 };
 }

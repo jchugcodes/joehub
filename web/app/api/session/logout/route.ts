@@ -6,6 +6,6 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   return jsonResult(
-    handleLogout(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)),
+    await handleLogout(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)),
   );
 }
