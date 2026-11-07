@@ -5,13 +5,13 @@ import { Sparkline } from "../../components/Charts";
 import { Icon } from "../../components/Icon";
 import { finance } from "../../lib/design-fixtures";
 
-const capTone: Record<string, { bar: string; tint: string }> = {
-  dining: { bar: "bg-finance-dining", tint: "bg-finance-dining/[0.12]" },
-  groceries: { bar: "bg-finance-primary", tint: "bg-finance-primary/[0.12]" },
-  transport: { bar: "bg-finance-transport", tint: "bg-finance-transport/[0.12]" },
-  subscriptions: { bar: "bg-finance-warning", tint: "bg-finance-subscriptions/[0.12]" },
-  shopping: { bar: "bg-finance-shopping", tint: "bg-finance-shopping/[0.12]" },
-  utilities: { bar: "bg-finance-utilities", tint: "bg-finance-utilities/[0.12]" },
+const capTone: Record<string, { bar: string; tint: string; text: string }> = {
+  dining: { bar: "bg-finance-dining", tint: "bg-finance-dining/[0.12]", text: "text-finance-dining" },
+  groceries: { bar: "bg-finance-primary", tint: "bg-finance-primary/[0.12]", text: "text-finance-primary" },
+  transport: { bar: "bg-finance-transport", tint: "bg-finance-transport/[0.12]", text: "text-finance-transport" },
+  subscriptions: { bar: "bg-finance-warning", tint: "bg-finance-subscriptions/[0.12]", text: "text-finance-subscriptions" },
+  shopping: { bar: "bg-finance-shopping", tint: "bg-finance-shopping/[0.12]", text: "text-finance-shopping" },
+  utilities: { bar: "bg-finance-utilities", tint: "bg-finance-utilities/[0.12]", text: "text-finance-utilities" },
 };
 
 export default function FinancePage() {
@@ -25,10 +25,10 @@ export default function FinancePage() {
         </div>
         <div className="flex gap-2">
           <button type="button" className="card grid h-10 w-10 place-items-center rounded-full" aria-label="Search finance">
-            <Icon name="search" />
+            <Icon name="search" size={19} />
           </button>
           <button type="button" className="card grid h-10 w-10 place-items-center rounded-full" aria-label="Finance alerts">
-            <Icon name="bell" />
+            <Icon name="bell" size={19} />
           </button>
         </div>
       </header>
@@ -37,14 +37,16 @@ export default function FinancePage() {
           {finance.net}
           <span className="text-ui-24 font-extrabold">{finance.cents}</span>
         </p>
-        <p className="text-ui-14 font-semibold text-finance-primary">
+        <p className="flex items-center gap-1 text-ui-14 font-semibold text-finance-primary">
+          <Icon name="trend" size={16} />
           {finance.delta} <span className="font-medium mut">YTD</span>
         </p>
       </div>
       <div className="mt-2">
         <Sparkline />
       </div>
-      <fieldset className="flex gap-1 px-5">
+      <div className="flex items-center justify-between px-5">
+      <fieldset className="flex gap-1">
         <legend className="sr-only">Chart range</legend>
         {finance.ranges.map((item) => (
           <label key={item} className="cursor-pointer">
@@ -66,6 +68,8 @@ export default function FinancePage() {
           </label>
         ))}
       </fieldset>
+      <Icon name="chevron" size={18} />
+      </div>
       <section className="card mx-4 mt-4 p-4" aria-labelledby="spent-heading">
         <div className="flex justify-between text-ui-13">
           <h2 id="spent-heading" className="font-semibold">
@@ -108,18 +112,19 @@ export default function FinancePage() {
       </ul>
       <div className="mt-5 flex items-baseline justify-between px-5">
         <h2 className="text-ui-17 font-bold">Weekly caps</h2>
-        <a href="/finance/dining-out" className="text-ui-13 font-semibold text-finance-primary">
-          Edit caps
-        </a>
+        <span className="text-ui-13 font-semibold text-finance-primary">Edit caps</span>
       </div>
       <ul className="mx-4 mt-2.5 grid grid-cols-2 gap-2.5">
         {finance.caps.map((cap) => {
           const tone = capTone[cap.tone];
           return (
             <li key={cap.name}>
-              <a href="/finance/dining-out" className="block card p-3.5">
-                <span className="flex justify-between">
-                  <span className={`grid h-9 w-9 place-items-center rounded-xl ${tone.tint}`} aria-hidden />
+              {cap.href ? (
+              <a href={cap.href} className="block card p-3.5">
+                <span className="flex items-start justify-between">
+                  <span className={`grid h-9 w-9 place-items-center rounded-xl ${tone.tint} ${tone.text}`}>
+                    <Icon name={cap.icon} size={18} />
+                  </span>
                   <span className="text-ui-11 mut">{cap.cap}</span>
                 </span>
                 <p className="mt-2.5 text-ui-13 mut">{cap.name}</p>
@@ -131,6 +136,24 @@ export default function FinancePage() {
                   <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${cap.width}%` }} />
                 </div>
               </a>
+              ) : (
+              <div className="card p-3.5">
+                <span className="flex items-start justify-between">
+                  <span className={`grid h-9 w-9 place-items-center rounded-xl ${tone.tint} ${tone.text}`}>
+                    <Icon name={cap.icon} size={18} />
+                  </span>
+                  <span className="text-ui-11 mut">{cap.cap}</span>
+                </span>
+                <p className="mt-2.5 text-ui-13 mut">{cap.name}</p>
+                <p className="text-ui-19 font-bold tnum">
+                  {cap.left}
+                  <span className="text-ui-12 font-medium mut"> {cap.rest}</span>
+                </p>
+                <div className="mt-2 h-1.5 rounded-full bg-line">
+                  <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${cap.width}%` }} />
+                </div>
+              </div>
+              )}
             </li>
           );
         })}
@@ -139,7 +162,10 @@ export default function FinancePage() {
       <ul className="px-5">
         {finance.recent.map((row) => (
           <li key={row.name} className="flex items-center gap-3 py-2.5">
-            <div>
+            <span className={`grid h-10 w-10 place-items-center rounded-full ${row.tint}`}>
+              <Icon name={row.icon} size={19} />
+            </span>
+            <div className="flex-1">
               <p className="text-ui-14.5 font-semibold">{row.name}</p>
               <p className="text-ui-12 mut">{row.meta}</p>
             </div>

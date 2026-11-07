@@ -10,18 +10,36 @@ DM Sans is the handoff file `DM-Sans-variable.ttf` (SHA-256 `8cd08d97e89c24d0aa9
 
 Earlier text colors were darkened so small labels cleared WCAG AA. Those overrides are gone. The handoff uses the same hex for fills and for small accent text. On white, `#2E8B6A` is 4.19:1, `#3A86C8` is 3.87:1, `#E07A5F` is 2.95:1, `#E9B949` is 1.83:1, and `#8E7CC3` is 3.61:1. White on `#2E8B6A` is 4.19:1, on `#3A86C8` is 3.87:1, and on `#C2577A` is 4.25:1. Muted `#6B746E` on `#F5F6F4` is 4.45:1. Dark muted `#8C978F` on `#0E1310` is 6.20:1. The short pairs are the approved literals, not a new palette.
 
+## Slice 1 — Finance and navigation
+
+Built from Figma file `SQTyJdMUAGvbk08UMuAdlC`, page `joehub Mobile v1` (`0:1`). The frames checked on 7 Nov 2026 are still flattened images. Geometry comes from the handoff HTML, which matches `SHA256SUMS.json` (`HANDOFF.md` `8a7eab4d8f70fe06f431a181b0942977caad49b767489624724feb811eae1665`).
+
+Frames used: `1:4` Finance home, `1:6` Finance home dark, `1:8` Finance goals, `1:10` Finance category and sheet, and the bottom tab bar drawn on those frames (the same marks as `1:2`). Jobs (`1:12`, `1:14`), Journal (`1:16`, `1:18`), More (`1:20`), and the Home body (`1:2`) are later slices.
+
+The 390px column stays centered past the phone width. No desktop composition was designed, so this slice does not add one.
+
+## Questions this slice does not answer
+
+- The chevron beside 1W / 1M / YTD / 1Y / All has no destination. Only the YTD series is drawn. Choosing another range does not invent a second chart.
+- "Edit caps" has no destination. Only Dining Out has a category frame, so only that tile opens `1:10`. The other weekly caps stay on the overview.
+- Goal-card chevrons have no destination. "New goal" is the dashed control from the frame. Activating it does not create a goal.
+- The category pencil, "Edit name", and the `$80` cap chip have no editing result. Save does not write anything.
+- "Categories" opens the only designed category screen, Dining Out. A category index is not drawn.
+- Accounts is a tab label on the goals frame and has no frame of its own.
+- The goals tab row says "swipe". No swipe result is drawn.
+- What the $4,204 plan, the pace marker, and the weekly caps mean as live figures is not in the handoff. The numbers on screen are the HTML examples.
+
 ## What the handoff still does not specify
 
 - Frames and the HTML mock are one 390 by 844 viewport. The HTML continues below that (Finance recent rows and the extra weekly caps). Those rows are on the page because they are in the HTML. The raster clips them.
 - The status bar, time, and home indicator are device chrome and are not part of the page.
 - Dark mode exists only for Finance home. The sun control on More sets that preference and does not darken More.
-- Icons in the HTML are inline and labeled lucide-style by the mock generator. `web/components/Icon.tsx` keeps simple stand-ins. Category tiles use a tinted square without those paths.
+- Tab and Finance marks use the HTML paths. The More sun control is still a stand-in. The generator called the paths lucide-style. They are not a verified Lucide export.
 - Names, amounts, and dates are the HTML example copy. They are not mapped from the API or from SQLite.
 - The sparkline paths are the HTML series. They are not a read from the API.
-- From 1024px the bottom bar becomes a left nav. The handoff says desktop layout was not designed.
-- Finance home does not show the section tabs. Those tabs are on Goals and Dining Out. Accounts has no frame.
+- Finance home does not show the section tabs. Those tabs are on Goals. Accounts has no frame.
 - The More HTML draws an "Amount < 0" chip and also a positive payroll row. The chip starts off so the pictured rows stay visible.
-- Sheets add a close button, Escape, and a Tab loop. The HTML does not show those controls.
+- Sheets add Escape and a Tab loop. The HTML shows a close mark and does not specify keyboard behavior. Opening the category sheet moves focus to that close control, so the focus outline is visible. The frame does not draw that outline.
 - Controls that look tappable stay on the page and do not call the API.
 
 ## API

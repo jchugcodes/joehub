@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon } from "./Icon";
 
 const links = [
   { href: "/finance", label: "Overview" },
@@ -10,10 +11,10 @@ const links = [
   { href: "/finance/accounts", label: "Accounts" },
 ];
 
-export function FinanceTabs() {
+export function FinanceTabs({ hint = false }: { hint?: boolean }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Finance sections" className="flex gap-4 overflow-x-auto border-b border-line text-sm">
+    <nav aria-label="Finance sections" className="flex items-end gap-6 border-b border-line px-5">
       {links.map((link) => {
         const current = pathname === link.href;
         return (
@@ -21,14 +22,19 @@ export function FinanceTabs() {
             key={link.href}
             href={link.href}
             aria-current={current ? "page" : undefined}
-            className={`shrink-0 border-b-2 pb-2 ${
-              current ? "border-finance-primary font-semibold text-ink" : "border-transparent text-muted"
+            className={`shrink-0 border-b-[2.5px] pb-2.5 text-ui-15 ${
+              current ? "border-finance-primary font-bold text-ink" : "border-transparent font-medium text-muted"
             }`}
           >
             {link.label}
           </Link>
         );
       })}
+      {hint ? (
+        <span className="mb-0 ml-auto flex items-center gap-1 pb-2.5 text-ui-11 text-muted">
+          swipe <Icon name="swipe" size={14} />
+        </span>
+      ) : null}
     </nav>
   );
 }
