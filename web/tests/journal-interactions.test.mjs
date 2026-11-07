@@ -370,3 +370,156 @@ test("saving previews the demo sentence and cancel drops a pending save", { time
   assert.equal(place.focus, "place");
   await date.close();
 });
+
+function clickNamed(label, selector) {
+  return `(() => {
+    const nodes = [...document.querySelectorAll(${JSON.stringify(selector)})];
+    const node = nodes.find((item) => (item.textContent || "").replace(/\\s+/g, " ").trim() === ${JSON.stringify(label)} || (item.textContent || "").includes(${JSON.stringify(label)}));
+    if (!node) return "missing";
+    node.click();
+    return "ok";
+  })()`;
+}
+
+async function journalState(send) {
+  return evalValue(
+    send,
+    `(() => {
+      const pressed = [...document.querySelectorAll("[aria-label='Journal filters'] button")].find((button) => button.getAttribute("aria-pressed") === "true");
+      const text = document.body.innerText;
+      return {
+        ready: Boolean(document.querySelector("[data-ready='true']")),
+        pressed: (pressed?.textContent || "").trim(),
+        path: location.pathname + location.search,
+        win: text.includes("Finished Globex take-home"),
+        placesEmpty: text.includes("No places yet"),
+        lilia: text.includes("Lilia"),
+      };
+    })()`,
+  );
+}
+
+async function waitJournal(send, predicate, attempts = 30) {
+  let state = null;
+  for (let i = 0; i < attempts; i++) {
+    state = await journalState(send);
+    if (state && predicate(state)) return state;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return state;
+}
+
+async function visitJournal(send) {
+  assert.equal(await evalValue(send, clickNamed("Home", "nav[aria-label='Primary'] a")), "ok");
+  let path = "";
+  for (let i = 0; i < 30; i++) {
+    path = await evalValue(send, "location.pathname");
+    if (path === "/") break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.equal(path, "/");
+  assert.equal(await evalValue(send, clickNamed("Journal", "nav[aria-label='Primary'] a")), "ok");
+  return waitJournal(send, (state) => state.ready && state.path === "/journal");
+}
+
+test("show all entries and Feed leave the filtered preview", { timeout: 120000, skip }, async () => {
+  const page = await openPage("/journal?view=filtered", 390, 844);
+  const loaded = await waitJournal(page.send, (state) => state.ready && state.placesEmpty);
+  assert.equal(loaded.pressed, "Places");
+  assert.equal(loaded.win, false);
+  assert.equal(loaded.path, "/journal?view=filtered");
+
+  const persistedPlaces = await visitJournal(page.send);
+  assert.equal(persistedPlaces.pressed, "Places", JSON.stringify(persistedPlaces));
+  assert.equal(persistedPlaces.win, false, JSON.stringify(persistedPlaces));
+  assert.equal(persistedPlaces.lilia, true, JSON.stringify(persistedPlaces));
+
+  assert.equal(
+    await evalValue(
+      page.send,
+      `(() => {
+        const link = document.createElement("a");
+        link.href = "/journal?view=filtered";
+        link.textContent = "filtered preview";
+        document.body.appendChild(link);
+        link.click();
+        return "ok";
+      })()`,
+    ),
+    "ok",
+  );
+  const preview = await waitJournal(page.send, (state) => state.ready && state.placesEmpty && state.path.includes("view=filtered"));
+  assert.equal(preview.pressed, "Places");
+
+  assert.equal(await evalValue(page.send, clickNamed("Show all entries", "button")), "ok");
+  const shown = await waitJournal(page.send, (state) => state.ready && state.win && state.pressed === "Feed" && !state.path.includes("view="));
+  assert.equal(shown.placesEmpty, false, JSON.stringify(shown));
+  assert.equal(shown.path, "/journal", JSON.stringify(shown));
+
+  const afterShowAll = await visitJournal(page.send);
+  assert.equal(afterShowAll.pressed, "Feed", JSON.stringify(afterShowAll));
+  assert.equal(afterShowAll.win, true, JSON.stringify(afterShowAll));
+  assert.equal(afterShowAll.placesEmpty, false, JSON.stringify(afterShowAll));
+  await page.close();
+
+  const feed = await openPage("/journal?view=filtered", 390, 844);
+  const again = await waitJournal(feed.send, (state) => state.ready && state.placesEmpty && state.pressed === "Places");
+  assert.equal(again.win, false);
+  assert.equal(await evalValue(feed.send, clickNamed("Feed", "[aria-label='Journal filters'] button")), "ok");
+  const selected = await waitJournal(feed.send, (state) => state.ready && state.win && state.pressed === "Feed" && !state.path.includes("view="));
+  assert.equal(selected.placesEmpty, false, JSON.stringify(selected));
+  assert.equal(selected.path, "/journal", JSON.stringify(selected));
+  const afterFeed = await visitJournal(feed.send);
+  assert.equal(afterFeed.pressed, "Feed", JSON.stringify(afterFeed));
+  assert.equal(afterFeed.win, true, JSON.stringify(afterFeed));
+  await feed.close();
+});
+
+test("a failed save keeps the draft and retry returns to the failure", { timeout: 120000, skip }, async () => {
+  const page = await openPage("/journal/compose?view=failed", 390, 900);
+  const unique = "Retry keeps this synthetic draft";
+  const seeded = await evalValue(page.send, "document.getElementById('win-text')?.value || ''");
+  assert.equal(seeded, "Finished Globex take-home.");
+  assert.match(await evalValue(page.send, "document.body.innerText"), /Entry wasn’t saved\./);
+  assert.match(await evalValue(page.send, "document.body.innerText"), /Your draft is still here\./);
+  await evalValue(page.send, setField("win-text", unique));
+  assert.equal(await evalValue(page.send, "document.getElementById('win-text').value"), unique);
+
+  assert.equal(await evalValue(page.send, clickNamed("Retry saving", "button")), "ok");
+  let sawSaving = false;
+  let label = "";
+  for (let i = 0; i < 30; i++) {
+    label = await evalValue(page.send, "document.querySelector('button[type=submit]')?.textContent.trim() || ''");
+    if (label === "Saving…") sawSaving = true;
+    if (sawSaving && label === "Retry saving") break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(sawSaving, true);
+  assert.equal(label, "Retry saving");
+  const after = await evalValue(
+    page.send,
+    `(() => ({
+      draft: document.getElementById("win-text")?.value || "",
+      text: document.body.innerText,
+      stored: JSON.stringify(localStorage).includes(${JSON.stringify(unique)}),
+    }))()`,
+  );
+  assert.equal(after.draft, unique);
+  assert.match(after.text, /Entry wasn’t saved\./);
+  assert.match(after.text, /Your draft is still here\./);
+  assert.equal(after.text.includes("Entry added"), false);
+  assert.equal(after.text.includes("A small win, remembered."), false);
+  assert.equal(after.stored, false);
+
+  assert.equal(await evalValue(page.send, clickNamed("Cancel", "button")), "ok");
+  let feed = { path: "", text: "" };
+  for (let i = 0; i < 25; i++) {
+    feed = await evalValue(page.send, "({ path: location.pathname, text: document.body.innerText })");
+    if (feed.path === "/journal" && feed.text.includes("Wins & dates")) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.equal(feed.path, "/journal");
+  assert.equal(feed.text.includes(unique), false);
+  assert.equal(feed.text.includes("Entry added"), false);
+  await page.close();
+});
