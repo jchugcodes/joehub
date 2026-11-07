@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Sampled fills from the frames. Text tokens are darker so labels clear WCAG AA. */
+:root {
+  --canvas: #f5f6f4;
+  --card: #ffffff;
+  --ink: #1f2a24;
+  --muted: #68746c;
+  --line: #e6e8e4;
+  --finance: #2e8b6a;
+  --finance-text: #1c7a56;
+  --jobs: #3a86c8;
+  --jobs-text: #2563a8;
+  --journal: #c2577a;
+  --journal-text: #b44870;
+  --spent: #e07a5f;
+  --spent-text: #b84a32;
+  --gold: #e9b949;
+  --gold-text: #8a6410;
+  --interview: #7a6bb8;
+  --overlay: rgba(31, 42, 36, 0.45);
+  --finance-soft: #e1ebe6;
+  --jobs-soft: #ebf3f9;
+  --journal-soft: #f8e8ee;
+}
+
+/* GAP: dark palette is approved only while Finance home opts in. */
+[data-theme="dark"] {
+  --canvas: #0e1310;
+  --card: #161d18;
+  --ink: #ecf1ee;
+  --muted: #b7c2bb;
+  --line: #26302a;
+  --finance-text: #8fd7b8;
+  --jobs-text: #9ec4ef;
+  --journal-text: #f0b3c6;
+  --spent-text: #f0b3a4;
+  --gold-text: #f3d48a;
+  --finance-soft: #111f19;
+  --jobs-soft: #152433;
+  --journal-soft: #2a1820;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sr-only:focus {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 50;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  clip: auto;
+  background: var(--card);
+  color: var(--ink);
+}

@@ -1,6 +1,6 @@
 # Web architecture
 
-joehub's web foundation is a plain Next.js shell and a read-only synthetic API. The private SQLite database, the age identity, and the operator token stay out of this application. Existing Streamlit, export, and SQLite code is unchanged.
+joehub's web foundation is a Next.js shell styled from the Figma frames, plus a read-only synthetic API. Gaps in that handoff are listed in [DESIGN_GAPS.md](DESIGN_GAPS.md). The private SQLite database, the age identity, and the operator token stay out of this application. Existing Streamlit, export, and SQLite code is unchanged.
 
 ## Data flow
 
