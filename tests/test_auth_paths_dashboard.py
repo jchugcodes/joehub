@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,124 @@ def test_default_paths_are_outside_the_repo(monkeypatch):
 def test_repo_paths_are_rejected(monkeypatch):
     monkeypatch.setenv("JOEHUB_DB_PATH", str(Path.cwd() / "joehub.db"))
     with pytest.raises(ConfigError):
+        load_settings()
+
+
+def test_source_checkout_is_the_code_root(monkeypatch):
+    from joehub.config import assert_outside_repo, repo_roots
+
+    roots = repo_roots()
+    checkout = Path(os.path.realpath(Path(__file__).resolve().parents[1]))
+    assert checkout in roots
+    assert checkout.parent not in roots
+    assert (checkout / "pyproject.toml").is_file()
+    assert (checkout / "migrations").is_dir()
+    assert (checkout / ".git").exists()
+    with pytest.raises(ConfigError):
+        assert_outside_repo(checkout / "joehub.db")
+    for name in ("JOEHUB_DB_PATH", "JOEHUB_EXPORT_DIR", "JOEHUB_KEY_DIR", "JOEHUB_AUTH_HASH_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    settings = load_settings()
+    assert settings.db_path == DEFAULT_DB_PATH
+    assert settings.export_dir == DEFAULT_EXPORT_DIR
+    assert settings.key_dir == DEFAULT_KEY_DIR
+    for path in (settings.db_path, settings.export_dir, settings.key_dir):
+        assert not Path(os.path.realpath(path)).is_relative_to(checkout)
+
+
+def _tarball_release(tmp_path: Path) -> dict[str, Path]:
+    """A release directory with no .git, plus the parent layout around it."""
+    base = tmp_path / "home" / "box" / "joehub"
+    release = base / "releases" / "5e3a05c"
+    (release / "migrations").mkdir(parents=True)
+    (release / "pyproject.toml").write_text("[project]\nname = 'joehub'\n", encoding="utf-8")
+    package = release / "src" / "joehub"
+    package.mkdir(parents=True)
+    (package / "config.py").write_text("# tarball\n", encoding="utf-8")
+    (base / ".git").mkdir()
+    sibling = base / "releases" / "5e3a05c-other"
+    sibling.mkdir()
+    current = base / "current"
+    current.symlink_to(release, target_is_directory=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    into_release = outside / "db-link"
+    into_release.symlink_to(release / "inside.db")
+    return {
+        "base": base,
+        "release": release,
+        "package": package / "config.py",
+        "sibling": sibling,
+        "current": current,
+        "into_release": into_release,
+    }
+
+
+def test_tarball_release_symlink_sibling_and_defaults(tmp_path, monkeypatch):
+    from joehub.config import repo_roots
+
+    layout = _tarball_release(tmp_path)
+    release = layout["release"]
+    base = layout["base"]
+    assert not (release / ".git").exists()
+    monkeypatch.setattr("joehub.config._code_root_starts", lambda: [layout["package"]])
+    roots = repo_roots()
+    release_real = Path(os.path.realpath(release))
+    assert roots == [release_real]
+    assert Path(os.path.realpath(base)) not in roots
+    assert Path(os.path.realpath(base.parent)) not in roots
+
+    monkeypatch.setenv("JOEHUB_EXPORT_DIR", str(base / "exports"))
+    monkeypatch.setenv("JOEHUB_KEY_DIR", str(base / "keys"))
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(release / "joehub.db"))
+    with pytest.raises(ConfigError):
+        load_settings()
+
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(layout["current"] / "joehub.db"))
+    with pytest.raises(ConfigError):
+        load_settings()
+    current_real = Path(os.path.realpath(layout["current"] / "joehub.db"))
+    assert current_real.is_relative_to(release_real)
+
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(layout["into_release"]))
+    with pytest.raises(ConfigError):
+        load_settings()
+    assert Path(os.path.realpath(layout["into_release"])).is_relative_to(release_real)
+
+    sibling = layout["sibling"]
+    sibling_db = sibling / "joehub.db"
+    assert str(sibling).startswith(str(release))
+    assert not Path(os.path.realpath(sibling)).is_relative_to(release_real)
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(sibling_db))
+    settings = load_settings()
+    assert settings.db_path == sibling_db
+
+    monkeypatch.setenv("JOEHUB_DB_PATH", str(base / "data" / "joehub.db"))
+    settings = load_settings()
+    assert settings.db_path == base / "data" / "joehub.db"
+    assert not Path(os.path.realpath(settings.db_path)).is_relative_to(release_real)
+
+    for name in ("JOEHUB_DB_PATH", "JOEHUB_EXPORT_DIR", "JOEHUB_KEY_DIR", "JOEHUB_AUTH_HASH_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    settings = load_settings()
+    assert settings.db_path == Path("/home/box/joehub/data/joehub.db")
+    assert settings.export_dir == Path("/home/box/joehub/exports")
+    assert settings.key_dir == Path("/home/box/.config/joehub/keys")
+    for path in (settings.db_path, settings.export_dir, settings.key_dir):
+        assert not Path(os.path.realpath(path)).is_relative_to(release_real)
+
+
+def test_missing_code_root_fails_closed(tmp_path, monkeypatch):
+    from joehub.config import repo_roots
+
+    empty = tmp_path / "not-a-release"
+    empty.mkdir()
+    (empty / ".git").mkdir()
+    (empty / "pyproject.toml").write_text("[project]\nname = 'nope'\n", encoding="utf-8")
+    monkeypatch.setattr("joehub.config._code_root_starts", lambda: [empty])
+    with pytest.raises(ConfigError, match="code root"):
+        repo_roots()
+    with pytest.raises(ConfigError, match="code root"):
         load_settings()
 
 

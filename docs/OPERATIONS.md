@@ -33,7 +33,7 @@ python -m pip install -e ".[dev]"
 | `JOEHUB_RETRY_BACKOFF_SECONDS` | `0.05` |
 | `JOEHUB_RECOVERY_INTERVAL_SECONDS` | `1` (set `0` to disable the recovery timer) |
 
-A path inside the repository is rejected. The database file and the password-hash file must not sit inside the export directory. The key directory and the export directory must not contain each other. The database, export, and key paths must be distinct.
+A path inside the code tree is rejected. That tree is the directory containing `pyproject.toml` and `migrations/`, with or without a `.git` directory, so a GitHub tarball release counts. Symlinks are resolved first: a path given through `/home/box/joehub/current` is inside the release `current` points at. Ancestor directories such as `/home/box/joehub` are not the code tree, and a sibling directory such as `releases/5e3a05c-other` is not either. If the code tree cannot be found, startup fails instead of skipping the check. The database file and the password-hash file must not sit inside the export directory. The key directory and the export directory must not contain each other. The database, export, and key paths must be distinct.
 
 The first write, export, or seed creates the database and applies `migrations/001_initial.sql`.
 
