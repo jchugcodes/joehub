@@ -25,6 +25,7 @@ export function createStore() {
   store.putTxn = async (txn) => {
     txns.set(txn.state, txn);
   };
+  store.getTxn = async (state) => txns.get(state) || null;
   store.takeTxn = async (state) => {
     const txn = txns.get(state) || null;
     txns.delete(state);

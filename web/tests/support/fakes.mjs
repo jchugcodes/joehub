@@ -163,6 +163,7 @@ export async function startFakeOidc({ clientId, clientSecret, sub, email }) {
             aud: clientId,
             sub,
             email,
+            email_verified: true,
             nonce: saved.nonce,
             exp: Math.floor(Date.now() / 1000) + 300,
           }),

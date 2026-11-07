@@ -104,6 +104,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
       const life = ttlSeconds(txn.createdAt + 10 * 60 * 1000, now);
       await command(["SET", `joehub:txn:${txn.state}`, JSON.stringify(txn), "EX", String(life)]);
     },
+    async getTxn(state) {
+      return readJson(`joehub:txn:${state}`);
+    },
     async takeTxn(state) {
       const txn = await readJson(`joehub:txn:${state}`);
       await command(["DEL", `joehub:txn:${state}`]);

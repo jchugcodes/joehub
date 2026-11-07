@@ -103,10 +103,24 @@ test("off Vercel a forwarded client address is ignored", () => {
 });
 
 test("the allowlist rejects a different owner", () => {
-  const config = { ownerEmail: "owner@example.com", ownerSub: "owner-subject" };
-  assert.equal(ownerAllowed({ sub: "owner-subject", email: "Owner@Example.com" }, config), true);
-  assert.equal(ownerAllowed({ sub: "other", email: "owner@example.com" }, config), false);
-  assert.equal(ownerAllowed({ sub: "owner-subject", email: "other@example.com" }, config), false);
+  const config = { ownerEmail: "owner@example.com", ownerSub: "owner-subject", issuer: "https://issuer.example" };
+  const owner = { iss: "https://issuer.example", sub: "owner-subject", email: "Owner@Example.com" };
+  assert.equal(ownerAllowed(owner, config), true);
+  assert.equal(ownerAllowed({ ...owner, sub: "other" }, config), false);
+  assert.equal(ownerAllowed({ ...owner, email: "other@example.com" }, config), false);
+  assert.equal(ownerAllowed({ ...owner, iss: "https://evil.example" }, config), false);
+});
+
+test("an email-only allowlist rejects an unverified address", () => {
+  const emailOnly = { ownerEmail: "owner@example.com", issuer: "https://issuer.example" };
+  const base = { iss: "https://issuer.example", sub: "someone", email: "owner@example.com" };
+  assert.equal(ownerAllowed({ ...base, email_verified: true }, emailOnly), true);
+  assert.equal(ownerAllowed({ ...base, email_verified: false }, emailOnly), false);
+  assert.equal(ownerAllowed(base, emailOnly), false);
+  const pinned = { ownerSub: "owner-subject", issuer: "https://issuer.example" };
+  assert.equal(ownerAllowed({ iss: "https://issuer.example", sub: "owner-subject", email_verified: false }, pinned), true);
+  assert.equal(ownerAllowed({ iss: "https://issuer.example", sub: "owner-subject" }, pinned), true);
+  assert.equal(ownerAllowed({ iss: "https://evil.example", sub: "owner-subject", email_verified: true }, pinned), false);
 });
 
 test("oidc state is single use and the signature is checked", async () => {
@@ -140,13 +154,43 @@ test("oidc state is single use and the signature is checked", async () => {
     const token = sign(privateKey, { iss: config.issuer, aud: config.clientId, sub: "owner-subject", email: "owner@example.com", nonce: txn.nonce, exp: Math.floor(now / 1000) + 60 });
     return json({ id_token: token });
   };
-  const url = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
-  const state = new URL(url).searchParams.get("state");
+  const started = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
+  const state = new URL(started.url).searchParams.get("state");
   txn = store.txns.get(state);
-  const ok = await completeOidc({ code: "abc", state, config, store, redirectUri: "http://127.0.0.1/api/auth/callback", now, fetchImpl });
+  const stranger = await completeOidc({
+    code: "abc",
+    state,
+    browser: "other-browser",
+    config,
+    store,
+    redirectUri: "http://127.0.0.1/api/auth/callback",
+    now,
+    fetchImpl,
+  });
+  assert.equal(stranger.status, 401);
+  assert.equal(store.txns.has(state), true);
+  const ok = await completeOidc({
+    code: "abc",
+    state,
+    browser: started.browser,
+    config,
+    store,
+    redirectUri: "http://127.0.0.1/api/auth/callback",
+    now,
+    fetchImpl,
+  });
   assert.equal(ok.status, 200);
   assert.equal(ok.claims.sub, "owner-subject");
-  const again = await completeOidc({ code: "abc", state, config, store, redirectUri: "http://127.0.0.1/api/auth/callback", now, fetchImpl });
+  const again = await completeOidc({
+    code: "abc",
+    state,
+    browser: started.browser,
+    config,
+    store,
+    redirectUri: "http://127.0.0.1/api/auth/callback",
+    now,
+    fetchImpl,
+  });
   assert.equal(again.status, 401);
   const signed = sign(privateKey, { iss: config.issuer, aud: config.clientId, sub: "owner-subject", email: "owner@example.com", nonce: "nope", exp: Math.floor(now / 1000) + 60 });
   const [header, payload, signature] = signed.split(".");
@@ -169,10 +213,19 @@ test("oidc state is single use and the signature is checked", async () => {
     }
     return fetchImpl(url, options);
   };
-  const againUrl = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
-  const againState = new URL(againUrl).searchParams.get("state");
+  const againStarted = await beginOidc(config, store, "http://127.0.0.1/api/auth/callback", now, fetchImpl);
+  const againState = new URL(againStarted.url).searchParams.get("state");
   txn = store.txns.get(againState);
-  const forbidden = await completeOidc({ code: "abc", state: againState, config, store, redirectUri: "http://127.0.0.1/api/auth/callback", now, fetchImpl: wrongFetch });
+  const forbidden = await completeOidc({
+    code: "abc",
+    state: againState,
+    browser: againStarted.browser,
+    config,
+    store,
+    redirectUri: "http://127.0.0.1/api/auth/callback",
+    now,
+    fetchImpl: wrongFetch,
+  });
   assert.equal(forbidden.status, 403);
   assert.equal(store.sessions.size, 0);
 });

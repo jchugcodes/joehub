@@ -31,10 +31,30 @@ async function discover(issuer, fetchImpl) {
   return doc;
 }
 
+export const OIDC_COOKIE = "joehub_oidc";
+export const OIDC_TTL_MS = 10 * 60 * 1000;
+
+export function readOidcCookie(header) {
+  const raw = String(header || "");
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === OIDC_COOKIE) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return "";
+}
+
 export function ownerAllowed(claims, config) {
   if (!config.ownerEmail && !config.ownerSub) return false;
-  if (config.ownerSub && claims.sub !== config.ownerSub) return false;
-  if (config.ownerEmail && String(claims.email || "").toLowerCase() !== config.ownerEmail) return false;
+  if (config.issuer && claims.iss !== config.issuer) return false;
+  const subPinned = Boolean(config.ownerSub);
+  if (subPinned && claims.sub !== config.ownerSub) return false;
+  if (config.ownerEmail) {
+    if (String(claims.email || "").toLowerCase() !== config.ownerEmail) return false;
+    // An email-only allowlist can be spoofed until the provider says the
+    // address is verified. A pinned issuer and subject does not need that claim.
+    if (!subPinned && claims.email_verified !== true) return false;
+  }
   return true;
 }
 
@@ -74,12 +94,14 @@ export async function verifyIdToken(idToken, jwksUri, config, nonce, now, fetchI
 export async function beginOidc(config, store, redirectUri, now, fetchImpl = fetch) {
   const discovery = await discover(config.issuer, fetchImpl);
   const { verifier, challenge } = createPkce();
+  const browser = randomBytes(32).toString("base64url");
   const txn = {
     state: randomBytes(16).toString("hex"),
     nonce: randomBytes(16).toString("hex"),
     verifier,
     challenge,
     redirectUri,
+    browser,
     createdAt: now,
   };
   await store.putTxn(txn, now);
@@ -92,13 +114,27 @@ export async function beginOidc(config, store, redirectUri, now, fetchImpl = fet
   url.searchParams.set("nonce", txn.nonce);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
-  return url.toString();
+  return { url: url.toString(), browser };
 }
 
-export async function completeOidc({ code, state, config, store, redirectUri, now, fetchImpl = fetch }) {
-  if (!code || !state) return { status: 401, error: "authentication required" };
+function txnFresh(txn, redirectUri, browser, now) {
+  return Boolean(
+    txn &&
+      txn.browser &&
+      txn.browser === browser &&
+      txn.redirectUri === redirectUri &&
+      now - txn.createdAt <= 10 * 60 * 1000,
+  );
+}
+
+export async function completeOidc({ code, state, browser, config, store, redirectUri, now, fetchImpl = fetch }) {
+  if (!code || !state || !browser) return { status: 401, error: "authentication required" };
+  const pending = await store.getTxn(state);
+  if (!txnFresh(pending, redirectUri, browser, now)) {
+    return { status: 401, error: "authentication required" };
+  }
   const txn = await store.takeTxn(state);
-  if (!txn || txn.redirectUri !== redirectUri || now - txn.createdAt > 10 * 60 * 1000) {
+  if (!txnFresh(txn, redirectUri, browser, now)) {
     return { status: 401, error: "authentication required" };
   }
   const discovery = await discover(config.issuer, fetchImpl);
