@@ -62,7 +62,17 @@ async function waitForPage(child, log) {
   throw new Error(`next dev did not serve the goals page\n${log()}`);
 }
 
-test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+function readyExpression(path) {
+  const laidOut = "document.querySelector(\"nav[aria-label='Primary'] a\")?.getBoundingClientRect().width > 0";
+  const value = String(path);
+  if (value.startsWith("/jobs") && !value.includes("view=") && !value.includes("/globex")) {
+    return `document.querySelector("[aria-label='Jobs sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
+  }
+  if (value.startsWith("/jobs") || value === "/finance") return `document.querySelector('h1') && ${laidOut} ? 'yes' : ''`;
+  return `document.querySelector("[aria-label='Finance sections'] [data-hydrated='true']") && ${laidOut} ? 'yes' : ''`;
+}
+
+test("finance and jobs pages do not widen the page", { timeout: 180000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   let output = "";
   const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(PORT)], {
     cwd: ROOT,
@@ -111,6 +121,15 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       ["/finance/goals", 390, 844, false],
       ["/finance/goals", 390, 900, true],
       ["/finance", 390, 900, true],
+      ["/jobs", 320, 900, false],
+      ["/jobs", 390, 1100, true],
+      ["/jobs/globex", 320, 900, false],
+      ["/jobs/globex", 390, 1100, true],
+      ["/jobs?view=loading", 320, 800, false],
+      ["/jobs?view=empty", 320, 800, false],
+      ["/jobs?view=error", 320, 800, false],
+      ["/jobs/globex/stage", 320, 800, false],
+      ["/jobs/globex/stage?sheet=open", 320, 900, false],
     ];
     for (const [path, width, height, enlarge] of cases) {
       const created = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
@@ -139,14 +158,17 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
       await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
       for (let i = 0; i < 40; i++) {
         const ready = await send("Runtime.evaluate", {
-          expression: "document.querySelector(\"[aria-label='Finance sections'] [data-hydrated='true']\") ? 'yes' : document.readyState",
+          expression: readyExpression(path),
           returnByValue: true,
         });
-        if (ready.result?.result?.value === "yes" || (path === "/finance" && ready.result?.result?.value === "complete" && i > 4)) break;
+        if (ready.result?.result?.value === "yes") break;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
       if (enlarge) {
-        await send("Runtime.evaluate", { expression: "document.documentElement.style.fontSize = '200%'" });
+        await send("Runtime.evaluate", {
+          expression: "document.documentElement.style.fontSize = '200%'; new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+          awaitPromise: true,
+        });
       }
       const measured = await send("Runtime.evaluate", { expression: measureSource(), returnByValue: true });
       const value = measured.result?.result?.value;
@@ -237,6 +259,55 @@ test("finance tabs do not widen the page", { timeout: 120000, skip: chromeBin ? 
           const link = focused.result?.result?.value;
           assert.equal(link.text, expected[step], `Tab did not reach ${expected[step]} ${JSON.stringify(link)}`);
           assert.equal(link.inScroller, true, `keyboard focus on ${link?.text} is outside the tab scroller ${JSON.stringify(link)}`);
+          assert.equal(link.inPage, true, `keyboard focus on ${link?.text} is outside the page`);
+          assert.ok(link.pageOverflow <= 1, `keyboard focus on ${link?.text} widened the page`);
+        }
+      }
+      if (path === "/jobs") {
+        const jobsNav = await send("Runtime.evaluate", {
+          expression: `(() => {
+            const nav = document.querySelector("[aria-label='Jobs sections']");
+            const scroller = nav ? nav.querySelector(":scope > div") : null;
+            const hint = nav ? [...nav.children].find((el) => (el.textContent || "").includes("swipe")) : null;
+            return {
+              contained: nav ? nav.dataset.tabs || "" : "",
+              hintOutside: hint ? !scroller.contains(hint) && nav.contains(hint) : false,
+            };
+          })()`,
+          returnByValue: true,
+        });
+        const jobs = jobsNav.result?.result?.value;
+        assert.equal(jobs.contained, "contained");
+        assert.equal(jobs.hintOutside, true);
+        await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await send("Runtime.evaluate", {
+          expression: "document.querySelector(\"[aria-label='Jobs sections'] a\").focus()",
+        });
+        const expectedJobs = ["Overview", "Matches", "Board", "Notes"];
+        for (let step = 0; step < expectedJobs.length; step += 1) {
+          if (step > 0) {
+            await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+            await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+          }
+          const focused = await send("Runtime.evaluate", {
+            expression: `(() => {
+              const el = document.activeElement;
+              const scroller = document.querySelector("[aria-label='Jobs sections'] > div");
+              const box = el.getBoundingClientRect();
+              const view = scroller.getBoundingClientRect();
+              const doc = document.documentElement;
+              return {
+                text: (el.textContent || "").trim(),
+                inScroller: box.width > 0 && box.left >= view.left - 2 && box.right <= view.right + 2,
+                inPage: box.left >= -2 && box.right <= window.innerWidth + 2,
+                pageOverflow: doc.scrollWidth - doc.clientWidth,
+              };
+            })()`,
+            returnByValue: true,
+          });
+          const link = focused.result?.result?.value;
+          assert.equal(link.text, expectedJobs[step], `Tab did not reach ${expectedJobs[step]} ${JSON.stringify(link)}`);
+          assert.equal(link.inScroller, true, `keyboard focus on ${link?.text} is outside the jobs tab scroller ${JSON.stringify(link)}`);
           assert.equal(link.inPage, true, `keyboard focus on ${link?.text} is outside the page`);
           assert.ok(link.pageOverflow <= 1, `keyboard focus on ${link?.text} widened the page`);
         }

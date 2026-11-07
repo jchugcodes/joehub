@@ -117,9 +117,10 @@ export const pipeline = {
     { label: "Offer", value: "1", note: "respond by 11/13", tone: "finance" },
   ],
   columns: [
-    { name: "Saved", total: 5, tone: "muted", cards: ["Acme Labs", "Northwind"] },
-    { name: "Applied", total: 8, tone: "jobs", cards: ["Globex · PM", "Initech · Ops"] },
-    { name: "Interviewing", total: 3, tone: "interview", cards: ["Umbrella"] },
+    { name: "Saved", total: "5", dot: "#9AA29C", cards: ["Acme Labs", "Northwind"] },
+    { name: "Applied", total: "8", dot: "#3A86C8", cards: ["Globex · PM", "Initech · Ops"] },
+    { name: "Interviewing", total: "3", dot: "#8E7CC3", cards: ["Umbrella · R2"] },
+    { name: "Offer", total: "1", dot: "#2E8B6A", cards: ["Stark Ind."] },
   ],
   matches: [
     {
@@ -128,7 +129,12 @@ export const pipeline = {
       title: "Senior Product Analyst",
       meta: "Globex · NYC · Hybrid",
       score: "9.1",
-      tags: ["SQL", "Fintech", "$135–150k"],
+      scoreClass: "text-finance-primary",
+      tags: [
+        { label: "SQL", tint: true },
+        { label: "Fintech", tint: true },
+        { label: "$135–150k", tint: false },
+      ],
     },
     {
       id: "hooli",
@@ -136,7 +142,12 @@ export const pipeline = {
       title: "Strategy & Ops Lead",
       meta: "Hooli · Remote",
       score: "7.4",
-      tags: [],
+      scoreClass: "text-finance-shopping",
+      tags: [
+        { label: "Ops", tint: true },
+        { label: "Growth", tint: true },
+        { label: "$120k", tint: false },
+      ],
     },
   ],
 };

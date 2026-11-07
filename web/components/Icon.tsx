@@ -13,6 +13,9 @@ const paths: Record<string, string[]> = {
   swipe: ["M4 12h14M14 8l4 4-4 4"],
   plus: ["M12 5v14M5 12h14"],
   close: ["M6 6l12 12M18 6L6 18"],
+  filter: ["M3 5h18l-7 8v6l-4 2v-8z"],
+  grip: ["M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"],
+  check: ["M5 12l5 5 9-10"],
   pencil: ["M4 20h4L19 9l-4-4L4 16zM14 6l4 4"],
   dining: ["M7 3v8a2 2 0 0 0 2 2v8M5 3v6M9 3v6M17 3c-2 0-3 3-3 6s1 4 3 4v8"],
   groceries: [],
@@ -28,10 +31,12 @@ export function Icon({
   name,
   size = 22,
   strokeWidth = 1.8,
+  className,
 }: {
   name: string;
   size?: number;
   strokeWidth?: number;
+  className?: string;
 }) {
   const common = {
     width: size,
@@ -43,6 +48,7 @@ export function Icon({
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true as const,
+    className,
   };
   if (name === "finance") {
     return (
@@ -83,6 +89,14 @@ export function Icon({
         <circle cx="9" cy="20" r="1.5" />
         <circle cx="18" cy="20" r="1.5" />
         <path d="M2 3h3l3 12h11l2-8H6" />
+      </svg>
+    );
+  }
+  if (name === "calendar") {
+    return (
+      <svg {...common}>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M3 10h18M8 3v4M16 3v4" />
       </svg>
     );
   }
