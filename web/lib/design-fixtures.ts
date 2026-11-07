@@ -17,15 +17,16 @@ export const home = {
   streak: "12-day streak",
   streakNote: "Tonight's wins not logged yet",
   goals: [
-    { label: "Loan payoff", value: 62, tone: "finance" },
-    { label: "Emergency fund", value: 41, tone: "jobs" },
+    { label: "Loans", value: 62, tone: "finance" },
+    { label: "Emergency", value: 41, tone: "jobs" },
     { label: "NYC move", value: 28, tone: "gold" },
   ],
 };
 
 export const finance = {
-  net: "$18,472.36",
-  delta: "+$1,284.10 (7.5%) YTD",
+  net: "$18,472",
+  cents: ".36",
+  delta: "+$1,284.10 (7.5%)",
   spent: "$1,126",
   plan: "of $4,204 plan",
   used: 27,
@@ -37,8 +38,17 @@ export const finance = {
     { label: "YTD saved", value: "$9.8k", tone: "jobs-text" },
   ],
   caps: [
-    { name: "Dining Out", left: "$62", spent: "$18", cap: "$80/wk", tone: "spent" },
-    { name: "Groceries", left: "$94", spent: "$26", cap: "$120/wk", tone: "finance" },
+    { name: "Dining Out", left: "$62", rest: "left $18", cap: "$80/wk", width: 78, tone: "dining" },
+    { name: "Groceries", left: "$94", rest: "left $26", cap: "$120/wk", width: 78, tone: "groceries" },
+    { name: "Transport", left: "$31", rest: "left $29", cap: "$60/wk", width: 52, tone: "transport" },
+    { name: "Subscriptions", left: "$48", rest: "left $7", cap: "$55/wk", width: 87, tone: "subscriptions" },
+    { name: "Shopping", left: "$18", rest: "left $57", cap: "$75/wk", width: 24, tone: "shopping" },
+    { name: "Utilities", left: "$0", rest: "left $45", cap: "$45/wk", width: 0, tone: "utilities" },
+  ],
+  recent: [
+    { name: "Joe's Pizza", meta: "Dining Out · Today", amount: "−$14.50", positive: false },
+    { name: "Trader Joe's", meta: "Groceries · Yesterday", amount: "−$46.12", positive: false },
+    { name: "Payroll (example)", meta: "Income · Nov 1", amount: "+$2,350.00", positive: true },
   ],
   ranges: ["1W", "1M", "YTD", "1Y", "All"],
 };

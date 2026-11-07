@@ -41,21 +41,24 @@ export function Ring({
   );
 }
 
-/** GAP: the chart shape is reconstructed from the flattened frame, not a data series. */
-export function Sparkline() {
+const financeLine =
+  "M0.0,116.0 L24.4,102.8 L48.8,109.4 L73.1,89.6 L97.5,94.9 L121.9,79.1 L146.2,76.5 L170.6,84.4 L195.0,64.6 L219.4,56.7 L243.8,62.0 L268.1,42.2 L292.5,34.3 L316.9,39.6 L341.2,23.8 L365.6,18.5 L390.0,4.0";
+const homeLine = "M0.0,40.0 L18.6,32.0 L37.1,35.2 L55.7,24.0 L74.3,25.6 L92.9,16.0 L111.4,12.8 L130.0,4.0";
+
+/** Paths are the synthetic series from the handoff HTML, not a live read. */
+export function Sparkline({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <svg width="130" height="44" viewBox="0 0 130 44" role="img" aria-label="Net worth, year to date, rising">
+        <path d={`${homeLine} L130,44 L0,44Z`} fill="var(--finance)" opacity="0.1" />
+        <path d={homeLine} fill="none" stroke="var(--finance)" strokeWidth="2.2" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   return (
-    <svg viewBox="0 0 360 120" className="h-24 w-full" role="img" aria-label="Net worth, year to date, rising">
-      <path
-        d="M0 90 C 30 88, 40 70, 70 72 S 110 96, 140 78 S 190 40, 220 48 S 270 70, 300 36 L 360 18 L 360 120 L 0 120 Z"
-        fill="var(--finance)"
-        opacity="0.18"
-      />
-      <path
-        d="M0 90 C 30 88, 40 70, 70 72 S 110 96, 140 78 S 190 40, 220 48 S 270 70, 300 36 L 360 18"
-        fill="none"
-        stroke="var(--finance)"
-        strokeWidth="3"
-      />
+    <svg viewBox="0 0 390 120" className="h-[120px] w-full" role="img" aria-label="Net worth, year to date, rising">
+      <path d={`${financeLine} L390,120 L0,120Z`} fill="var(--finance)" opacity="0.1" />
+      <path d={financeLine} fill="none" stroke="var(--finance)" strokeWidth="2.2" strokeLinejoin="round" />
     </svg>
   );
 }

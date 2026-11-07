@@ -52,14 +52,14 @@ export function Sheet({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-overlay">
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40">
       <button type="button" className="absolute inset-0 cursor-default" aria-label={`Close ${title}`} onClick={onClose} />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-card p-4 pb-8 shadow-lg"
+        className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-sheetTop bg-surface p-4 pb-8 shadow-2xl"
       >
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line" />
         <div className="mb-2 flex items-center justify-between">

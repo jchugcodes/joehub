@@ -13,10 +13,10 @@ export default function JobDetailPage() {
   const [message, setMessage] = useState("");
   if (params.id !== "globex") {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3 px-4">
         <h1 className="text-2xl font-semibold">No detail frame</h1>
         <p className="text-sm text-muted">Only the Globex example has a detail frame.</p>
-        <Link href="/jobs" className="text-sm font-semibold text-jobs-text">
+        <Link href="/jobs" className="text-sm font-semibold text-jobs">
           Back to pipeline
         </Link>
       </div>
@@ -24,7 +24,7 @@ export default function JobDetailPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       <header className="flex items-center justify-between">
         <Link href="/jobs" className="text-xl" aria-label="Back to pipeline">
           ‹
@@ -33,7 +33,7 @@ export default function JobDetailPage() {
         <span className="w-6" />
       </header>
       <div className="flex gap-3">
-        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-ink text-lg font-semibold text-card">
+        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-ink text-lg font-semibold text-white">
           {jobDetail.initial}
         </span>
         <div>
@@ -41,7 +41,7 @@ export default function JobDetailPage() {
           <p className="text-sm text-muted">{jobDetail.meta}</p>
         </div>
       </div>
-      <section className="rounded-2xl bg-card p-4 shadow-sm" aria-labelledby="status-heading">
+      <section className="card p-4" aria-labelledby="status-heading">
         <div className="flex items-center justify-between">
           <h2 id="status-heading" className="font-medium">
             Status
@@ -66,7 +66,7 @@ export default function JobDetailPage() {
                 />
                 <span
                   className={`mx-auto grid h-8 w-8 place-items-center rounded-full ${
-                    index === current ? "bg-interview text-white" : reached ? "bg-jobs-text text-white" : "bg-line text-muted"
+                    index === current ? "bg-finance-subscriptions text-white" : reached ? "bg-jobs text-white" : "bg-line text-muted"
                   }`}
                 >
                   {reached ? "✓" : ""}
@@ -79,15 +79,15 @@ export default function JobDetailPage() {
         <p className="mt-3 rounded-xl border border-line px-3 py-2 text-sm">{status} · Round 2</p>
       </section>
       <div className="grid grid-cols-2 gap-3">
-        <section className="rounded-2xl bg-card p-3 shadow-sm">
+        <section className="card p-3">
           <h2 className="text-sm text-muted">Fit score</h2>
-          <p className="text-2xl font-semibold text-finance-text">
+          <p className="text-ui-26 font-extrabold tnum text-finance-primary">
             {jobDetail.fit}
             <span className="text-base text-muted">/10</span>
           </p>
           <p className="text-xs text-muted">{jobDetail.fitNote}</p>
         </section>
-        <section className="rounded-2xl bg-card p-3 shadow-sm">
+        <section className="card p-3">
           <h2 className="text-sm text-muted">Next step</h2>
           <p className="font-semibold">{jobDetail.next}</p>
           <p className="text-xs text-muted">{jobDetail.nextNote}</p>
@@ -96,13 +96,13 @@ export default function JobDetailPage() {
       <section id="notes" className="space-y-3">
         <h2 className="text-lg font-semibold">Notes</h2>
         {notes.map((note) => (
-          <article key={note.when} className="rounded-2xl bg-card p-4 shadow-sm">
+          <article key={note.when} className="card p-4">
             <p className="text-xs text-muted">{note.when}</p>
             <p className="mt-1">{note.body}</p>
           </article>
         ))}
         <form
-          className="rounded-2xl border border-jobs-text p-3"
+          className="rounded-2xl border border-jobs p-3"
           onSubmit={(event) => {
             event.preventDefault();
             if (!draft.trim()) return;
@@ -121,7 +121,7 @@ export default function JobDetailPage() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button type="submit" className="rounded-full bg-jobs-text px-4 py-1 text-sm font-semibold text-white">
+          <button type="submit" className="rounded-full bg-jobs px-4 py-1 text-sm font-semibold text-white">
             Save
           </button>
         </form>
@@ -137,7 +137,7 @@ export default function JobDetailPage() {
         </a>
         <button
           type="button"
-          className="rounded-full bg-finance-text py-3 text-sm font-semibold text-white"
+          className="rounded-full bg-finance-primary py-3 text-sm font-semibold text-white"
           onClick={() => setStatus("Offer")}
         >
           Mark offer

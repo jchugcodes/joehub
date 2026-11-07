@@ -13,15 +13,15 @@ export default function DiningOutPage() {
   const [saved, setSaved] = useState("");
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       <p className="text-sm text-muted">Finance</p>
-      <h1 className="text-3xl font-semibold">Dining Out</h1>
+      <h1 className="text-ui-22 font-bold">Dining Out</h1>
       <FinanceTabs />
-      <section className="rounded-2xl bg-card p-4 shadow-sm">
-        <p className="text-2xl font-semibold">
+      <section className="card p-4">
+        <p className="text-ui-30 font-extrabold tnum">
           $62 <span className="text-base font-normal text-muted">of $80 this week</span>
         </p>
-        <button type="button" className="mt-4 text-sm font-semibold text-finance-text" onClick={() => setOpen(true)}>
+        <button type="button" className="mt-4 text-sm font-semibold text-finance-primary" onClick={() => setOpen(true)}>
           Recategorize a charge
         </button>
       </section>
@@ -44,7 +44,7 @@ export default function DiningOutPage() {
                     />
                     <span
                       className={`inline-block rounded-full border px-3 py-1 text-sm ${
-                        choice === category ? "border-finance-text bg-finance-text text-white" : "border-line"
+                        choice === category ? "border-finance-primary bg-finance-primary text-white" : "border-line"
                       }`}
                     >
                       {category}
@@ -63,7 +63,7 @@ export default function DiningOutPage() {
                 role="switch"
                 aria-checked={always}
                 onClick={() => setAlways((value) => !value)}
-                className={`h-7 w-12 rounded-full p-1 ${always ? "bg-finance-text" : "bg-line"}`}
+                className={`h-7 w-12 rounded-full p-1 ${always ? "bg-finance-primary" : "bg-line"}`}
               >
                 <span className={`block h-5 w-5 rounded-full bg-white ${always ? "ml-auto" : ""}`} />
                 <span className="sr-only">{always ? "Rule on" : "Rule off"}</span>
@@ -75,13 +75,13 @@ export default function DiningOutPage() {
             <input
               id="weekly-cap"
               inputMode="decimal"
-              className="mt-1 w-full rounded-xl border border-line bg-canvas px-3 py-2"
+              className="mt-1 w-full rounded-xl border border-line bg-page px-3 py-2"
               value={cap}
               onChange={(event) => setCap(event.target.value)}
             />
             <button
               type="button"
-              className="mt-4 w-full rounded-full bg-finance-text py-3 font-semibold text-white"
+              className="mt-4 w-full rounded-full bg-finance-primary py-3 font-semibold text-white"
               onClick={() => {
                 setSaved(`Saved locally: ${choice}, cap $${cap}. Not sent to the API.`);
                 setOpen(false);

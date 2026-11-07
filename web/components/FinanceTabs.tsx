@@ -22,7 +22,7 @@ export function FinanceTabs() {
             href={link.href}
             aria-current={current ? "page" : undefined}
             className={`shrink-0 border-b-2 pb-2 ${
-              current ? "border-finance-text font-semibold text-ink" : "border-transparent text-muted"
+              current ? "border-finance-primary font-semibold text-ink" : "border-transparent text-muted"
             }`}
           >
             {link.label}

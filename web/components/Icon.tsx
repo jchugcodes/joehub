@@ -2,7 +2,7 @@
 export function Icon({ name }: { name: string }) {
   const common = {
     viewBox: "0 0 24 24",
-    className: "h-6 w-6",
+    className: "h-[22px] w-[22px]",
     fill: "none",
     stroke: "currentColor",
     strokeWidth: 1.8,

@@ -6,9 +6,9 @@ import { Sheet } from "../../components/Sheet";
 import { journal } from "../../lib/design-fixtures";
 
 const moods = [
-  { id: "Loved", tone: "border-finance-text text-finance-text" },
-  { id: "Meh", tone: "border-gold text-gold-text" },
-  { id: "Never again", tone: "border-spent text-spent-text" },
+  { id: "Loved", tone: "border-finance-primary text-finance-primary" },
+  { id: "Meh", tone: "border-finance-shopping text-finance-shopping" },
+  { id: "Never again", tone: "border-finance-dining text-finance-dining" },
 ];
 
 function JournalScreen() {
@@ -22,18 +22,18 @@ function JournalScreen() {
   const [status, setStatus] = useState("");
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       <header className="flex items-start justify-between">
         <div>
           <p className="text-sm text-muted">Journal</p>
-          <h1 className="text-3xl font-semibold">Wins & dates</h1>
+          <h1 className="text-ui-22 font-bold">Wins & dates</h1>
         </div>
-        <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-card" aria-label="Search journal">
+        <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-surface" aria-label="Search journal">
           ⌕
         </button>
       </header>
       <nav aria-label="Journal sections" className="flex gap-4 text-sm">
-        <a href="#feed" className="border-b-2 border-journal-text pb-2 font-semibold" aria-current="page">
+        <a href="#feed" className="border-b-2 border-journal pb-2 font-semibold" aria-current="page">
           Feed
         </a>
         <a href="#wins" className="pb-2 text-muted">
@@ -46,10 +46,14 @@ function JournalScreen() {
           Places
         </a>
       </nav>
-      <section className="rounded-2xl bg-journal-text p-4 text-white" aria-label="Streak">
+      <section
+        className="rounded-card p-4 text-white"
+        style={{ background: "linear-gradient(135deg,#C2577A,#8E5BA8)" }}
+        aria-label="Streak"
+      >
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-3xl font-semibold">{journal.streak}</p>
+            <p className="text-ui-26 font-extrabold leading-none">{journal.streak}</p>
             <p className="text-sm">{journal.streakNote}</p>
           </div>
           <div className="text-right text-sm">
@@ -64,7 +68,7 @@ function JournalScreen() {
             <p className="text-muted">{day}</p>
             <span
               className={`mt-1 grid h-8 w-8 place-items-center rounded-full ${
-                journal.done[index] ? "bg-journal-text text-white" : "bg-line text-muted"
+                journal.done[index] ? "bg-journal text-white" : "bg-line text-muted"
               }`}
             >
               {journal.done[index] ? "✓" : ""}
@@ -72,7 +76,7 @@ function JournalScreen() {
           </li>
         ))}
       </ul>
-      <section id="wins" className="rounded-2xl bg-card p-4 shadow-sm">
+      <section id="wins" className="card p-4">
         <div className="flex justify-between text-xs font-semibold tracking-wide text-muted">
           <h2>NIGHTLY WINS</h2>
           <p>Tonight · Fri</p>
@@ -80,18 +84,18 @@ function JournalScreen() {
         <ul className="mt-2 space-y-1 text-sm">
           {journal.wins.map((win) => (
             <li key={win.text}>
-              <span className={win.ok ? "text-finance-text" : "text-spent-text"}>{win.ok ? "✓" : "✕"}</span> {win.text}
+              <span className={win.ok ? "text-finance-primary" : "text-finance-dining"}>{win.ok ? "✓" : "✕"}</span> {win.text}
             </li>
           ))}
         </ul>
       </section>
       <ul id="dates" className="space-y-3">
         {entries.map((entry) => (
-          <li key={entry.title} id="places" className="rounded-2xl bg-card p-4 shadow-sm">
+          <li key={entry.title} id="places" className="card p-4">
             <p className="text-xs text-muted">{entry.place}</p>
             <div className="mt-1 flex items-center justify-between">
               <h2 className="text-lg font-semibold">{entry.title}</h2>
-              <p className="text-sm text-finance-text">{entry.mood}</p>
+              <p className="text-sm text-finance-primary">{entry.mood}</p>
             </div>
             <p className="text-sm text-muted">{entry.when}</p>
             <p className="mt-2">{entry.body}</p>
@@ -100,7 +104,7 @@ function JournalScreen() {
       </ul>
       <button
         type="button"
-        className="fixed bottom-24 right-4 grid h-14 w-14 place-items-center rounded-full bg-journal-text text-2xl text-white lg:bottom-8"
+        className="fixed bottom-[100px] right-4 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-24 text-white shadow-xl lg:bottom-8"
         aria-label="Add to journal"
         onClick={() => setOpen(true)}
       >
@@ -119,7 +123,7 @@ function JournalScreen() {
               setOpen(false);
             }}
           >
-            <fieldset className="grid grid-cols-2 gap-2 rounded-2xl bg-canvas p-1">
+            <fieldset className="grid grid-cols-2 gap-2 rounded-2xl bg-page p-1">
               <legend className="sr-only">Entry kind</legend>
               {(["win", "date"] as const).map((kind) => (
                 <label key={kind} className="cursor-pointer">
@@ -133,7 +137,7 @@ function JournalScreen() {
                   />
                   <span
                     className={`block rounded-xl py-2 text-center ${
-                      tab === kind ? "bg-card font-semibold text-journal-text shadow-sm" : "bg-canvas"
+                      tab === kind ? "bg-surface font-semibold text-journal shadow-sm" : "bg-page"
                     }`}
                   >
                     {kind === "win" ? "Nightly win" : "Date"}
@@ -146,7 +150,7 @@ function JournalScreen() {
             </label>
             <input
               id="place"
-              className="mt-1 w-full rounded-xl border border-journal-text px-3 py-2"
+              className="mt-1 w-full rounded-xl border border-journal px-3 py-2"
               value={place}
               onChange={(event) => setPlace(event.target.value)}
             />
@@ -157,7 +161,7 @@ function JournalScreen() {
                   <label
                     key={item.id}
                     className={`rounded-xl border p-2 text-center text-sm ${
-                      mood === item.id ? `${item.tone} bg-canvas font-semibold` : "border-line text-muted"
+                      mood === item.id ? `${item.tone} bg-page font-semibold` : "border-line text-muted"
                     }`}
                   >
                     <input
@@ -184,7 +188,7 @@ function JournalScreen() {
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />
-            <button type="submit" className="mt-4 w-full rounded-full bg-journal-text py-3 font-semibold text-white">
+            <button type="submit" className="mt-4 w-full rounded-full bg-journal py-3 font-semibold text-white">
               Add to journal
             </button>
             <p className="mt-2 text-center text-xs tracking-wide text-muted">EXAMPLE DATA</p>

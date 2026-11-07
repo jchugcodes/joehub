@@ -5,30 +5,46 @@ import { Sparkline } from "../../components/Charts";
 import { Icon } from "../../components/Icon";
 import { finance } from "../../lib/design-fixtures";
 
+const capTone: Record<string, { bar: string; tint: string }> = {
+  dining: { bar: "bg-finance-dining", tint: "bg-finance-dining/[0.12]" },
+  groceries: { bar: "bg-finance-primary", tint: "bg-finance-primary/[0.12]" },
+  transport: { bar: "bg-finance-transport", tint: "bg-finance-transport/[0.12]" },
+  subscriptions: { bar: "bg-finance-warning", tint: "bg-finance-subscriptions/[0.12]" },
+  shopping: { bar: "bg-finance-shopping", tint: "bg-finance-shopping/[0.12]" },
+  utilities: { bar: "bg-finance-utilities", tint: "bg-finance-utilities/[0.12]" },
+};
+
 export default function FinancePage() {
   const [range, setRange] = useState("YTD");
   return (
-    <div className="space-y-4">
-      <header className="flex items-start justify-between">
+    <div>
+      <header className="flex items-center justify-between px-5 pt-2">
         <div>
-          <p className="text-sm text-muted">Finance</p>
-          <h1 className="text-3xl font-semibold">Net worth</h1>
+          <p className="text-ui-13 mut">Finance</p>
+          <h1 className="text-ui-22 font-bold">Net worth</h1>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-card" aria-label="Search finance">
+          <button type="button" className="card grid h-10 w-10 place-items-center rounded-full" aria-label="Search finance">
             <Icon name="search" />
           </button>
-          <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-card" aria-label="Finance alerts">
+          <button type="button" className="card grid h-10 w-10 place-items-center rounded-full" aria-label="Finance alerts">
             <Icon name="bell" />
           </button>
         </div>
       </header>
-      <p className="text-4xl font-semibold tracking-tight">{finance.net}</p>
-      <p className="text-sm font-medium text-finance-text">{finance.delta}</p>
-      <div className="-mx-4 bg-finance-soft px-4 md:mx-0 md:rounded-2xl">
+      <div className="mt-2 px-5">
+        <p className="text-ui-40 font-extrabold tracking-tight tnum">
+          {finance.net}
+          <span className="text-ui-24 font-extrabold">{finance.cents}</span>
+        </p>
+        <p className="text-ui-14 font-semibold text-finance-primary">
+          {finance.delta} <span className="font-medium mut">YTD</span>
+        </p>
+      </div>
+      <div className="mt-2">
         <Sparkline />
       </div>
-      <fieldset className="flex gap-2">
+      <fieldset className="flex gap-1 px-5">
         <legend className="sr-only">Chart range</legend>
         {finance.ranges.map((item) => (
           <label key={item} className="cursor-pointer">
@@ -41,8 +57,8 @@ export default function FinancePage() {
               onChange={() => setRange(item)}
             />
             <span
-              className={`inline-block rounded-full px-3 py-1 text-sm ${
-                range === item ? "bg-finance-text text-white" : "text-muted"
+              className={`inline-block rounded-full px-3.5 py-1.5 text-ui-13 font-semibold ${
+                range === item ? "bg-finance-primary text-white" : "mut"
               }`}
             >
               {item}
@@ -50,38 +66,39 @@ export default function FinancePage() {
           </label>
         ))}
       </fieldset>
-      <section className="rounded-2xl bg-card p-4 shadow-sm" aria-labelledby="spent-heading">
-        <div className="flex justify-between text-sm">
-          <h2 id="spent-heading" className="font-medium">
+      <section className="card mx-4 mt-4 p-4" aria-labelledby="spent-heading">
+        <div className="flex justify-between text-ui-13">
+          <h2 id="spent-heading" className="font-semibold">
             Spent this month
           </h2>
-          <p className="text-muted">{finance.period}</p>
+          <p className="mut">{finance.period}</p>
         </div>
-        <p className="mt-2 text-2xl font-semibold">
-          {finance.spent} <span className="text-base font-normal text-muted">{finance.plan}</span>
+        <p className="mt-1 text-ui-24 font-bold tnum">
+          {finance.spent} <span className="text-ui-14 font-medium mut">{finance.plan}</span>
         </p>
         <div
-          className="mt-3 h-2 rounded-full bg-line"
+          className="relative mt-2.5 h-2.5 rounded-full bg-line"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={finance.used}
           aria-label="Percent of the monthly plan used"
         >
-          <div className="h-full rounded-full bg-spent" style={{ width: `${finance.used}%` }} />
+          <div className="h-full rounded-full bg-finance-dining" style={{ width: `${finance.used}%` }} />
+          <div className="absolute -top-1 h-[18px] w-0.5 bg-ink" style={{ left: "20%" }} />
         </div>
-        <div className="mt-2 flex justify-between text-xs text-muted">
+        <div className="mt-1.5 flex justify-between text-ui-11.5 mut">
           <span>{finance.used}% used</span>
-          <span>{finance.pace}</span>
+          <span>| {finance.pace}</span>
         </div>
       </section>
-      <ul className="grid grid-cols-3 gap-2">
+      <ul className="mx-4 mt-3 grid grid-cols-3 gap-2.5">
         {finance.stats.map((stat) => (
-          <li key={stat.label} className="rounded-2xl bg-card p-3 shadow-sm">
-            <p className="text-xs text-muted">{stat.label}</p>
+          <li key={stat.label} className="card p-3">
+            <p className="text-ui-11.5 mut">{stat.label}</p>
             <p
-              className={`text-lg font-semibold ${
-                stat.tone === "spent-text" ? "text-spent-text" : stat.tone === "jobs-text" ? "text-jobs-text" : "text-finance-text"
+              className={`text-ui-17 font-bold tnum ${
+                stat.tone === "spent-text" ? "text-finance-dining" : stat.tone === "jobs-text" ? "text-jobs" : "text-finance-primary"
               }`}
             >
               {stat.value}
@@ -89,25 +106,48 @@ export default function FinancePage() {
           </li>
         ))}
       </ul>
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Weekly caps</h2>
-        <a href="/finance/dining-out" className="text-sm font-semibold text-finance-text">
+      <div className="mt-5 flex items-baseline justify-between px-5">
+        <h2 className="text-ui-17 font-bold">Weekly caps</h2>
+        <a href="/finance/dining-out" className="text-ui-13 font-semibold text-finance-primary">
           Edit caps
         </a>
       </div>
-      <ul className="grid grid-cols-2 gap-3">
-        {finance.caps.map((cap) => (
-          <li key={cap.name}>
-            <a href="/finance/dining-out" className="block rounded-2xl bg-card p-3 shadow-sm">
-              <p className="text-right text-xs text-muted">{cap.cap}</p>
-              <p className="mt-3 font-medium">{cap.name}</p>
-              <p className="text-xl font-semibold">
-                {cap.left} <span className="text-sm font-normal text-muted">left {cap.spent}</span>
-              </p>
-            </a>
+      <ul className="mx-4 mt-2.5 grid grid-cols-2 gap-2.5">
+        {finance.caps.map((cap) => {
+          const tone = capTone[cap.tone];
+          return (
+            <li key={cap.name}>
+              <a href="/finance/dining-out" className="block card p-3.5">
+                <span className="flex justify-between">
+                  <span className={`grid h-9 w-9 place-items-center rounded-xl ${tone.tint}`} aria-hidden />
+                  <span className="text-ui-11 mut">{cap.cap}</span>
+                </span>
+                <p className="mt-2.5 text-ui-13 mut">{cap.name}</p>
+                <p className="text-ui-19 font-bold tnum">
+                  {cap.left}
+                  <span className="text-ui-12 font-medium mut"> {cap.rest}</span>
+                </p>
+                <div className="mt-2 h-1.5 rounded-full bg-line">
+                  <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${cap.width}%` }} />
+                </div>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      <h2 className="mt-5 px-5 text-ui-17 font-bold">Recent</h2>
+      <ul className="px-5">
+        {finance.recent.map((row) => (
+          <li key={row.name} className="flex items-center gap-3 py-2.5">
+            <div>
+              <p className="text-ui-14.5 font-semibold">{row.name}</p>
+              <p className="text-ui-12 mut">{row.meta}</p>
+            </div>
+            <p className={`ml-auto text-ui-14.5 font-semibold tnum ${row.positive ? "text-finance-primary" : ""}`}>{row.amount}</p>
           </li>
         ))}
       </ul>
+      <p className="mb-28 mt-3 text-center text-ui-9.5 text-inactive">EXAMPLE DATA · design mockup · not real accounts</p>
     </div>
   );
 }

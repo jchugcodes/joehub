@@ -36,12 +36,12 @@ export default function MorePage() {
   }, [query, month, outflow, ascending]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       <header className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Database · {setName}</h1>
         <button
           type="button"
-          className="grid h-10 w-10 place-items-center rounded-full bg-card"
+          className="grid h-10 w-10 place-items-center rounded-full bg-surface"
           aria-pressed={darkFinance}
           aria-label="Use dark appearance on Finance home"
           onClick={() => {
@@ -68,7 +68,7 @@ export default function MorePage() {
             aria-selected={setName === name}
             onClick={() => setSetName(name)}
             className={`shrink-0 rounded-full px-3 py-1 text-sm ${
-              setName === name ? "bg-ink text-card" : "bg-card text-ink"
+              setName === name ? "bg-ink text-white" : "bg-surface text-ink"
             }`}
           >
             {name}
@@ -82,7 +82,7 @@ export default function MorePage() {
           </label>
           <input
             id="row-search"
-            className="w-full rounded-xl border border-line bg-card px-3 py-2"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2"
             placeholder="Search 412 rows"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -109,7 +109,7 @@ export default function MorePage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Example transactions from the frame. Not live records.</caption>
-              <thead className="bg-canvas">
+              <thead className="bg-table-header">
                 <tr>
                   <th scope="col" className="px-2 py-2 font-medium">
                     Merchant
@@ -133,7 +133,7 @@ export default function MorePage() {
                     </th>
                     <td className="px-2 py-2">{row[1]}</td>
                     <td className="px-2 py-2">{row[2]}</td>
-                    <td className={`px-2 py-2 text-right ${row[3].startsWith("+") ? "text-finance-text" : ""}`}>{row[3]}</td>
+                    <td className={`px-2 py-2 text-right ${row[3].startsWith("+") ? "text-finance-primary" : ""}`}>{row[3]}</td>
                   </tr>
                 ))}
               </tbody>
@@ -142,7 +142,7 @@ export default function MorePage() {
           <p className="text-xs text-muted">The frame shows these columns first. Editing a cell is not designed.</p>
         </>
       ) : (
-        <p className="rounded-2xl bg-card p-4 text-sm text-muted">
+        <p className="card p-4 text-sm text-muted">
           {setName} has no table frame. The transactions table is the only designed More screen.
         </p>
       )}

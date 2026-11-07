@@ -14,11 +14,11 @@ const tabs = [
 ];
 
 const activeTone: Record<string, string> = {
-  Home: "bg-line text-ink",
-  Finance: "bg-finance-soft text-finance-text",
-  Jobs: "bg-jobs-soft text-jobs-text",
-  Journal: "bg-journal-soft text-journal-text",
-  More: "bg-line text-ink",
+  Home: "bg-ink/[0.12] text-ink",
+  Finance: "bg-finance-primary/[0.12] text-finance-primary",
+  Jobs: "bg-jobs/[0.12] text-jobs",
+  Journal: "bg-journal/[0.12] text-journal",
+  More: "bg-ink/[0.12] text-ink",
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -36,7 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
 
   return (
-    <div data-theme={dark ? "dark" : "light"} className="min-h-screen bg-canvas text-ink">
+    <div data-theme={dark ? "dark" : "light"} className="min-h-screen bg-page text-ink">
       <a className="sr-only" href="#content">
         Skip to content
       </a>
@@ -62,16 +62,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="min-w-0 flex-1">
           {/* GAP: phone width matches the 390 frame. 768px widens the column. */}
-          <main id="content" className="mx-auto w-full max-w-phone px-4 pb-28 pt-5 md:max-w-3xl md:px-6 lg:px-0 lg:pb-16">
+          <main id="content" className="mx-auto w-full max-w-phone px-0 pb-28 pt-2 md:max-w-3xl lg:pb-16">
             {children}
           </main>
         </div>
       </div>
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 h-[84px] border-t border-tab-line bg-tab backdrop-blur lg:hidden"
       >
-        <ul className="mx-auto flex max-w-phone justify-between px-2 py-2 md:max-w-3xl">
+        <ul className="mx-auto flex max-w-phone justify-around px-2 pt-2 md:max-w-3xl">
           {tabs.map((tab) => {
             const current = tab.match(pathname);
             return (
@@ -79,12 +79,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={tab.href}
                   aria-current={current ? "page" : undefined}
-                  className="flex min-w-[64px] flex-col items-center gap-1 text-xs text-muted"
+                  className={`flex w-14 flex-col items-center gap-1 text-ui-10.5 ${
+                    current ? "font-semibold" : "font-medium text-inactive"
+                  }`}
                 >
-                  <span className={`rounded-full p-1.5 ${current ? activeTone[tab.label] : ""}`}>
+                  <span className={`rounded-full px-3 py-1 ${current ? activeTone[tab.label] : "text-inactive"}`}>
                     <Icon name={tab.icon} />
                   </span>
-                  {tab.label}
+                  <span className={current ? activeTone[tab.label].split(" ").find((c) => c.startsWith("text-")) : ""}>
+                    {tab.label}
+                  </span>
                 </Link>
               </li>
             );
