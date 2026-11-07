@@ -55,7 +55,12 @@ jobs:
         run: npm ci
       - name: Run web tests
         working-directory: web
-        run: npm test
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            echo "web suite ${attempt} of 3"
+            npm test
+          done
       - name: Build Next.js
         working-directory: web
         run: npm run build

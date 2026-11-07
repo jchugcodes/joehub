@@ -3,8 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { startFakeOidc, startFakeUpstash } from "./support/fakes.mjs";
-
-const PORT = 3488;
+import { reservePort, stopProcess } from "./support/harness.mjs";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SECRET = "auth-http-secret-value";
 const PAGES = [
@@ -78,6 +77,7 @@ async function enforceAuth(mode, port) {
   const child = mode === "standalone"
     ? spawn(process.execPath, ["server.js"], {
         cwd: `${ROOT}/.next/standalone`,
+        detached: true,
         stdio: ["ignore", "pipe", "pipe"],
         env: cleanEnv({
           NODE_ENV: "production",
@@ -110,6 +110,7 @@ async function enforceAuth(mode, port) {
       JOEHUB_PUBLIC_ORIGIN: base,
       VERCEL: "1",
     }),
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", (chunk) => {
@@ -256,7 +257,7 @@ async function enforceAuth(mode, port) {
       assert.equal(separate.status, 307, ip);
     }
   } finally {
-    child.kill("SIGTERM");
+    await stopProcess(child);
     upstash.stop();
     oidc.stop();
   }
@@ -274,12 +275,13 @@ async function enforceAuth(mode, port) {
   }
 }
 
-test("production next start enforces auth", { timeout: 180000 }, () => enforceAuth("start", PORT));
+test("production next start enforces auth", { timeout: 180000 }, async () => enforceAuth("start", await reservePort()));
 
-test("standalone server enforces auth", { timeout: 180000 }, () => enforceAuth("standalone", 3491));
+test("standalone server enforces auth", { timeout: 180000 }, async () => enforceAuth("standalone", await reservePort()));
 
 test("a preview process refuses a production scope", { timeout: 60000 }, async () => {
-  const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "3489"], {
+  const port = await reservePort();
+  const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: ROOT,
     env: cleanEnv({
       NODE_ENV: "production",
@@ -288,6 +290,7 @@ test("a preview process refuses a production scope", { timeout: 60000 }, async (
       JOEHUB_OWNER_EMAIL: "prod-owner@example.com",
       JOEHUB_SESSION_SECRET: SECRET,
     }),
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -297,18 +300,26 @@ test("a preview process refuses a production scope", { timeout: 60000 }, async (
   child.stderr.on("data", (chunk) => {
     output += chunk;
   });
-  const code = await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      resolve("still-running");
-    }, 20000);
-    child.on("exit", (status) => {
-      clearTimeout(timer);
-      resolve(status);
+  try {
+    const code = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        try {
+          process.kill(-child.pid, "SIGTERM");
+        } catch {
+          child.kill("SIGTERM");
+        }
+        resolve("still-running");
+      }, 20000);
+      child.on("exit", (status) => {
+        clearTimeout(timer);
+        resolve(status);
+      });
     });
-  });
-  assert.notEqual(code, "still-running");
-  assert.notEqual(code, 0);
-  assert.match(output, /env scope does not match/);
-  assert.equal(output.includes("prod-owner@example.com"), false);
+    assert.notEqual(code, "still-running");
+    assert.notEqual(code, 0);
+    assert.match(output, /env scope does not match/);
+    assert.equal(output.includes("prod-owner@example.com"), false);
+  } finally {
+    await stopProcess(child);
+  }
 });
