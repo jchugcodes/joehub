@@ -1,0 +1,23 @@
+[project]
+name = "joehub"
+version = "0.1.0"
+description = "Personal data hub foundation. Synthetic data only."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyrage>=1.2,<2",
+    "streamlit>=1.39,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
