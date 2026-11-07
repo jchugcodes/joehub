@@ -28,6 +28,11 @@ class StartupError(RuntimeError):
     """The process must not serve traffic."""
 
 
+def trusted_proxy_set(source: Mapping[str, str]) -> frozenset[str]:
+    raw = source.get("JOEHUB_TRUSTED_PROXIES", "")
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class ApiSettings:
     env: str
@@ -35,6 +40,7 @@ class ApiSettings:
     fake_auth: bool
     session_secret: str
     read_credential: str
+    trusted_proxies: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ApiSettings:
@@ -45,6 +51,7 @@ class ApiSettings:
             fake_auth=source.get("JOEHUB_FAKE_AUTH") == "1",
             session_secret=source.get("JOEHUB_SESSION_SECRET", ""),
             read_credential=source.get("JOEHUB_READ_CREDENTIAL", SYNTHETIC_READ_CREDENTIAL),
+            trusted_proxies=trusted_proxy_set(source),
         )
 
     def check(self, env: Mapping[str, str]) -> None:

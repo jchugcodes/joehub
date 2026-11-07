@@ -17,6 +17,10 @@ The Next.js route handlers under `web/app/api/` implement `contract/openapi.json
 
 `api/` is a separate FastAPI process with the same contract. It is the place a later live read can sit. It is not required to run the shell. It does not open the default database path, and it refuses to start if that path, the age identity, the export directory, or an operator token is present in its environment.
 
+Both providers serve the `/api/...` paths in `contract/openapi.json`. On the Next.js site origin, `GET /api/finance/accounts` is JSON. `GET /finance/accounts` is the UI page and returns HTML. The optional FastAPI process serves the same `/api/...` paths on its own origin. The contract `servers` list records both origins. Neither URL is a deployed host.
+
+Rate limits use the connecting peer. A client-supplied `X-Forwarded-For` is ignored unless that peer is listed in `JOEHUB_TRUSTED_PROXIES`. The Next.js route handlers cannot see the TCP peer, so they ignore `X-Forwarded-For` and a spoofed hop cannot open a new limit bucket.
+
 ## Sessions
 
 The session cookie is `joehub_session`. It is HttpOnly, Secure, and SameSite=Lax. The value is a random id sealed with the session secret. The secret is read on the server and is not part of the page.
@@ -52,6 +56,30 @@ Recommendation: serve `web/` on a single free-tier Node host. The synthetic rout
 Costs are UNVERIFIED. This pass did not check vendor price pages, free-tier limits, overages, or whether any durable volume is free. A free allowance can become a charge. Nothing here selects a paid plan.
 
 The source of truth and any move of the datastore are a separate live-migration decision. This scaffold does not perform that move.
+
+## Scaffold limitations
+
+Each item below is a SCAFFOLD LIMITATION and a deploy blocker. This pass does not add a live backend.
+
+### In-memory session, revoke, and rate-limit stores
+
+SCAFFOLD LIMITATION. Deploy blocker. The session store, the revoke list, and the rate-limit buckets live in process memory. A Vercel cold start or a separate function instance drops them, so a cookie issued on one instance is unknown on another and a limit resets when a new instance starts. Minimal requirement: a durable store shared by every instance before this is deployed.
+
+### No production login
+
+SCAFFOLD LIMITATION. Deploy blocker. The only login is the synthetic dev pair, and production refuses to start while that pair is enabled. Minimal requirement: a production authentication method that does not use the dev pair.
+
+### Device registration is not verified-device auth
+
+SCAFFOLD LIMITATION. Deploy blocker. Login writes a device row in memory. Nothing checks that the device is a verified device. Minimal requirement: a verified-device check before a device is treated as trusted.
+
+### Public pages render fixtures without authentication
+
+SCAFFOLD LIMITATION. Deploy blocker for any live data. The HTML pages render the design fixtures with no session. That is acceptable for a synthetic demo ONLY. Minimal requirement before any live row is shown: those pages require a session, or they stay off the host.
+
+### Fixture packaging on a Vercel build
+
+`web/lib/fixtures.json` is a copy of `contract/fixtures.json`, and a Next.js standalone build is checked for that file. A Vercel build has not been run. SCAFFOLD LIMITATION. Deploy blocker. Minimal requirement: confirm the same fixture file is present in the Vercel build output before that build is served.
 
 ## Decisions only Joe can make
 

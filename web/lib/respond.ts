@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp as peerAddress } from "./client-ip.mjs";
 
 const COOKIE = {
   httpOnly: true,
@@ -8,10 +9,12 @@ const COOKIE = {
   maxAge: 14 * 24 * 60 * 60,
 };
 
-export function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim().slice(0, 64);
-  return "local";
+export function clientIp(
+  request: Request,
+  env: Record<string, string | undefined> = process.env,
+  peer = "direct",
+): string {
+  return peerAddress(request, env, peer);
 }
 
 export function jsonResult(result: {

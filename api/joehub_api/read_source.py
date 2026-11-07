@@ -12,10 +12,15 @@ class ReadDenied(Exception):
     pass
 
 
-def _same(left: str, right: str) -> bool:
-    if len(left) != len(right):
+def _same(left: object, right: str) -> bool:
+    if not isinstance(left, str):
         return False
-    return hmac.compare_digest(left, right)
+    try:
+        left_bytes = left.encode("utf-8")
+        right_bytes = right.encode("utf-8")
+    except UnicodeError:
+        return False
+    return hmac.compare_digest(left_bytes, right_bytes)
 
 
 class ReadSource(Protocol):

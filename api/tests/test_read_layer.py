@@ -100,19 +100,19 @@ def test_query_source_serves_the_read_layer() -> None:
     app = create_app(settings, environ={}, source=QueryReadSource(_conn(), CREDENTIAL))
     client = TestClient(app)
     response = client.post(
-        "/session/login",
+        "/api/session/login",
         json={"username": "synthetic", "password": "synthetic"},
     )
     cookie = response.headers["set-cookie"].split(";", 1)[0].split("=", 1)[1]
-    accounts = client.get("/finance/accounts", cookies={COOKIE_NAME: cookie})
+    accounts = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert accounts.status_code == 200
     assert accounts.json()[0]["name"] == "Layer Checking"
     assert accounts.json()[0]["balance_cents"] == 2500
-    entries = client.get("/journal/entries", cookies={COOKIE_NAME: cookie})
+    entries = client.get("/api/journal/entries", cookies={COOKIE_NAME: cookie})
     assert entries.json()[0]["body"] == "Layer body"
-    applications = client.get("/jobs/applications", cookies={COOKIE_NAME: cookie})
+    applications = client.get("/api/jobs/applications", cookies={COOKIE_NAME: cookie})
     assert applications.json()[0]["role_title"] == "Layer Role"
-    events = client.get("/journal/events", cookies={COOKIE_NAME: cookie})
+    events = client.get("/api/journal/events", cookies={COOKIE_NAME: cookie})
     assert events.json()[0]["title"] == "Layer event"
 
 

@@ -1,5 +1,6 @@
 declare module "*.mjs" {
   export function loadFixtures(): import("../lib/contract").FixtureFile;
+  export function clientIp(request: Request, env?: Record<string, string | undefined>, peer?: string): string;
   export function assertSafeToStart(env: NodeJS.ProcessEnv): void;
   export function handleGet(...args: any[]): { status: number; body: unknown };
   export function handleLogin(...args: any[]): {

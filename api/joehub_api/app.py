@@ -15,7 +15,6 @@ from joehub_api.models import (
     Device,
     EventRow,
     JournalEntry,
-    LoginRequest,
     LoginResult,
     StatusCount,
     TransactionRow,
@@ -67,12 +66,15 @@ def create_app(
         return response
 
     def client_ip(request: Request) -> str:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()[:64]
-        if request.client is None:
-            return "unknown"
-        return request.client.host
+        # A client-supplied X-Forwarded-For is not a rate-limit key. Trust it
+        # only when the TCP peer is in JOEHUB_TRUSTED_PROXIES.
+        peer = request.client.host if request.client is not None and request.client.host else "unknown"
+        if peer in request.app.state.settings.trusted_proxies:
+            forwarded = request.headers.get("x-forwarded-for") or ""
+            hop = forwarded.split(",")[0].strip()[:64]
+            if hop:
+                return hop
+        return peer[:64]
 
     def require_session(request: Request) -> None:
         if not request.app.state.api_limiter.allow(client_ip(request)):
@@ -87,38 +89,49 @@ def create_app(
         except ReadDenied:
             raise HTTPException(status_code=503, detail="read credential rejected") from None
 
-    @app.get("/finance/accounts", response_model=list[AccountBalance])
+    @app.get("/api/finance/accounts", response_model=list[AccountBalance])
     def finance_accounts(request: Request) -> list[dict]:
         return rows(request, "accounts")
 
-    @app.get("/finance/transactions", response_model=list[TransactionRow])
+    @app.get("/api/finance/transactions", response_model=list[TransactionRow])
     def finance_transactions(request: Request) -> list[dict]:
         return rows(request, "transactions")
 
-    @app.get("/jobs/applications", response_model=list[ApplicationRow])
+    @app.get("/api/jobs/applications", response_model=list[ApplicationRow])
     def job_applications(request: Request) -> list[dict]:
         return rows(request, "applications")
 
-    @app.get("/jobs/statuses", response_model=list[StatusCount])
+    @app.get("/api/jobs/statuses", response_model=list[StatusCount])
     def job_statuses(request: Request) -> list[dict]:
         return rows(request, "statuses")
 
-    @app.get("/journal/entries", response_model=list[JournalEntry])
+    @app.get("/api/journal/entries", response_model=list[JournalEntry])
     def journal_entries(request: Request) -> list[dict]:
         return rows(request, "entries")
 
-    @app.get("/journal/events", response_model=list[EventRow])
+    @app.get("/api/journal/events", response_model=list[EventRow])
     def journal_events(request: Request) -> list[dict]:
         return rows(request, "events")
 
-    @app.post("/session/login", response_model=LoginResult)
-    def session_login(body: LoginRequest, request: Request, response: Response) -> LoginResult:
+    @app.post("/api/session/login", response_model=LoginResult)
+    async def session_login(request: Request, response: Response) -> LoginResult:
+        try:
+            payload = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="malformed auth") from None
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="malformed auth")
+        username = payload.get("username")
+        password = payload.get("password")
+        label = payload.get("device_label")
+        if not isinstance(username, str) or not isinstance(password, str):
+            raise HTTPException(status_code=400, detail="malformed auth")
+        if label is not None and not isinstance(label, str):
+            raise HTTPException(status_code=400, detail="malformed auth")
         if not request.app.state.login_limiter.allow(client_ip(request)):
             raise HTTPException(status_code=429, detail="rate limit")
         try:
-            device_id, cookie = request.app.state.sessions.login(
-                body.username, body.password, body.device_label
-            )
+            device_id, cookie = request.app.state.sessions.login(username, password, label)
         except AuthDisabled:
             raise HTTPException(status_code=404, detail="dev auth is disabled") from None
         except AuthFailed:
@@ -134,7 +147,7 @@ def create_app(
         )
         return LoginResult(device_id=device_id)
 
-    @app.post("/session/logout")
+    @app.post("/api/session/logout")
     def session_logout(request: Request) -> JSONResponse:
         if not request.app.state.api_limiter.allow(client_ip(request)):
             raise HTTPException(status_code=429, detail="rate limit")
@@ -144,12 +157,12 @@ def create_app(
         response.delete_cookie(COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax")
         return response
 
-    @app.get("/session/devices", response_model=list[Device])
+    @app.get("/api/session/devices", response_model=list[Device])
     def session_devices(request: Request) -> list[dict]:
         require_session(request)
         return request.app.state.sessions.list_devices()
 
-    @app.post("/session/devices/{device_id}/revoke")
+    @app.post("/api/session/devices/{device_id}/revoke")
     def session_revoke(device_id: str, request: Request) -> dict[str, str]:
         require_session(request)
         if not request.app.state.sessions.revoke(device_id):

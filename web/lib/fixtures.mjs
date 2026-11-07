@@ -1,21 +1,26 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-function fixturesPath() {
-  const candidates = [
-    join(process.cwd(), "contract", "fixtures.json"),
-    join(process.cwd(), "..", "contract", "fixtures.json"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      return { path: candidate, text: readFileSync(candidate, "utf8") };
-    } catch {
-      // The Next app runs with cwd at web/, tests may run at the repo root.
-    }
+function candidates() {
+  const found = [];
+  try {
+    found.push(fileURLToPath(new URL("./fixtures.json", import.meta.url)));
+  } catch {
+    // The Next compiler can expose a non-file module URL.
   }
-  throw new Error("synthetic fixtures not found");
+  found.push(`${process.cwd()}/lib/fixtures.json`);
+  found.push(`${process.cwd()}/web/lib/fixtures.json`);
+  return found;
 }
 
 export function loadFixtures() {
-  return JSON.parse(fixturesPath().text);
+  let last;
+  for (const candidate of candidates()) {
+    try {
+      return JSON.parse(readFileSync(candidate, "utf8"));
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw last || new Error("synthetic fixtures not found");
 }

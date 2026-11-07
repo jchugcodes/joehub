@@ -48,10 +48,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _same(left: str, right: str) -> bool:
-    if len(left) != len(right):
+def _same(left: object, right: str) -> bool:
+    """Compare credentials as UTF-8 bytes.
+
+    hmac.compare_digest rejects non-ASCII str and would turn a login like
+    'synthétic' into a 500. A non-string or a value that cannot be encoded
+    is a failed comparison, not an error.
+    """
+    if not isinstance(left, str):
         return False
-    return hmac.compare_digest(left, right)
+    try:
+        left_bytes = left.encode("utf-8")
+        right_bytes = right.encode("utf-8")
+    except UnicodeError:
+        return False
+    return hmac.compare_digest(left_bytes, right_bytes)
 
 
 def seal(secret: str, session_id: str) -> str:
@@ -66,7 +77,7 @@ def open_cookie(secret: str, cookie: str) -> str | None:
     if not session_id or not mac:
         return None
     expected = hmac.new(secret.encode(), session_id.encode(), hashlib.sha256).hexdigest()
-    if len(mac) != len(expected) or not hmac.compare_digest(mac, expected):
+    if not _same(mac, expected):
         return None
     return session_id
 

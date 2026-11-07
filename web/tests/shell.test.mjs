@@ -5,6 +5,7 @@ import { createStore, login, resolveSession, revokeDevice, SESSION_TTL_MS } from
 import { assertSafeToStart } from "../lib/startup.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { handleGet, handleLogin } from "../lib/api.mjs";
+import { clientIp } from "../lib/client-ip.mjs";
 import { loadFixtures } from "../lib/fixtures.mjs";
 
 const SECRET = "test-session-secret";
@@ -31,8 +32,15 @@ test("fixtures match the shared contract keys", () => {
     const source = readFileSync(new URL("../lib/contract.ts", import.meta.url), "utf8");
     assert.match(source, new RegExp(`export interface ${name}`));
   }
-  assert.ok(spec.paths["/finance/accounts"].get);
-  assert.equal(spec.paths["/finance/accounts"].post, undefined);
+  assert.ok(spec.paths["/api/finance/accounts"].get);
+  assert.equal(spec.paths["/api/finance/accounts"].post, undefined);
+  assert.equal(spec.paths["/finance/accounts"], undefined);
+  const servers = JSON.stringify(spec.servers);
+  assert.match(servers, /Next\.js/);
+  assert.match(servers, /FastAPI/);
+  const bundled = readFileSync(new URL("../lib/fixtures.json", import.meta.url), "utf8");
+  const contract = readFileSync(new URL("../../contract/fixtures.json", import.meta.url), "utf8");
+  assert.equal(bundled, contract);
 });
 
 test("session expiry is fourteen days and does not roll", () => {
@@ -83,6 +91,27 @@ test("reads require a session and rate limit", () => {
   const headers = { get: () => `joehub_session=${logged.cookie}` };
   assert.equal(handleGet("transactions", headers, devEnv, store, limiter, now, "ip").status, 200);
   assert.equal(handleGet("transactions", headers, devEnv, store, limiter, now, "ip").status, 429);
+});
+
+test("spoofed x-forwarded-for cannot bypass the limit", () => {
+  const limiter = createLimiter(2);
+  const now = 10;
+  const key = (xff) =>
+    clientIp(new Request("http://local/api/session/login", { headers: { "x-forwarded-for": xff } }), {});
+  assert.equal(key("1.1.1.1"), "direct");
+  assert.equal(key("8.8.8.8"), "direct");
+  assert.equal(limiter.allow(key("1.1.1.1"), now), true);
+  assert.equal(limiter.allow(key("8.8.8.8"), now), true);
+  assert.equal(limiter.allow(key("9.9.9.9"), now), false);
+  const trusted = { JOEHUB_TRUSTED_PROXIES: "10.0.0.1" };
+  const via = (xff) =>
+    clientIp(
+      new Request("http://local/api/session/login", { headers: { "x-forwarded-for": xff } }),
+      trusted,
+      "10.0.0.1",
+    );
+  assert.equal(via("1.1.1.1"), "1.1.1.1");
+  assert.notEqual(via("1.1.1.1"), via("8.8.8.8"));
 });
 
 test("production start fails closed", () => {
