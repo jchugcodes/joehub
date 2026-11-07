@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 
 const LOCK_DIR = "/tmp/joehub-web-browser.lock";
@@ -49,73 +49,124 @@ function signalGroup(pgid, signal) {
   }
 }
 
-async function restoreDisplaced(grave, lockDir) {
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    try {
-      renameSync(grave, lockDir);
-      return;
-    } catch (error) {
-      if (error.code !== "EEXIST" && error.code !== "ENOTEMPTY") throw error;
-      await sleep(20);
-    }
-  }
-  throw new Error(`could not restore lock ${lockDir} after displacing it`);
+function trace(lockDir, event) {
+  const file = process.env.JOEHUB_LOCK_TRACE;
+  if (!file) return;
+  appendFileSync(file, `${JSON.stringify({ ...event, pid: process.pid, at: Date.now(), lockDir })}\n`);
 }
 
-async function displaceIf(lockDir, token, { requireDead }) {
-  const current = readOwner(lockDir);
-  if (!current || current.token !== token) return false;
-  if (requireDead && !pidDead(current.pid)) return false;
-  const grave = `${lockDir}.reap.${process.pid}.${randomBytes(4).toString("hex")}`;
+function removeLock(lockDir, token) {
+  trace(lockDir, { op: "remove", token: token ?? null });
+  rmSync(lockDir, { recursive: true, force: true });
+}
+
+function publish(lockDir, token) {
+  if (existsSync(lockDir)) throw new Error(`refusing to replace lock ${lockDir}`);
+  const staging = `${lockDir}.stage.${token}`;
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(staging);
+  writeFileSync(`${staging}/owner`, JSON.stringify({ pid: process.pid, token }));
+  renameSync(staging, lockDir);
+  const published = readOwner(lockDir);
+  if (!published || published.token !== token || published.pid !== process.pid) {
+    throw new Error(`failed to publish lock ${lockDir}`);
+  }
+}
+
+// Exclusive flock around recheck + delete + publish. The first look at a dead
+// owner can be stale; only the look taken while this flock is held may delete.
+// The kernel releases the flock when the holder exits.
+function holdMutex(lockDir) {
+  const path = `${lockDir}.mutex`;
+  closeSync(openSync(path, "a"));
+  const child = spawn("flock", ["-x", path, "sh", "-c", "echo ready; cat"], {
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  let buf = "";
+  let finished = false;
+  const exited = new Promise((resolve) => {
+    child.once("exit", (code, signal) => {
+      finished = true;
+      resolve({ code, signal });
+    });
+  });
+  const ready = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.stdout.on("data", (chunk) => {
+      buf += chunk;
+      if (buf.includes("ready")) resolve();
+    });
+    exited.then((result) => {
+      if (!buf.includes("ready")) reject(new Error(`flock exited before ready ${result.code ?? result.signal}`));
+    });
+  });
+  return ready.then(() => async () => {
+    if (!finished) child.stdin.end();
+    await exited;
+  });
+}
+
+async function withMutex(lockDir, fn) {
+  const release = await holdMutex(lockDir);
   try {
-    renameSync(lockDir, grave);
-  } catch {
+    return fn();
+  } finally {
+    await release();
+  }
+}
+
+function claim(lockDir, token) {
+  const owner = readOwner(lockDir);
+  if (owner && owner.pid === process.pid && owner.token === token) return true;
+  if (owner && !pidDead(owner.pid)) {
+    trace(lockDir, { op: "decided", action: "leave", token: owner.token, ownerPid: owner.pid });
     return false;
   }
-  const moved = readOwner(grave);
-  const tokenOk = Boolean(moved && moved.token === token);
-  const deadOk = !requireDead || Boolean(moved && pidDead(moved.pid));
-  if (tokenOk && deadOk) {
-    rmSync(grave, { recursive: true, force: true });
-    return true;
+  if (existsSync(lockDir)) removeLock(lockDir, owner ? owner.token : null);
+  publish(lockDir, token);
+  return true;
+}
+
+function releaseToken(lockDir, token) {
+  const owner = readOwner(lockDir);
+  if (!owner || owner.token !== token) {
+    trace(lockDir, { op: "decided", action: "leave", token: owner ? owner.token : null });
+    return false;
   }
-  await restoreDisplaced(grave, lockDir);
-  return false;
+  removeLock(lockDir, owner.token);
+  return true;
 }
 
 export function createBrowserLock(lockDir) {
+  let beforeReclaimAct = async () => {};
   return {
+    setReclaimPauseHook(hook) {
+      beforeReclaimAct = hook || (async () => {});
+    },
     async acquire() {
       const token = randomBytes(16).toString("hex");
+      let paused = false;
       const deadline = Date.now() + 180000;
       while (Date.now() < deadline) {
-        const staging = `${lockDir}.stage.${token}`;
-        rmSync(staging, { recursive: true, force: true });
-        mkdirSync(staging);
-        writeFileSync(`${staging}/owner`, JSON.stringify({ pid: process.pid, token }));
-        try {
-          renameSync(staging, lockDir);
-        } catch (error) {
-          rmSync(staging, { recursive: true, force: true });
-          if (error.code !== "EEXIST" && error.code !== "ENOTEMPTY") throw error;
-          const owner = readOwner(lockDir);
-          if (owner && pidDead(owner.pid)) await displaceIf(lockDir, owner.token, { requireDead: true });
+        const owner = readOwner(lockDir);
+        if (owner && owner.pid === process.pid && owner.token === token) return () => withMutex(lockDir, () => releaseToken(lockDir, token));
+        if (owner && !pidDead(owner.pid)) {
           await sleep(20);
           continue;
         }
-        const published = readOwner(lockDir);
-        if (published && published.token === token && published.pid === process.pid) {
-          return async () => {
-            await displaceIf(lockDir, token, { requireDead: false });
-          };
+        if (owner && pidDead(owner.pid) && !paused) {
+          paused = true;
+          await beforeReclaimAct({ lockDir, token: owner.token, pid: owner.pid });
+        }
+        if (await withMutex(lockDir, () => claim(lockDir, token))) {
+          return () => withMutex(lockDir, () => releaseToken(lockDir, token));
         }
         await sleep(20);
       }
       throw new Error("timed out waiting for the browser test lock");
     },
     release(token) {
-      return displaceIf(lockDir, token, { requireDead: false });
+      return withMutex(lockDir, () => releaseToken(lockDir, token));
     },
     read() {
       return readOwner(lockDir);
