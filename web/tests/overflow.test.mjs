@@ -39,6 +39,10 @@ function measureSource() {
       goal: goal ? parseFloat(getComputedStyle(goal).fontSize) : 0,
       tabLabel: tabs[0] ? parseFloat(getComputedStyle(tabs[0]).fontSize) : 0,
       tabLabels: tabs.map((tab) => (tab.textContent || "").replace(/\\s+/g, " ").trim()),
+      tabBoxes: tabs.map((tab) => {
+        const box = tab.getBoundingClientRect();
+        return { text: (tab.textContent || "").trim(), left: Math.round(box.left), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom) };
+      }),
       tabsInside: tabs.every((tab) => {
         const box = tab.getBoundingClientRect();
         return box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
@@ -182,7 +186,7 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
       assert.ok(value, `no measurement for ${path} at ${width}`);
       assert.ok(value.overflow <= 1, `${path} at ${width}${enlarge ? " text 200%" : ""} overflows by ${value.overflow}px`);
       assert.deepEqual(value.tabLabels, ["Home", "Finance", "Jobs", "Journal", "More"], JSON.stringify(value.tabLabels));
-      assert.equal(value.tabsInside, true, `a primary tab is clipped ${JSON.stringify(value.tabLabels)}`);
+      assert.equal(value.tabsInside, true, `a primary tab is clipped on ${path} at ${width} enlarge=${enlarge} ${JSON.stringify(value.tabBoxes)} inner check`);
       assert.ok(value.tabOverflow <= 1, `primary nav overflows by ${value.tabOverflow}px`);
       if (path === "/finance/goals") {
         assert.equal(value.contained, "contained", `served an old tab row ${JSON.stringify(value)}`);
