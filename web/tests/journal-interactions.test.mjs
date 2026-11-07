@@ -46,28 +46,42 @@ async function boot() {
     }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  chrome = spawn(
-    chromeBin,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--remote-debugging-port=${CDP}`,
-      `--user-data-dir=/tmp/chrome-journal-${process.pid}`,
-      "about:blank",
-    ],
-    { stdio: "ignore" },
-  );
-  for (let i = 0; i < 40; i++) {
-    try {
-      await fetch(`http://127.0.0.1:${CDP}/json/version`);
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+  let chromeError = "chrome did not open a debugging port";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    chrome = spawn(
+      chromeBin,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        `--remote-debugging-port=${CDP}`,
+        `--user-data-dir=/tmp/chrome-journal-${process.pid}-${attempt}`,
+        "about:blank",
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let chromeLog = "";
+    chrome.stderr.on("data", (chunk) => {
+      chromeLog += chunk;
+    });
+    let opened = false;
+    for (let i = 0; i < 80; i += 1) {
+      if (chrome.exitCode != null) break;
+      try {
+        await fetch(`http://127.0.0.1:${CDP}/json/version`, { signal: AbortSignal.timeout(1000) });
+        opened = true;
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
     }
+    if (opened) return;
+    chromeError = `chrome did not open a debugging port (attempt ${attempt}, exit ${chrome.exitCode})\n${chromeLog.slice(-500)}`;
+    chrome.kill();
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  throw new Error("chrome did not open a debugging port");
+  throw new Error(chromeError);
 }
 
 async function openPage(path, width, height) {
