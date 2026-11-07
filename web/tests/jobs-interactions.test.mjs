@@ -248,14 +248,15 @@ test("escape and the backdrop cancel a pending stage preview", { timeout: 120000
 test("empty and error cards are left aligned and the jobs header uses the shared inset", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   const empty = await withPage("/jobs?view=empty", 390, 800, async (send) => {
     for (let i = 0; i < 40; i++) {
-      const ready = await evalPage(send, "(() => { const card = document.querySelector('.jobs-state'); return card && getComputedStyle(card).borderRadius === '16px' ? 'yes' : ''; })()");
+      const ready = await evalPage(send, "(() => { const card = document.querySelector('.card'); return card && getComputedStyle(card).borderRadius === '20px' ? 'yes' : ''; })()");
       if (ready === "yes") break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return evalPage(send, `(() => {
-      const card = document.querySelector(".jobs-state");
+      const card = document.querySelector(".card");
       const heading = card.querySelector("h2");
       const action = [...document.querySelectorAll("a, button")].find((el) => (el.textContent || "").trim() === "Explore matches");
+      const secondary = [...document.querySelectorAll("button")].find((el) => (el.textContent || "").trim() === "Add a role");
       const header = document.querySelector("header");
       const main = document.querySelector("main");
       return {
@@ -263,6 +264,7 @@ test("empty and error cards are left aligned and the jobs header uses the shared
         radius: getComputedStyle(card).borderRadius,
         outside: !card.contains(action),
         gap: Math.round(action.getBoundingClientRect().top - card.getBoundingClientRect().bottom),
+        between: Math.round(secondary.getBoundingClientRect().top - action.getBoundingClientRect().bottom),
         headerPad: getComputedStyle(header).paddingTop,
         mainPad: getComputedStyle(main).paddingTop,
         headerTop: Math.round(header.getBoundingClientRect().top),
@@ -270,32 +272,38 @@ test("empty and error cards are left aligned and the jobs header uses the shared
     })()`);
   });
   assert.ok(empty.align === "left" || empty.align === "start", empty.align);
-  assert.equal(empty.radius, "16px");
+  assert.equal(empty.radius, "20px");
   assert.equal(empty.outside, true);
-  assert.equal(empty.gap, 12);
+  assert.equal(empty.gap, 16);
+  assert.equal(empty.between, 12);
   assert.equal(empty.headerPad, "0px");
   assert.equal(empty.mainPad, "8px");
   assert.equal(empty.headerTop, 8);
 
   const error = await withPage("/jobs?view=error", 390, 800, async (send) => {
     for (let i = 0; i < 40; i++) {
-      const ready = await evalPage(send, "(() => { const card = document.querySelector('.jobs-state'); return card && getComputedStyle(card).borderRadius === '16px' ? 'yes' : ''; })()");
+      const ready = await evalPage(send, "(() => { const card = document.querySelector('.card'); return card && getComputedStyle(card).borderRadius === '20px' ? 'yes' : ''; })()");
       if (ready === "yes") break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return evalPage(send, `(() => {
-      const card = document.querySelector(".jobs-state");
+      const card = document.querySelector(".card");
       const action = [...document.querySelectorAll("button")].find((el) => (el.textContent || "").trim() === "Retry");
+      const note = [...document.querySelectorAll("p")].find((el) => (el.textContent || "").includes("No cached"));
       return {
         align: getComputedStyle(card.querySelector("h2")).textAlign,
         radius: getComputedStyle(card).borderRadius,
         outside: !card.contains(action),
         gap: Math.round(action.getBoundingClientRect().top - card.getBoundingClientRect().bottom),
+        noteGap: Math.round(note.getBoundingClientRect().top - action.getBoundingClientRect().bottom),
+        noteInset: getComputedStyle(note).paddingLeft,
       };
     })()`);
   });
   assert.ok(error.align === "left" || error.align === "start", error.align);
-  assert.equal(error.radius, "16px");
+  assert.equal(error.radius, "20px");
   assert.equal(error.outside, true);
-  assert.equal(error.gap, 12);
+  assert.equal(error.gap, 16);
+  assert.equal(error.noteGap, 20);
+  assert.equal(error.noteInset, "20px");
 });

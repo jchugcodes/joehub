@@ -53,8 +53,7 @@ body {
   border-radius: 9999px;
 }
 
-.card.merchant-summary,
-.card.jobs-state {
+.card.merchant-summary {
   border-radius: 16px;
 }
 

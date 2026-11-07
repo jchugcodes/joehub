@@ -104,16 +104,16 @@ function Loading() {
 function Empty({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="px-4">
-      <div className="card jobs-state mt-3 p-4 text-left">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-jobs/10 text-jobs">
+      <div className="card mt-4 p-4 text-left">
+        <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-jobs/10 text-jobs">
           <Icon name="jobs" size={24} />
         </div>
-        <h2 className="mt-3 text-ui-20 font-bold">Your next chapter starts here</h2>
-        <p className="mt-3 text-ui-14 leading-relaxed text-muted">
+        <h2 className="text-ui-20 font-bold">Your next chapter starts here</h2>
+        <p className="mt-2 text-ui-14 leading-relaxed text-muted">
           Save a role to keep its notes, next step and stage in one place. No applications yet.
         </p>
       </div>
-      <div className="mt-3 space-y-3">
+      <div className="mt-4 space-y-3">
         <Link
           href="/jobs#matches"
           className="flex min-h-11 items-center justify-center rounded-xl bg-support-linkBlue px-4 text-ui-14 font-bold text-white"
@@ -134,28 +134,30 @@ function Empty({ onAdd }: { onAdd: () => void }) {
 
 function ErrorState({ busy, onRetry }: { busy: boolean; onRetry: () => void }) {
   return (
-    <div className="px-4">
-      <div className="card jobs-state mt-3 p-4 text-left">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-finance-dining/10 text-finance-dining">
-          <Icon name="subscriptions" size={24} />
+    <div>
+      <div className="px-4">
+        <div className="card mt-4 p-4 text-left">
+          <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-finance-dining/10 text-finance-dining">
+            <Icon name="subscriptions" size={24} />
+          </div>
+          <h2 className="text-ui-20 font-bold">Pipeline unavailable</h2>
+          <p className="mt-2 text-ui-14 leading-relaxed text-muted">
+            We couldn’t load your roles. Your saved applications haven’t been changed.
+          </p>
         </div>
-        <h2 className="mt-3 text-ui-20 font-bold">Pipeline unavailable</h2>
-        <p className="mt-3 text-ui-14 leading-relaxed text-muted">
-          We couldn’t load your roles. Your saved applications haven’t been changed.
-        </p>
+        <div className="mt-4">
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center justify-center rounded-xl bg-support-linkBlue px-4 text-ui-14 font-bold text-white disabled:opacity-60"
+            onClick={onRetry}
+            disabled={busy}
+            aria-busy={busy}
+          >
+            {busy ? "Retrying…" : "Retry"}
+          </button>
+        </div>
       </div>
-      <div className="mt-3">
-        <button
-          type="button"
-          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-support-linkBlue px-4 text-ui-14 font-bold text-white disabled:opacity-60"
-          onClick={onRetry}
-          disabled={busy}
-          aria-busy={busy}
-        >
-          {busy ? "Retrying…" : "Retry"}
-        </button>
-      </div>
-      <p className="mt-3 px-1 text-left text-ui-12 text-muted">No cached pipeline available</p>
+      <p className="mt-5 px-5 text-left text-ui-12 text-muted">No cached pipeline available</p>
     </div>
   );
 }

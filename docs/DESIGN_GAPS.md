@@ -73,12 +73,12 @@ Filled job actions use `#2C6CA6`. Loading, empty, and error are fixture views at
 
 The board row scrolls on its own. The jobs section links scroll on their own, and the swipe hint sits outside that scroller. The page stays the centered 390px column. No jobs frame draws a wider layout.
 
-`review-round2.md` was not in the uploaded tarball or the v2 zip. The empty and error cards therefore use the Finance card tokens: left-aligned text, a 16px radius (the same exception as `.card.merchant-summary`), and 12px gaps (`mt-3`). The action buttons sit outside the card. The Jobs header uses only the shared 8px top inset from the app shell.
+Empty and error cards follow Artie's round-2 tokens: left-aligned text, the shared 20px card radius, 16px page inset and padding, actions outside the card, and a 16px gap above those actions. The Jobs header uses only the shared 8px top inset from the app shell.
 
 ## Jobs gaps
 
 - `v2-jobs/README.md` was not in the available zip.
-- `review-round2.md` was not in the upload. Empty and error cards follow the Finance tokens above.
+- Empty and error cards follow the round-2 layout tokens. The form behind Add a role is still outside this batch.
 - Filter has no result.
 - "See all 24" has no destination.
 - "drag cards · swipe" is a label. Stage change does not use drag and drop, and no drag result is drawn.
