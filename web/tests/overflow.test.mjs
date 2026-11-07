@@ -274,6 +274,55 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
           assert.ok(link.pageOverflow <= 1, `keyboard focus on ${link?.text} widened the page`);
         }
       }
+      if (path === "/jobs") {
+        const jobsNav = await send("Runtime.evaluate", {
+          expression: `(() => {
+            const nav = document.querySelector("[aria-label='Jobs sections']");
+            const scroller = nav ? nav.querySelector(":scope > div") : null;
+            const hint = nav ? [...nav.children].find((el) => (el.textContent || "").includes("swipe")) : null;
+            return {
+              contained: nav ? nav.dataset.tabs || "" : "",
+              hintOutside: hint ? !scroller.contains(hint) && nav.contains(hint) : false,
+            };
+          })()`,
+          returnByValue: true,
+        });
+        const jobs = jobsNav.result?.result?.value;
+        assert.equal(jobs.contained, "contained");
+        assert.equal(jobs.hintOutside, true);
+        await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await send("Runtime.evaluate", {
+          expression: "document.querySelector(\"[aria-label='Jobs sections'] a\").focus()",
+        });
+        const expectedJobs = ["Overview", "Matches", "Board", "Notes"];
+        for (let step = 0; step < expectedJobs.length; step += 1) {
+          if (step > 0) {
+            await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+            await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
+          }
+          const focused = await send("Runtime.evaluate", {
+            expression: `(() => {
+              const el = document.activeElement;
+              const scroller = document.querySelector("[aria-label='Jobs sections'] > div");
+              const box = el.getBoundingClientRect();
+              const view = scroller.getBoundingClientRect();
+              const doc = document.documentElement;
+              return {
+                text: (el.textContent || "").trim(),
+                inScroller: box.width > 0 && box.left >= view.left - 2 && box.right <= view.right + 2,
+                inPage: box.left >= -2 && box.right <= window.innerWidth + 2,
+                pageOverflow: doc.scrollWidth - doc.clientWidth,
+              };
+            })()`,
+            returnByValue: true,
+          });
+          const link = focused.result?.result?.value;
+          assert.equal(link.text, expectedJobs[step], `Tab did not reach ${expectedJobs[step]} ${JSON.stringify(link)}`);
+          assert.equal(link.inScroller, true, `keyboard focus on ${link?.text} is outside the jobs tab scroller ${JSON.stringify(link)}`);
+          assert.equal(link.inPage, true, `keyboard focus on ${link?.text} is outside the page`);
+          assert.ok(link.pageOverflow <= 1, `keyboard focus on ${link?.text} widened the page`);
+        }
+      }
       ws.close();
       await fetch(`http://127.0.0.1:${CDP}/json/close/${created.id}`);
     }

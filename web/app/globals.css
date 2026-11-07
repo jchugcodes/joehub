@@ -79,6 +79,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.scroll-x {
+  scrollbar-width: none;
+}
+
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
