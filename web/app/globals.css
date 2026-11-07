@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Canonical light values from tokens.json. Dark overrides are the Finance-home palette only. */
+:root {
+  --page: #f5f6f4;
+  --surface: #ffffff;
+  --ink: #1f2a24;
+  --muted: #6b746e;
+  --line: #e6e8e4;
+  --inactive: #9aa29c;
+  --table-header: #eef0ec;
+  --subtle-border: #c9cec8;
+  --tab-bg: rgb(255 255 255 / 0.95);
+  --tab-line: #e6e8e4;
+  --scrim: rgb(0 0 0 / 0.4);
+  --finance: #2e8b6a;
+  --jobs: #3a86c8;
+  --journal: #c2577a;
+  --dining: #e07a5f;
+  --shopping: #e9b949;
+  --subscriptions: #8e7cc3;
+}
+
+[data-theme="dark"] {
+  --page: #0e1310;
+  --surface: #161d18;
+  --ink: #ecf1ee;
+  --muted: #8c978f;
+  --line: #26302a;
+  --inactive: #7c857f;
+  --table-header: #161d18;
+  --subtle-border: #2a332d;
+  --tab-bg: rgb(20 26 22 / 0.95);
+  --tab-line: #2a332d;
+}
+
+html,
+body {
+  font-optical-sizing: auto;
+  font-variation-settings: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.card.rounded-full {
+  border-radius: 9999px;
+}
+
+.mut {
+  color: var(--muted);
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sr-only:focus {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 50;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  clip: auto;
+  background: var(--surface);
+  color: var(--ink);
+}

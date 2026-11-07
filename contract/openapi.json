@@ -1,0 +1,108 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "joehub public read API",
+    "version": "0.1.0",
+    "description": "Read-only synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. No raw SQL, file download, export, or domain write. Session routes are the only POST routes. The browser authenticates with the joehub_session cookie."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Next.js route handlers on the site origin. Request /api/finance/accounts on this origin. A request to /finance/accounts is the UI shell and returns HTML."
+    },
+    {
+      "url": "/",
+      "description": "Optional FastAPI process on its own origin. The same /api paths are served there. No extra host is required to run the synthetic shell, and this process is not deployed."
+    }
+  ],
+  "paths": {
+    "/api/finance/accounts": {
+      "get": {
+        "operationId": "financeAccounts",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic account balances" } }
+      }
+    },
+    "/api/finance/transactions": {
+      "get": {
+        "operationId": "financeTransactions",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic transactions" } }
+      }
+    },
+    "/api/jobs/applications": {
+      "get": {
+        "operationId": "jobApplications",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic applications" } }
+      }
+    },
+    "/api/jobs/statuses": {
+      "get": {
+        "operationId": "jobStatuses",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic status counts" } }
+      }
+    },
+    "/api/journal/entries": {
+      "get": {
+        "operationId": "journalEntries",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic journal entries" } }
+      }
+    },
+    "/api/journal/events": {
+      "get": {
+        "operationId": "journalEvents",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic events" } }
+      }
+    },
+    "/api/session/login": {
+      "post": {
+        "operationId": "sessionLogin",
+        "description": "Dev-only fake login. Refused in production.",
+        "responses": { "200": { "description": "Sets the session cookie" } }
+      }
+    },
+    "/api/session/logout": {
+      "post": {
+        "operationId": "sessionLogout",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Revokes the current session" } }
+      }
+    },
+    "/api/session/devices": {
+      "get": {
+        "operationId": "sessionDevices",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Device registry for this process" } }
+      }
+    },
+    "/api/session/devices/{device_id}/revoke": {
+      "post": {
+        "operationId": "sessionRevokeDevice",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": { "200": { "description": "Revokes the device and its session" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "joehub_session",
+        "description": "HttpOnly, Secure, SameSite=Lax session id. Expiry is stored server-side for 14 days and does not roll."
+      }
+    }
+  }
+}

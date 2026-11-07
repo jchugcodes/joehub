@@ -1,0 +1,104 @@
+{
+  "accounts": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Sample Checking",
+      "account_type": "checking",
+      "institution": "Fictional Bank",
+      "balance_cents": 12345
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Sample Savings",
+      "account_type": "savings",
+      "institution": "Fictional Bank",
+      "balance_cents": 50000
+    }
+  ],
+  "transactions": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "date": "2026-01-15",
+      "amount_cents": -1599,
+      "payee": "SYNTHETIC-ACORN-PAYEE",
+      "memo": "synthetic grocery",
+      "account_name": "Sample Checking",
+      "category_name": "Groceries"
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "date": "2026-01-01",
+      "amount_cents": 200000,
+      "payee": "Sample Payroll",
+      "memo": null,
+      "account_name": "Sample Checking",
+      "category_name": "Income"
+    }
+  ],
+  "applications": [
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "role_title": "Sample Designer",
+      "status": "Applied",
+      "applied_on": "2026-02-01",
+      "raw_company": "Fictional Studio",
+      "raw_contact": null,
+      "raw_status": "Applied",
+      "raw_source": "synthetic board",
+      "notes": "Synthetic application.",
+      "company_id": null,
+      "company_name": "Fictional Studio"
+    },
+    {
+      "id": "55555555-5555-4555-8555-555555555556",
+      "role_title": "Sample Researcher",
+      "status": "Interested",
+      "applied_on": null,
+      "raw_company": "Example Lab",
+      "raw_contact": null,
+      "raw_status": "Interested",
+      "raw_source": null,
+      "notes": null,
+      "company_id": null,
+      "company_name": "Example Lab"
+    }
+  ],
+  "statuses": [
+    { "status": "Applied", "total": 1 },
+    { "status": "Interested", "total": 1 }
+  ],
+  "entries": [
+    {
+      "id": "66666666-6666-4666-8666-666666666666",
+      "entry_date": "2026-03-01",
+      "title": "Sample day",
+      "body": "Synthetic journal text.",
+      "mood": "calm"
+    },
+    {
+      "id": "66666666-6666-4666-8666-666666666667",
+      "entry_date": "2026-02-20",
+      "title": "Another sample",
+      "body": "More synthetic journal text.",
+      "mood": null
+    }
+  ],
+  "events": [
+    {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "title": "Sample appointment",
+      "starts_at": "2026-03-02T15:00:00Z",
+      "ends_at": "2026-03-02T16:00:00Z",
+      "location": "Fictional Hall",
+      "notes": null
+    },
+    {
+      "id": "77777777-7777-4777-8777-777777777778",
+      "title": "Sample reminder",
+      "starts_at": "2026-03-04T12:00:00Z",
+      "ends_at": null,
+      "location": null,
+      "notes": "Synthetic event."
+    }
+  ]
+}

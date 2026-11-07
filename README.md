@@ -13,3 +13,5 @@ python scripts/run_dashboard.py
 ```
 
 The dashboard listens on `127.0.0.1:8501`.
+
+The web shell lives in `web/` and the separable read API lives in `api/`. Both serve synthetic fixtures from `contract/`. See [docs/WEB_ARCHITECTURE.md](docs/WEB_ARCHITECTURE.md) and [docs/DESIGN_GAPS.md](docs/DESIGN_GAPS.md). The Streamlit app, SQLite file, and exports are unchanged.

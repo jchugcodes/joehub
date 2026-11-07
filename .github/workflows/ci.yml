@@ -22,3 +22,45 @@ jobs:
           pip install -e ".[dev]"
       - name: Run pytest
         run: pytest
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install -e ./api
+      - name: Run API tests
+        run: pytest api/tests
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Run web tests
+        working-directory: web
+        run: npm test
+      - name: Build Next.js
+        working-directory: web
+        run: npm run build
+      - name: Check the standalone fixture bundle
+        working-directory: web
+        run: node --test tests/bundle.test.mjs
+      - name: Scan the Next build for secret material
+        run: python scripts/scan_web_build.py web/.next
