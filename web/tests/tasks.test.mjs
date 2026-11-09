@@ -242,11 +242,95 @@ test("a patch persists, clears optional fields, and a failed write keeps the sto
   assert.equal(today.body.dueDate, "2026-11-09");
 
   const before = structuredClone(backend.tasks.get("id-edit"));
-  backend.putTask = async () => {
+  backend.replaceTask = async () => {
     throw new Error("unavailable");
   };
   await assert.rejects(() => performPatch(backend, "id-edit", { title: "Should not stick" }, now + 80));
   assert.deepEqual(backend.tasks.get("id-edit"), before);
+});
+
+test("a duplicate create is impossible when both idempotency writes fail", async () => {
+  const backend = createMemoryBackend();
+  const now = 5_000_000;
+  const writeIdem = backend.writeIdem.bind(backend);
+  const noteCreated = backend.noteCreated.bind(backend);
+  backend.writeIdem = async () => {
+    throw new Error("write");
+  };
+  backend.noteCreated = async () => {
+    throw new Error("note");
+  };
+  await assert.rejects(() => performCreate(backend, { title: "Once" }, "same-key", now, undefined, "session-a"));
+  assert.equal(backend.tasks.size, 1);
+  const only = [...backend.tasks.values()][0];
+  assert.equal(only.title, "Once");
+  backend.idem.clear();
+  const again = await performCreate(backend, { title: "Twice" }, "same-key", now + 60_000, undefined, "session-a");
+  assert.equal(again.status, 201);
+  assert.equal(again.body.id, only.id);
+  assert.equal(again.body.title, "Once");
+  assert.equal(backend.tasks.size, 1);
+  backend.writeIdem = writeIdem;
+  backend.noteCreated = noteCreated;
+  const other = await performCreate(backend, { title: "Other session" }, "same-key", now + 61_000, undefined, "session-b");
+  assert.equal(other.status, 201);
+  assert.notEqual(other.body.id, only.id);
+  assert.equal(backend.tasks.size, 2);
+});
+
+test("done tasks stay searchable for 7 days and are then purged", async () => {
+  const backend = createMemoryBackend();
+  const now = Date.parse("2026-11-01T15:00:00.000Z");
+  const day = 24 * 60 * 60 * 1000;
+  await performCreate(backend, { title: "Keep the sample list", notes: "stay", project: "Home" }, "", now, () => "keep");
+  await performCreate(backend, { title: "Finish the sample card", notes: "Alpha note", project: "Work" }, "", now, () => "done-me");
+  const completed = await backend.complete("done-me", now + 1000);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.status, "Done");
+  assert.equal(completed.body.completedAt, now + 1000);
+  const hidden = await backend.list(now + 6 * day);
+  assert.deepEqual(hidden.map((task) => task.id), ["keep"]);
+  const found = await backend.search("ALPHA", now + 6 * day);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].id, "done-me");
+  assert.equal(found[0].status, "Done");
+  const byProject = await backend.search("work", now + 6 * day);
+  assert.equal(byProject[0].id, "done-me");
+  const reopened = await backend.reopen("done-me", now + 2000);
+  assert.equal(reopened.status, 200);
+  assert.equal(reopened.body.status, "To do");
+  assert.equal(reopened.body.completedAt, undefined);
+  assert.equal((await backend.list(now + 2000)).some((task) => task.id === "done-me"), true);
+  await backend.complete("done-me", now + 3000);
+  const expired = await backend.search("alpha", now + 3000 + 7 * day + 1);
+  assert.equal(expired.length, 0);
+  assert.equal(await backend.getTask("done-me"), null);
+  assert.equal((await backend.list(now + 3000 + 7 * day + 1)).some((task) => task.id === "keep"), true);
+  assert.equal((await backend.complete("missing-task", now)).status, 404);
+  assert.equal((await backend.reopen("missing-task", now)).status, 404);
+});
+
+test("upstash deletes done tasks after 7 days on search", async () => {
+  const fake = await startFakeUpstash();
+  const store = createUpstashStore({ url: fake.url, token: fake.token });
+  const now = Date.parse("2026-11-01T15:00:00.000Z");
+  const day = 24 * 60 * 60 * 1000;
+  try {
+    const created = await store.createTask({ title: "Purge the sample", notes: "Alpha note", project: "Work" }, "", now);
+    assert.equal(created.status, 201);
+    const completed = await store.completeTask(created.body.id, now + 1000);
+    assert.equal(completed.body.status, "Done");
+    const inside = await store.searchTasks("alpha", now + 6 * day);
+    assert.equal(inside.length, 1);
+    assert.equal(inside[0].status, "Done");
+    const outside = await store.searchTasks("alpha", now + 1000 + 7 * day + 1);
+    assert.equal(outside.length, 0);
+    assert.equal(await store.getTask(created.body.id), null);
+    assert.equal(fake.commands.some((args) => args[0] === "ZADD" && args[1] === "joehub:tasks:done"), true);
+    assert.equal(fake.commands.some((args) => args[0] === "DEL" && args[1] === `joehub:task:${created.body.id}`), true);
+  } finally {
+    fake.stop();
+  }
 });
 
 test("task get and patch require a session and share the api limiter", async () => {

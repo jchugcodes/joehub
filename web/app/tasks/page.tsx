@@ -19,6 +19,7 @@ interface Task {
   project?: string;
   createdAt: number;
   updatedAt: number;
+  completedAt?: number;
 }
 
 interface Draft {
@@ -87,51 +88,56 @@ export default function TasksPage() {
   const [titleError, setTitleError] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const savingRef = useRef(false);
+  const actingRef = useRef(false);
   const idemRef = useRef("");
   const loadGen = useRef(0);
+  const queryRef = useRef("");
+
+  const showCached = useCallback((snap: { savedAt: number; tasks: Task[] } | null) => {
+    queryRef.current = "";
+    setQuery("");
+    setActiveQuery("");
+    if (snap) {
+      setTasks(snap.tasks);
+      setSavedAt(snap.savedAt);
+      setMode("ready");
+    }
+    setOffline(true);
+  }, []);
 
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
+    const q = queryRef.current.trim();
     try {
-      const response = await fetch("/api/tasks", { cache: "no-store" });
+      const response = await fetch(q ? `/api/tasks?q=${encodeURIComponent(q)}` : "/api/tasks", { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as unknown;
       if (!Array.isArray(body)) throw new Error("tasks");
       if (gen !== loadGen.current) return;
       const next = body as Task[];
       const at = Date.now();
-      writeCache(next, at);
+      if (!q) writeCache(next, at);
       setTasks(next);
-      setSavedAt(at);
+      if (!q) setSavedAt(at);
+      setActiveQuery(q);
       setOffline(false);
       setMode("ready");
     } catch {
       if (gen !== loadGen.current) return;
       const snap = readCache();
-      if (snap) {
-        setTasks(snap.tasks);
-        setSavedAt(snap.savedAt);
-        setOffline(true);
-        setMode("ready");
-        return;
-      }
-      setOffline(true);
-      setMode("error");
+      showCached(snap);
+      if (!snap) setMode("error");
     }
-  }, []);
+  }, [showCached]);
 
   useEffect(() => {
     void load();
     const onFocus = () => void load();
     const onOffline = () => {
-      const snap = readCache();
-      if (snap) {
-        setTasks(snap.tasks);
-        setSavedAt(snap.savedAt);
-        setMode("ready");
-      }
-      setOffline(true);
+      showCached(readCache());
     };
     const onOnline = () => void load();
     window.addEventListener("focus", onFocus);
@@ -142,7 +148,7 @@ export default function TasksPage() {
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("online", onOnline);
     };
-  }, [load]);
+  }, [load, showCached]);
 
   function openAdd() {
     if (offline || mode !== "ready") return;
@@ -257,7 +263,85 @@ export default function TasksPage() {
     }
   }
 
+  function rememberUnfinished(next: Task[], at: number) {
+    const open = next.filter((item) => item.status !== "Done");
+    writeCache(open, at);
+    setSavedAt(at);
+  }
+
+  async function completeTask(task: Task) {
+    if (offline || actingRef.current) return;
+    actingRef.current = true;
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/complete`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as Task | { detail?: string } | null;
+      if (response.status === 404) {
+        setGone(body && "detail" in body && body.detail ? body.detail : "This task is no longer here.");
+        void load();
+        return;
+      }
+      if (!response.ok || !body || !("id" in body)) return;
+      const nextTask = body as Task;
+      const at = Date.now();
+      const snap = readCache();
+      if (snap) writeCache(snap.tasks.filter((item) => item.id !== nextTask.id), at);
+      if (queryRef.current.trim()) {
+        setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
+      } else {
+        setTasks((current) => current.filter((item) => item.id !== nextTask.id));
+        setSavedAt(at);
+      }
+    } catch {
+      // The list stays as it was. Complete stays available once the network returns.
+    } finally {
+      actingRef.current = false;
+    }
+  }
+
+  async function reopenTask(task: Task) {
+    if (offline || actingRef.current) return;
+    actingRef.current = true;
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/reopen`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as Task | { detail?: string } | null;
+      if (response.status === 404) {
+        setGone(body && "detail" in body && body.detail ? body.detail : "This task is no longer here.");
+        void load();
+        return;
+      }
+      if (!response.ok || !body || !("id" in body)) return;
+      const nextTask = body as Task;
+      const snap = readCache();
+      const without = (snap?.tasks || []).filter((item) => item.id !== nextTask.id);
+      rememberUnfinished([nextTask, ...without], Date.now());
+      if (queryRef.current.trim()) {
+        setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
+      }
+      void load();
+    } catch {
+      // The search row stays until the network returns.
+    } finally {
+      actingRef.current = false;
+    }
+  }
+
+  function submitSearch(event: React.FormEvent) {
+    event.preventDefault();
+    if (offline) return;
+    queryRef.current = query;
+    void load();
+  }
+
+  function clearSearch() {
+    if (offline) return;
+    queryRef.current = "";
+    setQuery("");
+    setActiveQuery("");
+    void load();
+  }
+
   const addDisabled = offline || mode !== "ready";
+  const controlsDisabled = offline || mode !== "ready";
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} className="min-w-0">
@@ -276,6 +360,39 @@ export default function TasksPage() {
           {gone}
         </p>
       ) : null}
+      <form className="mt-4 px-4" onSubmit={submitSearch}>
+        <label className="block text-ui-13 font-semibold" htmlFor="task-search">
+          Search
+        </label>
+        <div className="mt-1 flex min-w-0 gap-2">
+          <input
+            id="task-search"
+            type="search"
+            value={query}
+            disabled={controlsDisabled}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16 disabled:opacity-50"
+            autoComplete="off"
+          />
+          <button
+            type="submit"
+            className="flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-ink px-3 text-ui-14 font-bold disabled:opacity-50"
+            disabled={controlsDisabled}
+          >
+            Search
+          </button>
+        </div>
+        {activeQuery ? (
+          <button
+            type="button"
+            className="mt-2 flex min-h-11 items-center text-ui-13 font-semibold disabled:opacity-50"
+            onClick={clearSearch}
+            disabled={controlsDisabled}
+          >
+            Clear search
+          </button>
+        ) : null}
+      </form>
       <div className="mt-4 px-4">
         <button
           type="button"
@@ -306,7 +423,23 @@ export default function TasksPage() {
           </button>
         </div>
       ) : null}
-      {mode === "ready" && tasks.length === 0 ? (
+      {mode === "ready" && activeQuery && tasks.length === 0 ? (
+        <div className="px-4" data-search-empty="true">
+          <div className="card mt-4 p-4">
+            <h2 className="text-ui-20 font-bold">No tasks match this search.</h2>
+            <p className="mt-2 text-ui-14 leading-relaxed text-muted">Try another word, or clear the search to see unfinished tasks.</p>
+            <button
+              type="button"
+              className="mt-3 flex min-h-11 items-center text-ui-14 font-bold disabled:opacity-50"
+              onClick={clearSearch}
+              disabled={controlsDisabled}
+            >
+              Clear search
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {mode === "ready" && !activeQuery && tasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="card mt-4 p-4">
             <h2 className="text-ui-20 font-bold">No unfinished tasks</h2>
@@ -317,34 +450,71 @@ export default function TasksPage() {
         </div>
       ) : null}
       {mode === "ready" && tasks.length > 0 ? (
-        <ul aria-label="Unfinished tasks" className="mt-4 space-y-3 px-4">
-          {tasks.map((task) => (
-            <li key={task.id} className="min-w-0">
-              <button
-                type="button"
-                className="card block w-full min-w-0 p-4 text-left disabled:opacity-100"
-                aria-label={`Edit ${task.title}`}
-                disabled={offline}
-                onClick={() => openEdit(task)}
-              >
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="min-w-0 break-words text-ui-16 font-bold">{task.title}</h2>
-                <span className="shrink-0 text-ui-12 font-semibold">{task.status}</span>
-              </div>
-              {task.project ? <p className="mt-1 break-words text-ui-12 text-muted">{task.project}</p> : null}
-              <p className="mt-2 text-ui-12 text-muted">
-                {task.priority ? <span>{task.priority}</span> : null}
-                {task.priority && task.dueDate ? <span> · </span> : null}
-                {task.dueDate ? <span>Due {task.dueDate}</span> : null}
-                {!task.priority && !task.dueDate ? <span>No due date</span> : null}
-              </p>
-              {task.notes ? <p className="mt-2 break-words text-ui-13 leading-relaxed">{task.notes}</p> : null}
-              </button>
-            </li>
-          ))}
+        <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className="mt-4 space-y-3 px-4">
+          {tasks.map((task) => {
+            const done = task.status === "Done";
+            return (
+              <li key={task.id} className="card min-w-0 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="min-w-0 break-words text-ui-16 font-bold">{task.title}</h2>
+                  {done ? (
+                    <span data-done="true" className="shrink-0 rounded-full bg-ink px-2 py-1 text-ui-12 font-bold text-white">
+                      Done
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-ui-12 font-semibold">{task.status}</span>
+                  )}
+                </div>
+                {task.project ? <p className="mt-1 break-words text-ui-12 text-muted">{task.project}</p> : null}
+                <p className="mt-2 text-ui-12 text-muted">
+                  {task.priority ? <span>{task.priority}</span> : null}
+                  {task.priority && task.dueDate ? <span> · </span> : null}
+                  {task.dueDate ? <span>Due {task.dueDate}</span> : null}
+                  {!task.priority && !task.dueDate ? <span>No due date</span> : null}
+                </p>
+                {task.notes ? <p className="mt-2 break-words text-ui-13 leading-relaxed">{task.notes}</p> : null}
+                <div className="mt-3 flex gap-2">
+                  {done ? (
+                    <button
+                      type="button"
+                      data-reopen="true"
+                      className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-ui-14 font-bold disabled:opacity-50"
+                      aria-label={`Reopen ${task.title}`}
+                      disabled={controlsDisabled}
+                      onClick={() => void reopenTask(task)}
+                    >
+                      Reopen
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-ui-14 font-bold disabled:opacity-50"
+                        aria-label={`Edit ${task.title}`}
+                        disabled={offline}
+                        onClick={() => openEdit(task)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        data-complete="true"
+                        className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-ui-14 font-bold text-white disabled:opacity-50"
+                        aria-label={`Complete ${task.title}`}
+                        disabled={controlsDisabled}
+                        onClick={() => void completeTask(task)}
+                      >
+                        Complete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
-      <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · unfinished tasks only</p>
+      <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · synthetic tasks</p>
       {sheet ? (
         <Sheet title={sheet === "edit" ? "Edit task" : "Add a task"} onClose={cancel} frame>
           <form className="mt-4" onSubmit={save}>

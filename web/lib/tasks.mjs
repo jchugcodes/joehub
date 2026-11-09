@@ -1,6 +1,8 @@
 import { detroitCalendarDate } from "./detroit-date.mjs";
 
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+export const DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const TASK_NAMESPACE = "3f1a0c2e-7b44-4d5a-9e11-8c2b6a0d4f77";
 const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 const PENDING_MS = 30 * 1000;
 const PRIORITIES = new Set(["High", "Medium", "Low"]);
@@ -206,21 +208,57 @@ function newTaskId() {
   return globalThis.crypto.randomUUID();
 }
 
-export async function performCreate(backend, raw, idemKey, now, newId = newTaskId) {
+function uuidToBytes(uuid) {
+  const hex = uuid.replace(/-/g, "");
+  const out = new Uint8Array(16);
+  for (let index = 0; index < 16; index += 1) out[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  return out;
+}
+
+export async function taskIdForKey(scope, key) {
+  const name = new TextEncoder().encode(`${scope}\0${key}`);
+  const data = new Uint8Array(16 + name.length);
+  data.set(uuidToBytes(TASK_NAMESPACE), 0);
+  data.set(name, 16);
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-1", data));
+  const bytes = digest.slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function taskMatchesQuery(task, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return false;
+  return [task.title, task.notes, task.project].some((part) => String(part || "").toLowerCase().includes(needle));
+}
+
+export function combineSearch(unfinished, recentDone, query) {
+  const open = unfinishedNewestFirst(unfinished.filter((task) => taskMatchesQuery(task, query)));
+  const done = recentDone
+    .filter((task) => task && task.status === "Done" && taskMatchesQuery(task, query))
+    .slice()
+    .sort((left, right) => (right.completedAt || 0) - (left.completedAt || 0) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  return [...open, ...done];
+}
+
+export async function performCreate(backend, raw, idemKey, now, newId = newTaskId, scope = "") {
   const parsed = validateTaskCreate(raw);
   if (!parsed.ok) {
     const body = { detail: parsed.detail };
     if (parsed.field) body.field = parsed.field;
     return { status: 400, body };
   }
+  const storedKey = idemKey && scope ? `${scope}\0${idemKey}` : idemKey;
   let claimed = false;
-  if (idemKey) {
-    const stored = await backend.readIdem(idemKey, now);
+  if (storedKey) {
+    const stored = await backend.readIdem(storedKey, now);
     if (stored) return stored;
-    claimed = await backend.claimIdem(idemKey, now);
+    claimed = await backend.claimIdem(storedKey, now);
     if (!claimed) {
       for (let attempt = 0; attempt < 20; attempt += 1) {
-        const again = await backend.readIdem(idemKey, now);
+        const again = await backend.readIdem(storedKey, now);
         if (again) return again;
         await delay(25);
       }
@@ -229,22 +267,37 @@ export async function performCreate(backend, raw, idemKey, now, newId = newTaskI
   }
   let created = false;
   try {
-    if (idemKey) {
-      const stored = await backend.readIdem(idemKey, now);
+    if (storedKey) {
+      const stored = await backend.readIdem(storedKey, now);
       if (stored) return stored;
     }
-    const task = taskFrom(parsed, newId(), now);
-    await backend.putTask(task);
+    const id = idemKey && newId === newTaskId ? await taskIdForKey(scope || "", idemKey) : newId();
+    const task = taskFrom(parsed, id, now);
+    const inserted = await backend.putTask(task);
+    if (inserted === false) {
+      const existing = await backend.getTask(id);
+      if (!existing) throw new Error("unavailable");
+      const replay = { status: 201, body: existing };
+      if (storedKey) {
+        try {
+          await backend.writeIdem(storedKey, replay, now);
+        } catch {
+          // The stored task is still the one this key names.
+        }
+      }
+      claimed = false;
+      return replay;
+    }
     created = true;
     const response = { status: 201, body: task };
-    if (idemKey) {
+    if (storedKey) {
       try {
-        await backend.writeIdem(idemKey, response, now);
+        await backend.writeIdem(storedKey, response, now);
       } catch (error) {
         // The task is already stored. Keep the claim pointed at it so a retry
         // returns this task instead of inserting another one.
         try {
-          await backend.noteCreated(idemKey, response, now);
+          await backend.noteCreated(storedKey, response, now);
         } catch {
           // Leave the short pending claim. Releasing it would allow a second task.
         }
@@ -256,7 +309,7 @@ export async function performCreate(backend, raw, idemKey, now, newId = newTaskI
   } catch (error) {
     if (claimed && !created) {
       try {
-        await backend.releasePending(idemKey, now);
+        await backend.releasePending(storedKey, now);
       } catch {
         // The original store error is the one the caller should see.
       }
@@ -276,7 +329,42 @@ export async function performPatch(backend, id, raw, now) {
     return { status: 400, body };
   }
   const next = applyTaskPatch(existing, parsed.patch, now);
-  await backend.putTask(next);
+  await backend.replaceTask(next);
+  return { status: 200, body: next };
+}
+
+function touch(existing, now) {
+  return now > existing.updatedAt ? now : existing.updatedAt + 1;
+}
+
+export async function performComplete(backend, id, now) {
+  if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
+  const existing = await backend.getTask(id);
+  if (!existing || existing.status === "Done" && dueForPurge(existing, now)) {
+    if (existing && dueForPurge(existing, now)) await backend.removeTask(id);
+    if (!existing || dueForPurge(existing, now)) return { status: 404, body: { detail: "This task is no longer here." } };
+  }
+  if (existing.status === "Done") return { status: 200, body: existing };
+  const next = { ...existing, status: "Done", completedAt: now, updatedAt: touch(existing, now) };
+  await backend.replaceTask(next);
+  return { status: 200, body: next };
+}
+
+function dueForPurge(task, now) {
+  return task && task.status === "Done" && typeof task.completedAt === "number" && task.completedAt < now - DONE_WINDOW_MS;
+}
+
+export async function performReopen(backend, id, now) {
+  if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
+  const existing = await backend.getTask(id);
+  if (!existing || dueForPurge(existing, now)) {
+    if (existing) await backend.removeTask(id);
+    return { status: 404, body: { detail: "This task is no longer here." } };
+  }
+  if (existing.status !== "Done") return { status: 200, body: existing };
+  const next = { ...existing, status: "To do", updatedAt: touch(existing, now) };
+  delete next.completedAt;
+  await backend.replaceTask(next);
   return { status: 200, body: next };
 }
 
@@ -285,16 +373,45 @@ export function createMemoryBackend() {
   const idem = new Map();
   return {
     tasks,
+    idem,
     async putTask(task) {
+      if (tasks.has(task.id)) return false;
       tasks.set(task.id, structuredClone(task));
+      return true;
+    },
+    async replaceTask(task) {
+      tasks.set(task.id, structuredClone(task));
+    },
+    async removeTask(id) {
+      tasks.delete(id);
+    },
+    purge(now) {
+      for (const [id, task] of tasks) {
+        if (dueForPurge(task, now)) tasks.delete(id);
+      }
+    },
+    async list(now) {
+      this.purge(now);
+      return unfinishedNewestFirst([...tasks.values()]);
+    },
+    async search(query, now) {
+      this.purge(now);
+      const windowStart = now - DONE_WINDOW_MS;
+      const rows = [...tasks.values()];
+      const unfinished = rows.filter((task) => task.status !== "Done");
+      const recentDone = rows.filter((task) => task.status === "Done" && task.completedAt >= windowStart);
+      return combineSearch(unfinished, recentDone, query);
+    },
+    async complete(id, now) {
+      return performComplete(this, id, now);
+    },
+    async reopen(id, now) {
+      return performReopen(this, id, now);
     },
     async getTask(id) {
       if (!isTaskId(id)) return null;
       const task = tasks.get(id);
       return task ? structuredClone(task) : null;
-    },
-    async list() {
-      return unfinishedNewestFirst([...tasks.values()]);
     },
     async readIdem(key, now) {
       const row = idem.get(key);
@@ -332,9 +449,12 @@ export function createMemoryBackend() {
 
 export function installMemoryTasks(store) {
   const backend = createMemoryBackend();
-  store.listUnfinishedTasks = () => backend.list();
-  store.createTask = (raw, idemKey, now) => performCreate(backend, raw, idemKey, now);
+  store.listUnfinishedTasks = (now) => backend.list(now);
+  store.searchTasks = (query, now) => backend.search(query, now);
+  store.createTask = (raw, idemKey, now, scope) => performCreate(backend, raw, idemKey, now, newTaskId, scope || "");
   store.getTask = (id) => backend.getTask(id);
   store.patchTask = (id, raw, now) => performPatch(backend, id, raw, now);
+  store.completeTask = (id, now) => backend.complete(id, now);
+  store.reopenTask = (id, now) => backend.reopen(id, now);
   return store;
 }

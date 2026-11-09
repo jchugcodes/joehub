@@ -34,8 +34,9 @@ async function exercise(prefix) {
     await store.putTxn({ state: "state-1", binding: "bind-1", createdAt: now }, now);
     await store.revokeAll(session.owner, now);
     const created = await store.createTask({ title: "Prefixed sample" }, "idem-1", now + 50);
-    const listed = await store.listUnfinishedTasks();
-    await store.listUnfinishedTasks();
+    const listed = await store.listUnfinishedTasks(now);
+    await store.listUnfinishedTasks(now);
+    await store.completeTask(created.body.id, now + 100);
     return { fake, session, created, listed };
   } finally {
     fake.stop();
@@ -61,6 +62,7 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.ok(keys.some((key) => key.startsWith("joehub:txn:")));
   assert.ok(keys.includes(`joehub:task:${created.body.id}`));
   assert.ok(keys.includes("joehub:tasks:active"));
+  assert.ok(keys.includes("joehub:tasks:done"));
   assert.ok(keys.includes("joehub:tasks:seeded"));
   assert.ok(keys.includes("joehub:task:idem:idem-1"));
   const taskWrites = fake.commands.filter((args) => args[0] === "SET" && String(args[1]).startsWith("joehub:task:") && !String(args[1]).includes(":idem:"));
@@ -93,6 +95,8 @@ test("a preview prefix replaces the joehub namespace on session and task keys", 
   assert.ok(keys.some((key) => key.startsWith("joehub-preview:txn:")));
   assert.ok(keys.includes(`joehub-preview:task:${created.body.id}`));
   assert.ok(keys.includes("joehub-preview:tasks:active"));
+  assert.ok(keys.includes("joehub-preview:tasks:done"));
+  assert.equal(keys.includes("joehub:tasks:done"), false);
   assert.ok(keys.includes("joehub-preview:tasks:seeded"));
   assert.equal(keys.includes(`joehub:sess:${session.id}`), false);
   assert.equal(keys.includes(`joehub:task:${created.body.id}`), false);

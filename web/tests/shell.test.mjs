@@ -37,6 +37,9 @@ test("fixtures match the shared contract keys", () => {
   assert.ok(spec.paths["/api/tasks"]);
   assert.ok(spec.paths["/api/tasks/{id}"].get.responses["200"].content["application/json"].schema);
   assert.ok(spec.paths["/api/tasks/{id}"].patch.requestBody.content["application/json"].schema);
+  assert.ok(spec.paths["/api/tasks"].get.parameters.some((item) => item.name === "q"));
+  assert.ok(spec.paths["/api/tasks/{id}/complete"].post);
+  assert.ok(spec.paths["/api/tasks/{id}/reopen"].post);
   assert.equal(spec.paths["/api/finance/accounts"].post, undefined);
   assert.equal(spec.paths["/finance/accounts"], undefined);
   const servers = JSON.stringify(spec.servers);

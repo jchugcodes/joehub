@@ -74,6 +74,7 @@ export interface Task {
   project?: string;
   createdAt: number;
   updatedAt: number;
+  completedAt?: number;
 }
 
 export interface FixtureFile {

@@ -116,8 +116,10 @@ def create_app(
         return rows(request, "events")
 
     @app.get("/api/tasks")
-    def list_tasks(request: Request) -> JSONResponse:
+    def list_tasks(request: Request, q: str = "") -> JSONResponse:
         require_session(request)
+        if q.strip():
+            return JSONResponse(request.app.state.tasks.search(q))
         return JSONResponse(request.app.state.tasks.list_unfinished())
 
     @app.post("/api/tasks")
@@ -146,6 +148,18 @@ def create_app(
         except Exception:
             return JSONResponse({"detail": "Task must be an object"}, status_code=400)
         status, body = request.app.state.tasks.patch(id, payload)
+        return JSONResponse(body, status_code=status)
+
+    @app.post("/api/tasks/{id}/complete")
+    def complete_task(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.tasks.complete(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.post("/api/tasks/{id}/reopen")
+    def reopen_task(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.tasks.reopen(id)
         return JSONResponse(body, status_code=status)
 
     @app.post("/api/session/login", response_model=LoginResult)
