@@ -401,6 +401,12 @@ def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     assert patched["dueDate"] == "2026-11-09"
     assert "notes" not in patched and "priority" not in patched and "project" not in patched
     assert patched["updatedAt"] > created["updatedAt"]
+    for field in ("id", "createdAt", "updatedAt", "completedAt", "nope"):
+        status, body = store.patch(created["id"], {field: "x", "title": "Ignored"})
+        assert status == 400
+        assert body["field"] == field
+        assert field in body["detail"]
+    assert store.get(created["id"])[1]["title"] == "Edit me"
 
     client, _app = client_app()
     assert client.get("/api/tasks/missing-task").status_code == 401
@@ -434,6 +440,18 @@ def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     assert blank.json()["field"] == "title"
     done = client.patch(f"/api/tasks/{task_id}", json={"status": "Done"}, cookies={COOKIE_NAME: cookie})
     assert done.status_code == 400
+    for field in ("id", "createdAt", "updatedAt", "completedAt", "mystery"):
+        rejected = client.patch(
+            f"/api/tasks/{task_id}",
+            json={field: "nope", "title": "Should stay"},
+            cookies={COOKIE_NAME: cookie},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["field"] == field
+        assert field in rejected.json()["detail"]
+    stored_mid = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
+    assert stored_mid.json()["title"] == "Edited"
+    assert stored_mid.json()["id"] == task_id
     missing = client.patch("/api/tasks/missing-task", json={"title": "Nope"}, cookies={COOKIE_NAME: cookie})
     assert missing.status_code == 404
     stored = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})

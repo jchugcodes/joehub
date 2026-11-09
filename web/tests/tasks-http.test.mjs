@@ -173,6 +173,15 @@ test("task api requires a session, persists a create, and dedupes an idempotency
       body: JSON.stringify({ status: "Done" }),
     });
     assert.equal(doneEdit.status, 400);
+    const locked = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ id: "other-id", createdAt: 1, updatedAt: 1, completedAt: 1, mystery: true }),
+    });
+    assert.equal(locked.status, 400);
+    const lockedBody = await locked.json();
+    assert.equal(lockedBody.field, "id");
+    assert.match(lockedBody.detail, /id/);
     const missing = await fetch(`${base}/api/tasks/missing-task`, {
       method: "PATCH",
       headers: auth,

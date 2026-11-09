@@ -200,6 +200,12 @@ test("a patch validates fields and today is the Detroit calendar day", () => {
   assert.equal(validateTaskPatch({ status: "Done" }, afterUtcMidnight).field, "status");
   assert.equal(validateTaskPatch({ notes: null, dueDate: null, priority: null, project: null }, afterUtcMidnight).ok, true);
   assert.equal(validateTaskPatch({ dueDate: "2026-02-31" }, afterUtcMidnight).ok, false);
+  for (const field of ["id", "createdAt", "updatedAt", "completedAt", "mystery"]) {
+    const rejected = validateTaskPatch({ [field]: "nope", title: "Still here" }, afterUtcMidnight);
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.field, field);
+    assert.match(rejected.detail, new RegExp(field));
+  }
 });
 
 test("a patch persists, clears optional fields, and a failed write keeps the stored task", async () => {
@@ -236,6 +242,12 @@ test("a patch persists, clears optional fields, and a failed write keeps the sto
   assert.equal(done.status, 400);
   assert.equal(done.body.field, "status");
   assert.equal(backend.tasks.get("id-edit").status, "Blocked");
+  const locked = await performPatch(backend, "id-edit", { id: "other-id", title: "Renamed" }, now + 65);
+  assert.equal(locked.status, 400);
+  assert.equal(locked.body.field, "id");
+  assert.match(locked.body.detail, /id/);
+  assert.equal(backend.tasks.get("id-edit").title, "Edited");
+  assert.equal(backend.tasks.get("id-edit").id, "id-edit");
   const missing = await performPatch(backend, "missing-task", { title: "Nope" }, now + 70);
   assert.equal(missing.status, 404);
   const today = await performPatch(backend, "id-edit", { dueDate: "today" }, Date.parse("2026-11-10T00:30:00.000Z"));
