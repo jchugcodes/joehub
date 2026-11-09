@@ -322,7 +322,7 @@ export default function TasksPage() {
             <li key={task.id} className="min-w-0">
               <button
                 type="button"
-                className="card block w-full min-w-0 p-4 text-left disabled:opacity-100"
+                className="card block w-full min-w-0 p-4 text-left disabled:opacity-50"
                 aria-label={`Edit ${task.title}`}
                 disabled={offline}
                 onClick={() => openEdit(task)}
