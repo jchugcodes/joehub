@@ -27,6 +27,7 @@ function unavailableStore() {
     patchTask: fail,
     completeTask: fail,
     reopenTask: fail,
+    deleteTask: fail,
   };
 }
 

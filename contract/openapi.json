@@ -158,6 +158,21 @@
           "429": { "description": "Rate limit" },
           "503": { "description": "Store unavailable" }
         }
+      },
+      "delete": {
+        "operationId": "deleteTask",
+        "description": "Permanently remove a task. It disappears from the unfinished list and from search. A missing id is 404.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
       }
     },
     "/api/tasks/{id}/complete": {

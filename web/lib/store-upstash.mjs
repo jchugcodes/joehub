@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
+import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -273,6 +273,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async reopenTask(id, now) {
       return performReopen(tasks, id, now);
+    },
+    async deleteTask(id) {
+      await ensureSeeded();
+      return performDelete(tasks, id);
     },
   };
 }

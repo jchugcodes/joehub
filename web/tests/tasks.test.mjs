@@ -11,6 +11,7 @@ import {
   IDEMPOTENCY_TTL_MS,
   installMemoryTasks,
   performCreate,
+  performDelete,
   performPatch,
   SAMPLE_TASKS,
   unfinishedNewestFirst,
@@ -321,6 +322,20 @@ test("done tasks stay searchable for 7 days and are then purged", async () => {
   assert.equal((await backend.list(now + 3000 + 7 * day + 1)).some((task) => task.id === "keep"), true);
   assert.equal((await backend.complete("missing-task", now)).status, 404);
   assert.equal((await backend.reopen("missing-task", now)).status, 404);
+});
+
+test("delete removes a task from the list and from search", async () => {
+  const backend = createMemoryBackend();
+  const now = Date.parse("2026-11-09T16:00:00.000Z");
+  const created = await performCreate(backend, { title: "Delete the sample bag" }, "idem-del", now);
+  assert.equal(created.status, 201);
+  const removed = await performDelete(backend, created.body.id);
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.deleted, true);
+  assert.equal(await backend.getTask(created.body.id), null);
+  assert.equal((await backend.list(now)).some((task) => task.id === created.body.id), false);
+  assert.equal((await backend.search("sample bag", now)).length, 0);
+  assert.equal((await performDelete(backend, created.body.id)).status, 404);
 });
 
 test("upstash deletes done tasks after 7 days on search", async () => {

@@ -94,6 +94,7 @@ export default function TasksPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
   const [group, setGroup] = useState<"all" | "status" | "project">("all");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -211,6 +212,34 @@ export default function TasksPage() {
     return () => window.clearTimeout(timer);
   }, [link]);
 
+  useEffect(() => {
+    if (!confirmDelete) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setConfirmDelete(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const root = document.getElementById("delete-dialog");
+      const nodes = root ? [...root.querySelectorAll<HTMLElement>("button")] : [];
+      if (nodes.length < 2) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [confirmDelete]);
+
   function openAdd() {
     if (offline || mode !== "ready") return;
     idemRef.current = newKey();
@@ -238,6 +267,26 @@ export default function TasksPage() {
     setFormError("");
     setGone("");
     setSheet("edit");
+  }
+
+  async function removeTask() {
+    if (!editingId || offline) return;
+    try {
+      const response = await fetch(`/api/tasks/${editingId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setFormError("Couldn't delete this task. It is still here.");
+        setConfirmDelete(false);
+        return;
+      }
+      const removed = editingId;
+      setTasks((current) => current.filter((task) => task.id !== removed));
+      setConfirmDelete(false);
+      setSheet(null);
+      setEditingId("");
+    } catch {
+      setFormError("Couldn't delete this task. It is still here.");
+      setConfirmDelete(false);
+    }
   }
 
   function cancel() {
@@ -668,6 +717,16 @@ export default function TasksPage() {
           }
         >
           <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
+            {sheet === "edit" ? (
+              <button
+                type="button"
+                className="mb-3 text-ui-13 font-semibold text-[#E07A5F] disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                disabled={offline}
+              >
+                Delete
+              </button>
+            ) : null}
             <label className="block text-ui-13 font-semibold" htmlFor="task-title">
               Title
             </label>
@@ -786,6 +845,21 @@ export default function TasksPage() {
             )}
           </form>
         </Sheet>
+      ) : null}
+      {confirmDelete ? (
+        <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-28" role="alertdialog" aria-labelledby="delete-title">
+          <div className="card w-full max-w-phone p-5 shadow-2xl">
+            <h2 id="delete-title" className="text-ui-18 font-bold">Delete this task?</h2>
+            <p className="mt-2 text-ui-14 text-muted">“{draft.title}” will be permanently removed, including from search. This can’t be undone.</p>
+            {formError ? <p role="alert" className="mt-2 text-ui-13 font-semibold text-[#E07A5F]">{formError}</p> : null}
+            <button type="button" autoFocus className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] text-ui-14 font-bold text-white" onClick={() => void removeTask()}>
+              Delete permanently
+            </button>
+            <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-ink text-ui-14 font-bold" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
