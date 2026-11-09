@@ -125,10 +125,10 @@ async function waitFor(send, expression, label) {
   throw new Error(`timed out waiting for ${label}; last=${last}; body=${body}`);
 }
 
-async function size(send, width) {
+async function size(send, width, height = 900) {
   await send("Emulation.setDeviceMetricsOverride", {
     width,
-    height: 900,
+    height,
     deviceScaleFactor: 1,
     mobile: width < 500,
   });
@@ -149,10 +149,20 @@ function click(label) {
   })()`;
 }
 
-async function gotoTasks(send, width) {
-  await size(send, width);
+async function gotoTasks(send, width, height = 900) {
+  await size(send, width, height);
   await send("Page.navigate", { url: `${base()}/tasks` });
   await waitFor(send, "document.querySelector(\"[data-ready='true'] h1\")?.textContent === 'Tasks' ? 'yes' : ''", "tasks");
+}
+
+function buttonInView(label) {
+  return `(() => {
+    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === ${JSON.stringify(label)});
+    if (!node) return "";
+    const rect = node.getBoundingClientRect();
+    const inside = rect.top >= 0 && rect.bottom <= window.innerHeight && rect.left >= 0 && rect.right <= window.innerWidth && rect.height > 0;
+    return inside ? "yes" : JSON.stringify({ top: rect.top, bottom: rect.bottom, height: window.innerHeight });
+  })()`;
 }
 
 test.after(async () => {
@@ -164,6 +174,9 @@ test.after(async () => {
 test("tasks add and the unfinished list work at phone and desktop widths", { timeout: 300000, skip }, async () => {
   mkdirSync(ARTIFACTS, { recursive: true });
   const cookie = await boot();
+  const icon = await fetch(`${base()}/favicon.ico`);
+  assert.equal(icon.status, 200);
+  assert.ok((await icon.arrayBuffer()).byteLength > 0);
   const page = await openPage(cookie);
   const { send } = page;
   try {
@@ -186,6 +199,72 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await shot(send, "tasks_add_sheet_1280.png");
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel 1280");
+
+    async function titleThenEnter(width, title) {
+      await size(send, width);
+      assert.equal(await evalPage(send, click("Add a task")), "yes");
+      await waitFor(send, "document.activeElement?.id === 'task-title' ? 'yes' : ''", `title focused ${width}`);
+      const hit = await evalPage(
+        send,
+        `(() => {
+          const el = document.getElementById("task-title");
+          el.blur();
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const top = document.elementFromPoint(x, y);
+          return { x, y, id: top && (top.id || top.getAttribute("aria-label") || top.tagName) };
+        })()`,
+      );
+      assert.equal(hit.id, "task-title", JSON.stringify(hit));
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
+      assert.equal(await evalPage(send, "document.activeElement?.id"), "task-title");
+      await send("Input.insertText", { text: title });
+      await send("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key: "Enter",
+        code: "Enter",
+        windowsVirtualKeyCode: 13,
+        nativeVirtualKeyCode: 13,
+        text: "\r",
+      });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+      await waitFor(
+        send,
+        `document.body.innerText.includes(${JSON.stringify(title)}) && !document.querySelector("[role='dialog']") ? 'yes' : ''`,
+        `enter created ${width}`,
+      );
+    }
+
+    await titleThenEnter(390, "Phone sample task");
+    await titleThenEnter(1280, "Desk sample task");
+
+    await size(send, 390, 685);
+    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "short sheet");
+    assert.equal(await evalPage(send, buttonInView("Save")), "yes");
+    assert.equal(await evalPage(send, buttonInView("Cancel")), "yes");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const el = document.getElementById("task-title");
+          const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
+          desc.set.call(el, "   ");
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "short error");
+    assert.equal(await evalPage(send, buttonInView("Save")), "yes");
+    assert.equal(await evalPage(send, buttonInView("Cancel")), "yes");
+    await shot(send, "tasks_add_error_390.png");
+    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "short closed");
 
     await size(send, 390);
     assert.equal(await evalPage(send, click("Add a task")), "yes");
@@ -294,6 +373,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         send,
         `(() => {
           const orig = window.fetch.bind(window);
+          window.__joehubFetch = orig;
           window.fetch = (input, init) => {
             const url = typeof input === "string" ? input : (input && input.url) || "";
             const method = (init && init.method) || (input && input.method) || "GET";
@@ -332,6 +412,29 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "document.querySelector(\"[data-offline='true']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline visible");
     await shot(send, "tasks_offline_390.png");
+    const onlineAt = Date.now();
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          window.fetch = window.__joehubFetch;
+          window.dispatchEvent(new Event("online"));
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(
+      send,
+      `(() => {
+        const banner = document.querySelector("[data-offline='true']");
+        const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add a task");
+        return !banner && add && !add.disabled ? "yes" : "";
+      })()`,
+      "back online",
+    );
+    assert.ok(Date.now() - onlineAt < 2000, `banner stayed for ${Date.now() - onlineAt}ms`);
+    await shot(send, "tasks_online_390.png");
 
     await gotoTasks(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Buy synthetic oats') ? 'yes' : ''", "list 1280");
