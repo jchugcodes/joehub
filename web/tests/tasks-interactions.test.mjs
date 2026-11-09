@@ -46,6 +46,8 @@ async function boot() {
     log: started.log,
     accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
   });
+  const health = await fetch(`${base()}/api/health`, { cache: "no-store" });
+  assert.equal(health.status, 200);
   chrome = startChrome(chromeBin, cdp, `/tmp/chrome-tasks-${process.pid}`);
   await waitForChrome(cdp, chrome);
   const logged = await fetch(`${base()}/api/session/login`, {
@@ -81,6 +83,18 @@ async function openPage(cookie) {
     });
   await send("Page.enable");
   await send("Network.enable");
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `(() => {
+      const orig = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function (type, listener, options) {
+        if (type === "online") {
+        window.__joehubIgnoredOnline = (window.__joehubIgnoredOnline || 0) + 1;
+        return;
+      }
+        return orig.call(this, type, listener, options);
+      };
+    })();`,
+  });
   const cooked = await send("Network.setCookie", {
     name: "joehub_session",
     value: cookie,
@@ -103,8 +117,8 @@ async function evalPage(send, expression) {
   return result.result?.result?.value;
 }
 
-async function waitFor(send, expression, label) {
-  const deadline = Date.now() + 45000;
+async function waitFor(send, expression, label, budget = 45000) {
+  const deadline = Date.now() + budget;
   let last = "";
   while (Date.now() < deadline) {
     try {
@@ -132,6 +146,14 @@ async function size(send, width, height = 900) {
     deviceScaleFactor: 1,
     mobile: width < 500,
   });
+  const onTasks = await evalPage(send, "document.querySelector('[data-layout]') ? 'yes' : ''");
+  if (onTasks) {
+    await waitFor(
+      send,
+      `document.querySelector("[data-layout='${width >= 1024 ? "panel" : "sheet"}']") ? 'yes' : ''`,
+      `layout ${width}`,
+    );
+  }
 }
 
 async function shot(send, name) {
@@ -366,31 +388,51 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
 
     await guards();
 
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
-    await waitFor(send, "document.querySelector(\"[role='dialog'] button\") ? 'yes' : ''", "offline sheet");
-    assert.equal(
-      await evalPage(
+    async function devtoolsOffline() {
+      await send("Network.emulateNetworkConditions", {
+        offline: true,
+        latency: 0,
+        downloadThroughput: 0,
+        uploadThroughput: 0,
+      });
+      const started = Date.now();
+      let banner = "";
+      while (Date.now() - started < 1500) {
+        banner = await evalPage(send, "document.querySelector(\"[data-offline='true']\") ? 'yes' : ''");
+        if (banner) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    }
+
+    async function backFromDevtoolsOffline(width) {
+      const onlineAt = Date.now();
+      await send("Network.emulateNetworkConditions", {
+        offline: false,
+        latency: 0,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+      });
+      await waitFor(
         send,
         `(() => {
-          const orig = window.fetch.bind(window);
-          window.__joehubFetch = orig;
-          window.fetch = (input, init) => {
-            const url = typeof input === "string" ? input : (input && input.url) || "";
-            const method = (init && init.method) || (input && input.method) || "GET";
-            if (String(url).includes("/api/tasks") && String(method).toUpperCase() !== "POST") {
-              return Promise.reject(new TypeError("Failed to fetch"));
-            }
-            return orig(input, init);
-          };
-          window.dispatchEvent(new Event("focus"));
-          return "armed";
+          const banner = document.querySelector("[data-offline='true']");
+          const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add a task");
+          return !banner && add && !add.disabled ? "yes" : "";
         })()`,
-      ),
-      "armed",
-    );
+        `devtools online ${width}`,
+        10000,
+      );
+      assert.ok(Date.now() - onlineAt < 10000, `banner stayed for ${Date.now() - onlineAt}ms at ${width}`);
+      await shot(send, `tasks_online_${width}.png`);
+    }
+
+    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    await waitFor(send, "document.querySelector(\"[role='dialog'] button\") ? 'yes' : ''", "offline sheet");
+    await devtoolsOffline();
     await waitFor(
       send,
-      "document.querySelector(\"[data-offline='true']\")?.textContent.includes('Offline · last updated') ? 'yes' : ''",
+      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
       "offline 390",
     );
     const offline = await evalPage(
@@ -405,36 +447,15 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         };
       })()`,
     );
-    assert.match(offline.banner, /^Offline · last updated /);
+    assert.match(offline.banner, /Offline · read-only/);
+    assert.match(offline.banner, /Last updated /);
     assert.equal(offline.saveDisabled, true);
     assert.equal(offline.addDisabled, true);
     assert.equal(offline.kept, true);
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "document.querySelector(\"[data-offline='true']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline visible");
     await shot(send, "tasks_offline_390.png");
-    const onlineAt = Date.now();
-    assert.equal(
-      await evalPage(
-        send,
-        `(() => {
-          window.fetch = window.__joehubFetch;
-          window.dispatchEvent(new Event("online"));
-          return "yes";
-        })()`,
-      ),
-      "yes",
-    );
-    await waitFor(
-      send,
-      `(() => {
-        const banner = document.querySelector("[data-offline='true']");
-        const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add a task");
-        return !banner && add && !add.disabled ? "yes" : "";
-      })()`,
-      "back online",
-    );
-    assert.ok(Date.now() - onlineAt < 2000, `banner stayed for ${Date.now() - onlineAt}ms`);
-    await shot(send, "tasks_online_390.png");
+    await backFromDevtoolsOffline(390);
 
     await gotoTasks(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Buy synthetic oats') ? 'yes' : ''", "list 1280");
@@ -443,31 +464,18 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await guards();
     assert.equal(await evalPage(send, click("Add a task")), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline sheet 1280");
-    await evalPage(
-      send,
-      `(() => {
-        const orig = window.fetch.bind(window);
-        window.fetch = (input, init) => {
-          const url = typeof input === "string" ? input : (input && input.url) || "";
-          const method = (init && init.method) || (input && input.method) || "GET";
-          if (String(url).includes("/api/tasks") && String(method).toUpperCase() !== "POST") {
-            return Promise.reject(new TypeError("Failed to fetch"));
-          }
-          return orig(input, init);
-        };
-        window.dispatchEvent(new Event("focus"));
-        return "armed";
-      })()`,
-    );
+    await devtoolsOffline();
     await waitFor(
       send,
-      "document.querySelector(\"[data-offline='true']\")?.textContent.includes('Offline · last updated') ? 'yes' : ''",
+      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
       "offline 1280",
     );
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "!document.querySelector(\"[role='dialog']\") && document.querySelector(\"[data-offline='true']\") ? 'yes' : ''", "offline banner 1280");
     await shot(send, "tasks_offline_1280.png");
+    assert.equal(await evalPage(send, "typeof window.__joehubIgnoredOnline === 'number' ? 'yes' : 'no'"), "yes");
+    await backFromDevtoolsOffline(1280);
   } finally {
     await page.close();
     await stopProcess(chrome);
