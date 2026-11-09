@@ -150,6 +150,12 @@ def create_app(
         status, body = request.app.state.tasks.patch(id, payload)
         return JSONResponse(body, status_code=status)
 
+    @app.delete("/api/tasks/{id}")
+    def delete_task(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.tasks.delete(id)
+        return JSONResponse(body, status_code=status)
+
     @app.post("/api/tasks/{id}/complete")
     def complete_task(id: str, request: Request) -> JSONResponse:
         require_session(request)
