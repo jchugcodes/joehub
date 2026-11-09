@@ -20,6 +20,7 @@ interface Task {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+  bot?: { name: string; detail: string; progress?: number };
 }
 
 interface Draft {
@@ -29,6 +30,23 @@ interface Draft {
   priority: "" | Priority;
   status: Status;
   project: string;
+}
+
+function BotLine({ bot }: { bot: NonNullable<Task["bot"]> }) {
+  const progress = typeof bot.progress === "number" ? Math.max(0, Math.min(100, bot.progress)) : null;
+  return (
+    <div className="mt-2 rounded-xl bg-[#3A86C81F] px-2.5 py-2" data-bot={bot.name}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-meta font-medium text-[#3A86C8]">{bot.name}</span>
+        <span className="text-meta font-normal text-muted">{bot.detail}</span>
+      </div>
+      {progress == null ? null : (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white" aria-hidden="true">
+          <div className="h-full rounded-full bg-[#2E8B6A]" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 const emptyDraft = (): Draft => ({
@@ -471,6 +489,9 @@ export default function TasksPage() {
         <p className="text-meta text-muted">joehub</p>
         <h1 className="text-page font-medium">Tasks</h1>
         <p className="mt-1 text-meta leading-relaxed text-muted">Everything unfinished · newest first</p>
+        {tasks.some((task) => task.bot) ? (
+          <p className="mt-1 text-meta font-normal text-muted">Assigned bots update on next load · no assign control</p>
+        ) : null}
       </header>
       {link === "offline" && savedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
@@ -646,6 +667,7 @@ export default function TasksPage() {
                   {!task.priority && !task.dueDate ? <span>No due date</span> : null}
                 </p>
                 {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
+                {task.bot ? <BotLine bot={task.bot} /> : null}
                 <div className="mt-3 flex gap-2">
                   {done ? (
                     <button
@@ -727,6 +749,9 @@ export default function TasksPage() {
               >
                 Delete
               </button>
+            ) : null}
+            {sheet === "edit" && tasks.find((task) => task.id === editingId)?.bot ? (
+              <BotLine bot={tasks.find((task) => task.id === editingId)!.bot!} />
             ) : null}
             <label className="block text-meta font-medium" htmlFor="task-title">
               Title

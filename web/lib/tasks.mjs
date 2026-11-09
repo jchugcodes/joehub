@@ -16,6 +16,7 @@ export const SAMPLE_TASKS = [
     status: "Doing",
     priority: "High",
     project: "Home",
+    bot: { name: "Cela", detail: "Building sample list · 60%", progress: 60 },
     createdAt: 1_762_000_000_000,
     updatedAt: 1_762_000_000_000,
   },
@@ -35,6 +36,7 @@ export const SAMPLE_TASKS = [
     title: "Hold for the sample reply",
     status: "Blocked",
     priority: "Low",
+    bot: { name: "Scout", detail: "Waiting on your reply · 2 of 3 questions" },
     createdAt: 1_760_000_000_000,
     updatedAt: 1_760_000_000_000,
   },
@@ -55,6 +57,9 @@ export function isCalendarDate(value) {
 export function validateTaskCreate(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, detail: "Task must be an object" };
+  }
+  if (body.bot != null || body.assignee != null) {
+    return { ok: false, detail: "Bot assignment can't be changed." };
   }
   if (typeof body.title !== "string") return { ok: false, field: "title", detail: "Enter a title." };
   const title = body.title.trim();
@@ -461,6 +466,9 @@ export function createMemoryBackend() {
 
 export function installMemoryTasks(store) {
   const backend = createMemoryBackend();
+  if (process.env.JOEHUB_SEED_TASKS === "1") {
+    for (const sample of SAMPLE_TASKS) backend.tasks.set(sample.id, structuredClone(sample));
+  }
   store.listUnfinishedTasks = (now) => backend.list(now);
   store.searchTasks = (query, now) => backend.search(query, now);
   store.createTask = (raw, idemKey, now, scope) => performCreate(backend, raw, idemKey, now, newTaskId, scope || "");

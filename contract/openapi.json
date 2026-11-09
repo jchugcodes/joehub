@@ -265,6 +265,16 @@
           "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
           "status": { "type": "string", "enum": ["To do", "Doing", "Blocked", "Done"] },
           "project": { "type": "string" },
+          "bot": {
+            "type": "object",
+            "description": "Read-only progress for a task a bot already owns. Not accepted on create or patch.",
+            "required": ["name", "detail"],
+            "properties": {
+              "name": { "type": "string" },
+              "detail": { "type": "string" },
+              "progress": { "type": "integer", "minimum": 0, "maximum": 100 }
+            }
+          },
           "createdAt": { "type": "integer" },
           "updatedAt": { "type": "integer" },
           "completedAt": { "type": "integer" }

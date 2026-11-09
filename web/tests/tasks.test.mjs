@@ -338,6 +338,28 @@ test("delete removes a task from the list and from search", async () => {
   assert.equal((await performDelete(backend, created.body.id)).status, 404);
 });
 
+test("bot progress is read-only and a title edit keeps it", async () => {
+  assert.equal(validateTaskCreate({ title: "Nope", assignee: "Scout" }).ok, false);
+  assert.equal(validateTaskCreate({ title: "Nope", bot: { name: "Scout" } }).ok, false);
+  assert.equal(validateTaskPatch({ bot: { name: "Scout" } }, 1).ok, false);
+  assert.equal(validateTaskPatch({ assignee: "Cela" }, 1).ok, false);
+  const backend = createMemoryBackend();
+  const now = Date.parse("2026-11-09T16:00:00.000Z");
+  await backend.putTask({
+    id: "bot-1",
+    title: "Review the sample",
+    status: "Doing",
+    createdAt: now,
+    updatedAt: now,
+    bot: { name: "Scout", detail: "Waiting on your reply · 2 of 3 questions" },
+  });
+  const patched = await performPatch(backend, "bot-1", { title: "Review the seeded sample" }, now + 10);
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.title, "Review the seeded sample");
+  assert.equal(patched.body.bot.name, "Scout");
+  assert.equal(patched.body.bot.detail, "Waiting on your reply · 2 of 3 questions");
+});
+
 test("upstash deletes done tasks after 7 days on search", async () => {
   const fake = await startFakeUpstash();
   const store = createUpstashStore({ url: fake.url, token: fake.token });
