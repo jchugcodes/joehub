@@ -131,13 +131,18 @@ export default function TasksPage() {
       setOffline(true);
     };
     const onOnline = () => void load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
     window.addEventListener("focus", onFocus);
     window.addEventListener("offline", onOffline);
     window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load]);
 
@@ -295,13 +300,14 @@ export default function TasksPage() {
             <input
               id="task-title"
               value={draft.title}
+              data-autofocus=""
               onChange={(event) => {
                 setDraft({ ...draft, title: event.target.value });
                 if (titleError) setTitleError("");
               }}
               aria-invalid={titleError ? true : undefined}
               aria-describedby={titleError ? "task-title-error" : undefined}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="relative z-10 mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
               autoComplete="off"
             />
             {titleError ? (
@@ -372,7 +378,7 @@ export default function TasksPage() {
                 {formError}
               </p>
             ) : null}
-            <div className="mt-5 flex gap-2">
+            <div className="sticky bottom-0 z-10 mt-5 flex gap-2 bg-surface py-3">
               <button
                 type="button"
                 className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-ink px-3 text-ui-14 font-bold"
