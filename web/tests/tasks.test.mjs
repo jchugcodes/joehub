@@ -12,6 +12,7 @@ import {
   installMemoryTasks,
   performCreate,
   performPatch,
+  SAMPLE_TASKS,
   unfinishedNewestFirst,
   validateTaskCreate,
   validateTaskPatch,
@@ -259,6 +260,27 @@ test("a patch persists, clears optional fields, and a failed write keeps the sto
   };
   await assert.rejects(() => performPatch(backend, "id-edit", { title: "Should not stick" }, now + 80));
   assert.deepEqual(backend.tasks.get("id-edit"), before);
+});
+
+test("get and patch seed sample tasks on a cold start", async () => {
+  const fake = await startFakeUpstash();
+  const store = createUpstashStore({ url: fake.url, token: fake.token });
+  const sample = SAMPLE_TASKS[0];
+  try {
+    const fetched = await store.getTask(sample.id);
+    assert.equal(fetched.title, sample.title);
+    assert.equal(fake.commands.some((args) => args[0] === "ZREVRANGE"), false);
+    const patched = await store.patchTask(sample.id, { title: "Sketch the seeded poster" }, sample.updatedAt + 50);
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.title, "Sketch the seeded poster");
+    assert.equal(patched.body.createdAt, sample.createdAt);
+    const again = await store.getTask(sample.id);
+    assert.equal(again.title, "Sketch the seeded poster");
+    const flagSets = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded");
+    assert.equal(flagSets.length, 1);
+  } finally {
+    fake.stop();
+  }
 });
 
 test("task get and patch require a session and share the api limiter", async () => {
