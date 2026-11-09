@@ -64,6 +64,18 @@ export interface LoginResult {
   device_id: string;
 }
 
+export interface Task {
+  id: string;
+  title: string;
+  notes?: string;
+  dueDate?: string;
+  priority?: "High" | "Medium" | "Low";
+  status: "To do" | "Doing" | "Blocked" | "Done";
+  project?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface FixtureFile {
   accounts: AccountBalance[];
   transactions: TransactionRow[];

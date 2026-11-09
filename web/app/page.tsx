@@ -83,6 +83,15 @@ export default function HomePage() {
         </Link>
       </section>
 
+      <Link href="/tasks" className="block card p-4">
+        <div className="flex items-center justify-between text-ui-13 font-bold text-ink">
+          <span>Tasks</span>
+          <span aria-hidden className="text-inactive">›</span>
+        </div>
+        <p className="mt-1 text-ui-16 font-bold">Unfinished list</p>
+        <p className="text-ui-12 mut">Add a task and keep what isn’t done.</p>
+      </Link>
+
       <section className="card p-4" aria-labelledby="goals-heading">
         <h2 id="goals-heading" className="mb-2 text-ui-13 font-bold mut">
           GOALS

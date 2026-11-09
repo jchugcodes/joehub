@@ -32,6 +32,14 @@ export default function MorePage() {
         <p className="mt-2 text-ui-13 leading-relaxed text-[#46544B]">Your secondary views, in one place.</p>
       </header>
       <div className="mt-5 space-y-3 px-4">
+        <Link id="more-tasks" href="/tasks" className="card flex min-h-24 items-center gap-3 p-4">
+          <Icon name="check" size={22} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-ui-16 font-semibold">Tasks</span>
+            <span className="mt-1 block text-ui-12 leading-snug text-muted">Unfinished tasks, newest first</span>
+          </span>
+          <Icon name="chevron" size={20} className="shrink-0 text-muted" />
+        </Link>
         <Link id="more-database" href="/more/database" className="card flex min-h-24 items-center gap-3 p-4">
           <DatabaseIcon />
           <span className="min-w-0 flex-1">

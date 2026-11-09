@@ -12,6 +12,8 @@ export async function startFakeUpstash() {
   const values = new Map();
   const expires = new Map();
   const sets = new Map();
+  const zsets = new Map();
+  const commands = [];
   const counts = { set: 0 };
   let fail = false;
 
@@ -26,14 +28,31 @@ export async function startFakeUpstash() {
   }
 
   function run(args) {
+    commands.push(args.slice());
     const [op, key] = args;
     if (op === "GET") return live(key) ? values.get(key) : null;
     if (op === "SET") {
+      if (args.includes("NX") && live(key) && values.has(key)) return null;
       counts.set += 1;
       values.set(key, args[2]);
       const ex = args.indexOf("EX");
       if (ex !== -1) expires.set(key, Date.now() + Number(args[ex + 1]) * 1000);
+      else expires.delete(key);
       return "OK";
+    }
+    if (op === "ZADD") {
+      const zset = zsets.get(key) || new Map();
+      zset.set(String(args[3]), Number(args[2]));
+      zsets.set(key, zset);
+      return 1;
+    }
+    if (op === "ZREVRANGE") {
+      const zset = zsets.get(key) || new Map();
+      const rows = [...zset.entries()].sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1));
+      const start = Number(args[2]);
+      let stop = Number(args[3]);
+      if (stop < 0) stop = rows.length + stop;
+      return rows.slice(start, stop + 1).map(([member]) => member);
     }
     if (op === "DEL") {
       values.delete(key);
@@ -97,6 +116,7 @@ export async function startFakeUpstash() {
     url: `http://127.0.0.1:${port}`,
     token,
     counts,
+    commands,
     setFail(value) {
       fail = value;
     },

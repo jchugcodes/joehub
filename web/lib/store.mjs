@@ -1,15 +1,51 @@
 import { createStore } from "./sessions.mjs";
 import { createLimiter } from "./ratelimit.mjs";
-import { createUpstashLimiter, createUpstashStore } from "./store-upstash.mjs";
+import { readKeyPrefix } from "./keys.mjs";
+import { installMemoryTasks } from "./tasks.mjs";
+import { createUpstashLimiter, createUpstashStore, StoreError } from "./store-upstash.mjs";
+
+function unavailableStore() {
+  const fail = async () => {
+    throw new StoreError();
+  };
+  return {
+    sessions: null,
+    getSession: fail,
+    putSession: fail,
+    revokeSession: fail,
+    revokeAll: fail,
+    listDevices: fail,
+    revokeDevice: fail,
+    putTxn: fail,
+    getTxn: fail,
+    takeTxn: fail,
+    hit: fail,
+    listUnfinishedTasks: fail,
+    createTask: fail,
+  };
+}
 
 // Dev and unit tests keep one in-memory store for this process. Production and
 // preview set the Upstash REST URL so every instance, including middleware,
-// reads the same sessions and limits.
+// reads the same sessions and limits. An invalid JOEHUB_KEY_PREFIX never falls
+// open onto the production key namespace.
 function build(env) {
+  const prefix = readKeyPrefix(env);
+  if (!prefix.ok) {
+    const fail = async () => {
+      throw new StoreError();
+    };
+    return {
+      store: unavailableStore(),
+      loginLimiter: { allow: fail },
+      apiLimiter: { allow: fail },
+    };
+  }
   if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
     const store = createUpstashStore({
       url: env.UPSTASH_REDIS_REST_URL,
       token: env.UPSTASH_REDIS_REST_TOKEN,
+      prefix: prefix.prefix,
     });
     return {
       store,
@@ -18,7 +54,7 @@ function build(env) {
     };
   }
   return {
-    store: createStore(),
+    store: installMemoryTasks(createStore()),
     loginLimiter: createLimiter(5),
     apiLimiter: createLimiter(60),
   };

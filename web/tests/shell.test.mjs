@@ -28,6 +28,7 @@ test("fixtures match the shared contract keys", () => {
     "JournalEntry",
     "EventRow",
     "Device",
+    "Task",
   ]) {
     const source = readFileSync(new URL("../lib/contract.ts", import.meta.url), "utf8");
     assert.match(source, new RegExp(`export interface ${name}`));

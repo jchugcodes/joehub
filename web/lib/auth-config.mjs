@@ -1,3 +1,5 @@
+import { readKeyPrefix } from "./keys.mjs";
+
 const OIDC_KEYS = ["JOEHUB_OIDC_ISSUER", "JOEHUB_OIDC_CLIENT_ID", "JOEHUB_OIDC_CLIENT_SECRET"];
 const UPSTASH_KEYS = ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
 
@@ -48,6 +50,8 @@ function httpUrl(value) {
 
 export function readAuthConfig(env) {
   if (isBuild(env)) return { ok: true, mode: "build" };
+  const prefix = readKeyPrefix(env);
+  if (!prefix.ok) return { ok: false, error: "invalid key prefix" };
   if (productionLike(env) && devAuthEnabled(env)) {
     return { ok: false, error: "production forbids dev auth and requires a session secret" };
   }
@@ -90,7 +94,8 @@ export function readAuthConfig(env) {
       clientSecret: present(env, "JOEHUB_OIDC_CLIENT_SECRET"),
       ownerEmail,
       ownerSub,
+      keyPrefix: prefix.prefix,
     };
   }
-  return { ok: true, mode: devAuthEnabled(env) ? "dev" : "dev", secret };
+  return { ok: true, mode: devAuthEnabled(env) ? "dev" : "dev", secret, keyPrefix: prefix.prefix };
 }
