@@ -261,9 +261,11 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       return performCreate(tasks, raw, idemKey, now, undefined, scope || "");
     },
     async getTask(id) {
+      await ensureSeeded();
       return tasks.getTask(id);
     },
     async patchTask(id, raw, now) {
+      await ensureSeeded();
       return performPatch(tasks, id, raw, now);
     },
     async completeTask(id, now) {

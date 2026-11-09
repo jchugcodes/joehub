@@ -7,6 +7,7 @@ const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 const PENDING_MS = 30 * 1000;
 const PRIORITIES = new Set(["High", "Medium", "Low"]);
 const CREATE_STATUSES = new Set(["To do", "Doing", "Blocked"]);
+const PATCH_FIELDS = new Set(["title", "notes", "dueDate", "priority", "status", "project"]);
 
 export const SAMPLE_TASKS = [
   {
@@ -117,6 +118,9 @@ export function isTaskId(id) {
 export function validateTaskPatch(body, now) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return reject("", "Task must be an object");
+  }
+  for (const key of Object.keys(body)) {
+    if (!PATCH_FIELDS.has(key)) return reject(key, `${key} can't be changed.`);
   }
   const patch = {};
   if (Object.prototype.hasOwnProperty.call(body, "title")) {

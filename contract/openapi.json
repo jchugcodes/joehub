@@ -257,6 +257,7 @@
       },
       "TaskPatch": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
           "title": { "type": "string" },
           "notes": { "type": ["string", "null"] },

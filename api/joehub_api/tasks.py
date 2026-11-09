@@ -86,9 +86,15 @@ def detroit_calendar_date(now_ms: int) -> str:
     return moment.date().isoformat()
 
 
+PATCH_FIELDS = {"title", "notes", "dueDate", "priority", "status", "project"}
+
+
 def validate_task_patch(body: object, now_ms: int) -> tuple[dict | None, dict | None]:
     if not isinstance(body, dict):
         return None, {"detail": "Task must be an object"}
+    for key in body:
+        if key not in PATCH_FIELDS:
+            return None, {"detail": f"{key} can't be changed.", "field": key}
     patch: dict = {}
     if "title" in body:
         title = body.get("title")

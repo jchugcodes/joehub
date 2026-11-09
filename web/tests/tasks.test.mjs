@@ -12,6 +12,7 @@ import {
   installMemoryTasks,
   performCreate,
   performPatch,
+  SAMPLE_TASKS,
   unfinishedNewestFirst,
   validateTaskCreate,
   validateTaskPatch,
@@ -200,6 +201,12 @@ test("a patch validates fields and today is the Detroit calendar day", () => {
   assert.equal(validateTaskPatch({ status: "Done" }, afterUtcMidnight).field, "status");
   assert.equal(validateTaskPatch({ notes: null, dueDate: null, priority: null, project: null }, afterUtcMidnight).ok, true);
   assert.equal(validateTaskPatch({ dueDate: "2026-02-31" }, afterUtcMidnight).ok, false);
+  for (const field of ["id", "createdAt", "updatedAt", "completedAt", "mystery"]) {
+    const rejected = validateTaskPatch({ [field]: "nope", title: "Still here" }, afterUtcMidnight);
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.field, field);
+    assert.match(rejected.detail, new RegExp(field));
+  }
 });
 
 test("a patch persists, clears optional fields, and a failed write keeps the stored task", async () => {
@@ -236,6 +243,12 @@ test("a patch persists, clears optional fields, and a failed write keeps the sto
   assert.equal(done.status, 400);
   assert.equal(done.body.field, "status");
   assert.equal(backend.tasks.get("id-edit").status, "Blocked");
+  const locked = await performPatch(backend, "id-edit", { id: "other-id", title: "Renamed" }, now + 65);
+  assert.equal(locked.status, 400);
+  assert.equal(locked.body.field, "id");
+  assert.match(locked.body.detail, /id/);
+  assert.equal(backend.tasks.get("id-edit").title, "Edited");
+  assert.equal(backend.tasks.get("id-edit").id, "id-edit");
   const missing = await performPatch(backend, "missing-task", { title: "Nope" }, now + 70);
   assert.equal(missing.status, 404);
   const today = await performPatch(backend, "id-edit", { dueDate: "today" }, Date.parse("2026-11-10T00:30:00.000Z"));
@@ -328,6 +341,27 @@ test("upstash deletes done tasks after 7 days on search", async () => {
     assert.equal(await store.getTask(created.body.id), null);
     assert.equal(fake.commands.some((args) => args[0] === "ZADD" && args[1] === "joehub:tasks:done"), true);
     assert.equal(fake.commands.some((args) => args[0] === "DEL" && args[1] === `joehub:task:${created.body.id}`), true);
+  } finally {
+    fake.stop();
+  }
+});
+
+test("get and patch seed sample tasks on a cold start", async () => {
+  const fake = await startFakeUpstash();
+  const store = createUpstashStore({ url: fake.url, token: fake.token });
+  const sample = SAMPLE_TASKS[0];
+  try {
+    const fetched = await store.getTask(sample.id);
+    assert.equal(fetched.title, sample.title);
+    assert.equal(fake.commands.some((args) => args[0] === "ZREVRANGE"), false);
+    const patched = await store.patchTask(sample.id, { title: "Sketch the seeded poster" }, sample.updatedAt + 50);
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.title, "Sketch the seeded poster");
+    assert.equal(patched.body.createdAt, sample.createdAt);
+    const again = await store.getTask(sample.id);
+    assert.equal(again.title, "Sketch the seeded poster");
+    const flagSets = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded");
+    assert.equal(flagSets.length, 1);
   } finally {
     fake.stop();
   }
