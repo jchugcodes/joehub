@@ -11,6 +11,7 @@ export function Sheet({
   frame = false,
   dock = "sheet",
   actions = null,
+  titleClassName,
 }: {
   title: string;
   onClose: () => void;
@@ -20,6 +21,8 @@ export function Sheet({
   /** Phone sheet, or the desktop tasks panel with header actions. */
   dock?: "sheet" | "panel";
   actions?: React.ReactNode;
+  /** Tasks passes the Outfit section style. The default stays the Finance sheet. */
+  titleClassName?: string;
 }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
@@ -71,7 +74,7 @@ export function Sheet({
         className="sticky top-2 flex max-h-[calc(100dvh-7rem)] w-[420px] shrink-0 flex-col overflow-hidden rounded-[20px] border border-ink bg-surface shadow-2xl"
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <h2 id={titleId} className="text-ui-18 font-bold">{title}</h2>
+          <h2 id={titleId} className={titleClassName || "text-ui-18 font-bold"}>{title}</h2>
           {actions}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
@@ -96,7 +99,7 @@ export function Sheet({
         <div className={frame ? "shrink-0 px-5 pt-3" : ""}>
           <div className={`mx-auto rounded-full ${frame ? "h-1.5 w-10 bg-support-handle" : "mb-3 h-1 w-10 bg-line"}`} />
           <div className={`flex items-center justify-between gap-3 ${frame ? "mt-4" : "mb-2"}`}>
-            <h2 id={titleId} className={frame ? "min-w-0 text-ui-18 font-bold" : "text-xl font-semibold"}>
+            <h2 id={titleId} className={titleClassName || (frame ? "min-w-0 text-ui-18 font-bold" : "text-xl font-semibold")}>
               {title}
             </h2>
             <button
