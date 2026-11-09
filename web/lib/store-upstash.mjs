@@ -80,12 +80,27 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async readIdem(key) {
       const parsed = await readJson(k(`joehub:task:idem:${key}`));
-      if (!parsed || parsed.pending) return null;
-      if (parsed.status && parsed.body) return parsed;
+      if (!parsed) return null;
+      if (parsed.status && parsed.body) return { status: parsed.status, body: parsed.body };
+      if (parsed.pending && parsed.taskId) {
+        const task = await readJson(k(`joehub:task:${parsed.taskId}`));
+        if (task) return { status: 201, body: task };
+      }
+      if (parsed.pending) return null;
       throw new StoreError();
     },
     async writeIdem(key, response) {
       await command(["SET", k(`joehub:task:idem:${key}`), JSON.stringify(response), "EX", "86400"]);
+    },
+    async noteCreated(key, response) {
+      const taskId = response && response.body ? response.body.id : "";
+      await command([
+        "SET",
+        k(`joehub:task:idem:${key}`),
+        JSON.stringify({ pending: true, taskId }),
+        "EX",
+        "86400",
+      ]);
     },
     async claimIdem(key) {
       const result = await command(["SET", k(`joehub:task:idem:${key}`), JSON.stringify({ pending: true }), "NX", "EX", "30"]);
@@ -93,7 +108,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async releasePending(key) {
       const parsed = await readJson(k(`joehub:task:idem:${key}`));
-      if (parsed && parsed.pending) await command(["DEL", k(`joehub:task:idem:${key}`)]);
+      if (parsed && parsed.pending && !parsed.taskId) await command(["DEL", k(`joehub:task:idem:${key}`)]);
     },
   };
 

@@ -218,7 +218,7 @@ export default function TasksPage() {
       <header className="px-5 pt-3">
         <p className="text-ui-13 text-muted">joehub</p>
         <h1 className="text-ui-22 font-bold">Tasks</h1>
-        <p className="mt-1 text-ui-13 leading-relaxed text-muted">Unfinished, newest first. Dates are America/Detroit.</p>
+        <p className="mt-1 text-ui-13 leading-relaxed text-muted">Everything you haven’t finished, newest first.</p>
       </header>
       {offline && savedAt ? (
         <p role="status" data-offline="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-ui-13 font-semibold">
@@ -329,7 +329,7 @@ export default function TasksPage() {
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
               className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
             />
-            <p className="mt-1 text-ui-12 text-muted">YYYY-MM-DD, America/Detroit. Leave blank if there’s no due date.</p>
+            <p className="mt-1 text-ui-12 text-muted">Optional.</p>
             <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-priority">
               Priority
             </label>

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore, login } from "../lib/sessions.mjs";
-import { handleTasksGet, handleTasksPost } from "../lib/api.mjs";
+import { handleGet, handleTasksGet, handleTasksPost } from "../lib/api.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
+import { createUpstashStore } from "../lib/store-upstash.mjs";
+import { startFakeUpstash } from "./support/fakes.mjs";
 import {
   createMemoryBackend,
   IDEMPOTENCY_TTL_MS,
@@ -113,4 +115,66 @@ test("task routes require a session and keep a blank title", async () => {
   assert.equal(listed.status, 200);
   assert.equal(listed.body.filter((task) => task.id === created.body.id).length, 1);
   assert.equal(listed.body[0].id, created.body.id);
+});
+
+test("a failed idempotency write keeps the created task for a retry", async () => {
+  const backend = createMemoryBackend();
+  const now = 1_000_000;
+  backend.writeIdem = async () => {
+    throw new Error("idempotency unavailable");
+  };
+  await assert.rejects(() => performCreate(backend, { title: "Once" }, "key-fail", now, () => "id-kept"));
+  assert.equal(backend.tasks.size, 1);
+  assert.equal(backend.tasks.get("id-kept").title, "Once");
+  const retried = await performCreate(backend, { title: "Different" }, "key-fail", now + 10, () => "id-other");
+  assert.equal(retried.status, 201);
+  assert.equal(retried.body.id, "id-kept");
+  assert.equal(retried.body.title, "Once");
+  assert.equal(backend.tasks.size, 1);
+});
+
+test("upstash returns the stored task when the idempotency write fails", async () => {
+  const fake = await startFakeUpstash();
+  let failed = false;
+  const store = createUpstashStore({
+    url: fake.url,
+    token: fake.token,
+    fetchImpl: async (url, init) => {
+      const args = JSON.parse(init.body);
+      const responseWrite =
+        args[0] === "SET" && String(args[1]).includes(":idem:") && String(args[2]).includes('"title":"Keep me"');
+      if (responseWrite && !failed) {
+        failed = true;
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return fetch(url, init);
+    },
+  });
+  try {
+    await assert.rejects(() => store.createTask({ title: "Keep me" }, "idem-fail", 2_000_000_000_000));
+    const retried = await store.createTask({ title: "Other" }, "idem-fail", 2_000_000_000_100);
+    assert.equal(retried.status, 201);
+    assert.equal(retried.body.title, "Keep me");
+    const listed = await store.listUnfinishedTasks();
+    assert.equal(listed.filter((task) => task.id === retried.body.id).length, 1);
+    assert.equal(listed.filter((task) => task.title === "Other").length, 0);
+  } finally {
+    fake.stop();
+  }
+});
+
+test("tasks share the api rate limiter", async () => {
+  const store = installMemoryTasks(createStore());
+  const limiter = createLimiter(2);
+  const now = 80_000;
+  const logged = login({ username: "synthetic", password: "synthetic" }, devEnv, store, now);
+  const headers = { get: (name) => (name === "cookie" ? `joehub_session=${logged.cookie}` : "") };
+  assert.equal((await handleTasksGet(headers, devEnv, store, limiter, now, "ip")).status, 200);
+  assert.equal((await handleGet("transactions", headers, devEnv, store, limiter, now, "ip")).status, 200);
+  const blocked = await handleTasksPost({ title: "Limited" }, headers, devEnv, store, limiter, now, "ip");
+  assert.equal(blocked.status, 429);
+  assert.deepEqual(blocked.body, { detail: "rate limit" });
 });

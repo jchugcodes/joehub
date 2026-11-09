@@ -146,6 +146,7 @@ export async function performCreate(backend, raw, idemKey, now, newId = newTaskI
       return { status: 503, body: { detail: "unavailable" } };
     }
   }
+  let created = false;
   try {
     if (idemKey) {
       const stored = await backend.readIdem(idemKey, now);
@@ -153,12 +154,26 @@ export async function performCreate(backend, raw, idemKey, now, newId = newTaskI
     }
     const task = taskFrom(parsed, newId(), now);
     await backend.putTask(task);
+    created = true;
     const response = { status: 201, body: task };
-    if (idemKey) await backend.writeIdem(idemKey, response, now);
+    if (idemKey) {
+      try {
+        await backend.writeIdem(idemKey, response, now);
+      } catch (error) {
+        // The task is already stored. Keep the claim pointed at it so a retry
+        // returns this task instead of inserting another one.
+        try {
+          await backend.noteCreated(idemKey, response, now);
+        } catch {
+          // Leave the short pending claim. Releasing it would allow a second task.
+        }
+        throw error;
+      }
+    }
     claimed = false;
     return response;
   } catch (error) {
-    if (claimed) {
+    if (claimed && !created) {
       try {
         await backend.releasePending(idemKey, now);
       } catch {
@@ -191,6 +206,14 @@ export function createMemoryBackend() {
     },
     async writeIdem(key, response, now) {
       idem.set(key, { response: structuredClone(response), expiresAt: now + IDEMPOTENCY_TTL_MS });
+    },
+    async noteCreated(key, response, now) {
+      const taskId = response && response.body ? response.body.id : "";
+      idem.set(key, {
+        response: structuredClone(response),
+        expiresAt: now + IDEMPOTENCY_TTL_MS,
+        taskId,
+      });
     },
     async claimIdem(key, now) {
       const row = idem.get(key);

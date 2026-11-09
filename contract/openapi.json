@@ -81,6 +81,25 @@
             "schema": { "type": "string" }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "notes": { "type": "string" },
+                  "dueDate": { "type": "string", "description": "Calendar date YYYY-MM-DD." },
+                  "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+                  "status": { "type": "string", "enum": ["To do", "Doing", "Blocked"] },
+                  "project": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": { "description": "Created task, or the task already stored for this Idempotency-Key" },
           "400": { "description": "Invalid task" },

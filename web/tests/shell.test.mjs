@@ -34,6 +34,7 @@ test("fixtures match the shared contract keys", () => {
     assert.match(source, new RegExp(`export interface ${name}`));
   }
   assert.ok(spec.paths["/api/finance/accounts"].get);
+  assert.ok(spec.paths["/api/tasks"]);
   assert.equal(spec.paths["/api/finance/accounts"].post, undefined);
   assert.equal(spec.paths["/finance/accounts"], undefined);
   const servers = JSON.stringify(spec.servers);
