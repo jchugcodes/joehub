@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sheet } from "../../components/Sheet";
+import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 
 const CACHE_KEY = "joehub.tasks.unfinished";
 
@@ -79,7 +80,9 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | "add" | "edit">(null);
+  const [editingId, setEditingId] = useState("");
+  const [gone, setGone] = useState("");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [titleError, setTitleError] = useState("");
   const [formError, setFormError] = useState("");
@@ -144,15 +147,36 @@ export default function TasksPage() {
   function openAdd() {
     if (offline || mode !== "ready") return;
     idemRef.current = newKey();
+    setEditingId("");
     setDraft(emptyDraft());
     setTitleError("");
     setFormError("");
-    setOpen(true);
+    setGone("");
+    setSheet("add");
+  }
+
+  function openEdit(task: Task) {
+    if (offline || mode !== "ready") return;
+    const status: Status = task.status === "Doing" || task.status === "Blocked" ? task.status : "To do";
+    setEditingId(task.id);
+    setDraft({
+      title: task.title,
+      notes: task.notes || "",
+      dueDate: task.dueDate || "",
+      priority: task.priority || "",
+      status,
+      project: task.project || "",
+    });
+    setTitleError("");
+    setFormError("");
+    setGone("");
+    setSheet("edit");
   }
 
   function cancel() {
     if (savingRef.current) return;
-    setOpen(false);
+    setSheet(null);
+    setEditingId("");
     setTitleError("");
     setFormError("");
     setDraft(emptyDraft());
@@ -171,40 +195,62 @@ export default function TasksPage() {
     setSaving(true);
     setTitleError("");
     setFormError("");
-    const payload: Record<string, string> = { title, status: draft.status };
-    if (draft.notes.trim()) payload.notes = draft.notes.trim();
-    if (draft.dueDate) payload.dueDate = draft.dueDate;
-    if (draft.priority) payload.priority = draft.priority;
-    if (draft.project.trim()) payload.project = draft.project.trim();
+    const editing = sheet === "edit";
+    const payload: Record<string, string | null> = editing
+      ? {
+          title,
+          notes: draft.notes.trim() || null,
+          dueDate: draft.dueDate || null,
+          priority: draft.priority || null,
+          status: draft.status,
+          project: draft.project.trim() || null,
+        }
+      : { title, status: draft.status };
+    if (!editing) {
+      if (draft.notes.trim()) payload.notes = draft.notes.trim();
+      if (draft.dueDate) payload.dueDate = draft.dueDate;
+      if (draft.priority) payload.priority = draft.priority;
+      if (draft.project.trim()) payload.project = draft.project.trim();
+    }
     try {
-      const response = await fetch("/api/tasks", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": idemRef.current,
-        },
+      const response = await fetch(editing ? `/api/tasks/${editingId}` : "/api/tasks", {
+        method: editing ? "PATCH" : "POST",
+        headers: editing
+          ? { "content-type": "application/json" }
+          : { "content-type": "application/json", "idempotency-key": idemRef.current },
         body: JSON.stringify(payload),
       });
       const body = (await response.json().catch(() => null)) as { detail?: string; field?: string; id?: string } | null;
+      if (response.status === 404 && editing) {
+        setSheet(null);
+        setEditingId("");
+        setDraft(emptyDraft());
+        setGone(body?.detail || "This task is no longer here.");
+        void load();
+        return;
+      }
       if (response.status === 400 && body?.field === "title") {
         setTitleError(body.detail || "Enter a title.");
         return;
       }
       if (!response.ok || !body || typeof body.id !== "string") {
-        setFormError("Couldn't save this task. Your draft is still here.");
+        setFormError(editing ? "Couldn't save these edits. Your changes are still here." : "Couldn't save this task. Your draft is still here.");
         return;
       }
       const task = body as Task;
       const at = Date.now();
-      const next = [task, ...tasks.filter((item) => item.id !== task.id)];
+      const next = editing
+        ? tasks.map((item) => (item.id === task.id ? task : item)).filter((item) => item.status !== "Done")
+        : [task, ...tasks.filter((item) => item.id !== task.id)];
       writeCache(next, at);
       setTasks(next);
       setSavedAt(at);
-      setOpen(false);
+      setSheet(null);
+      setEditingId("");
       setDraft(emptyDraft());
       void load();
     } catch {
-      setFormError("Couldn't save this task. Your draft is still here.");
+      setFormError(editing ? "Couldn't save these edits. Your changes are still here." : "Couldn't save this task. Your draft is still here.");
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -223,6 +269,11 @@ export default function TasksPage() {
       {offline && savedAt ? (
         <p role="status" data-offline="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-ui-13 font-semibold">
           Offline · last updated {formatDetroit(savedAt)}
+        </p>
+      ) : null}
+      {gone ? (
+        <p role="alert" data-missing="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-ui-13 font-semibold">
+          {gone}
         </p>
       ) : null}
       <div className="mt-4 px-4">
@@ -268,7 +319,14 @@ export default function TasksPage() {
       {mode === "ready" && tasks.length > 0 ? (
         <ul aria-label="Unfinished tasks" className="mt-4 space-y-3 px-4">
           {tasks.map((task) => (
-            <li key={task.id} className="card min-w-0 p-4">
+            <li key={task.id} className="min-w-0">
+              <button
+                type="button"
+                className="card block w-full min-w-0 p-4 text-left disabled:opacity-100"
+                aria-label={`Edit ${task.title}`}
+                disabled={offline}
+                onClick={() => openEdit(task)}
+              >
               <div className="flex items-start justify-between gap-3">
                 <h2 className="min-w-0 break-words text-ui-16 font-bold">{task.title}</h2>
                 <span className="shrink-0 text-ui-12 font-semibold">{task.status}</span>
@@ -281,13 +339,14 @@ export default function TasksPage() {
                 {!task.priority && !task.dueDate ? <span>No due date</span> : null}
               </p>
               {task.notes ? <p className="mt-2 break-words text-ui-13 leading-relaxed">{task.notes}</p> : null}
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
       <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · unfinished tasks only</p>
-      {open ? (
-        <Sheet title="Add a task" onClose={cancel} frame>
+      {sheet ? (
+        <Sheet title={sheet === "edit" ? "Edit task" : "Add a task"} onClose={cancel} frame>
           <form className="mt-4" onSubmit={save}>
             <label className="block text-ui-13 font-semibold" htmlFor="task-title">
               Title
@@ -329,7 +388,19 @@ export default function TasksPage() {
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
               className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
             />
-            <p className="mt-1 text-ui-12 text-muted">Optional.</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <p className="text-ui-12 text-muted">Optional.</p>
+              {sheet === "edit" ? (
+                <button
+                  type="button"
+                  className="min-h-11 px-1 text-ui-13 font-semibold disabled:opacity-50"
+                  disabled={offline}
+                  onClick={() => setDraft({ ...draft, dueDate: detroitCalendarDate(Date.now()) })}
+                >
+                  Today
+                </button>
+              ) : null}
+            </div>
             <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-priority">
               Priority
             </label>

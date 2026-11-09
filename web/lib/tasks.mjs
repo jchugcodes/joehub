@@ -1,4 +1,7 @@
+import { detroitCalendarDate } from "./detroit-date.mjs";
+
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 const PENDING_MS = 30 * 1000;
 const PRIORITIES = new Set(["High", "Medium", "Low"]);
 const CREATE_STATUSES = new Set(["To do", "Doing", "Blocked"]);
@@ -99,6 +102,84 @@ export function validateTaskCreate(body) {
   return { ok: true, title, notes, dueDate, priority, status, project };
 }
 
+function reject(field, detail) {
+  const body = { ok: false, detail };
+  if (field) body.field = field;
+  return body;
+}
+
+export function isTaskId(id) {
+  return typeof id === "string" && TASK_ID.test(id);
+}
+
+export function validateTaskPatch(body, now) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return reject("", "Task must be an object");
+  }
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    if (typeof body.title !== "string") return reject("title", "Enter a title.");
+    const title = body.title.trim();
+    if (!title) return reject("title", "Enter a title.");
+    if (title.length > 200) return reject("title", "Title is too long.");
+    patch.title = title;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "notes")) {
+    if (body.notes == null || body.notes === "") patch.notes = null;
+    else if (typeof body.notes !== "string") return reject("notes", "Notes must be text.");
+    else {
+      const notes = body.notes.trim();
+      if (notes.length > 4000) return reject("notes", "Notes are too long.");
+      patch.notes = notes || null;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "dueDate")) {
+    if (body.dueDate == null || body.dueDate === "") patch.dueDate = null;
+    else if (body.dueDate === "today") patch.dueDate = detroitCalendarDate(now);
+    else if (typeof body.dueDate !== "string" || !isCalendarDate(body.dueDate)) {
+      return reject("dueDate", "Use a due date as YYYY-MM-DD.");
+    } else patch.dueDate = body.dueDate;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "priority")) {
+    if (body.priority == null || body.priority === "") patch.priority = null;
+    else if (typeof body.priority !== "string" || !PRIORITIES.has(body.priority)) {
+      return reject("priority", "Priority must be High, Medium, or Low.");
+    } else patch.priority = body.priority;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    if (body.status === "Done") return reject("status", "Done isn't available when editing a task.");
+    if (typeof body.status !== "string" || !CREATE_STATUSES.has(body.status)) {
+      return reject("status", "Status must be To do, Doing, or Blocked.");
+    }
+    patch.status = body.status;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "project")) {
+    if (body.project == null || body.project === "") patch.project = null;
+    else if (typeof body.project !== "string") return reject("project", "Project must be text.");
+    else {
+      const project = body.project.trim();
+      if (project.length > 120) return reject("project", "Project is too long.");
+      patch.project = project || null;
+    }
+  }
+  return { ok: true, patch };
+}
+
+export function applyTaskPatch(existing, patch, now) {
+  const next = structuredClone(existing);
+  if (patch.title) next.title = patch.title;
+  if (patch.status) next.status = patch.status;
+  for (const key of ["notes", "dueDate", "priority", "project"]) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    if (patch[key]) next[key] = patch[key];
+    else delete next[key];
+  }
+  next.id = existing.id;
+  next.createdAt = existing.createdAt;
+  next.updatedAt = now > existing.updatedAt ? now : existing.updatedAt + 1;
+  return next;
+}
+
 export function unfinishedNewestFirst(tasks) {
   return tasks
     .filter((task) => task && task.status !== "Done")
@@ -184,6 +265,21 @@ export async function performCreate(backend, raw, idemKey, now, newId = newTaskI
   }
 }
 
+export async function performPatch(backend, id, raw, now) {
+  if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
+  const existing = await backend.getTask(id);
+  if (!existing) return { status: 404, body: { detail: "This task is no longer here." } };
+  const parsed = validateTaskPatch(raw, now);
+  if (!parsed.ok) {
+    const body = { detail: parsed.detail };
+    if (parsed.field) body.field = parsed.field;
+    return { status: 400, body };
+  }
+  const next = applyTaskPatch(existing, parsed.patch, now);
+  await backend.putTask(next);
+  return { status: 200, body: next };
+}
+
 export function createMemoryBackend() {
   const tasks = new Map();
   const idem = new Map();
@@ -191,6 +287,11 @@ export function createMemoryBackend() {
     tasks,
     async putTask(task) {
       tasks.set(task.id, structuredClone(task));
+    },
+    async getTask(id) {
+      if (!isTaskId(id)) return null;
+      const task = tasks.get(id);
+      return task ? structuredClone(task) : null;
     },
     async list() {
       return unfinishedNewestFirst([...tasks.values()]);
@@ -233,5 +334,7 @@ export function installMemoryTasks(store) {
   const backend = createMemoryBackend();
   store.listUnfinishedTasks = () => backend.list();
   store.createTask = (raw, idemKey, now) => performCreate(backend, raw, idemKey, now);
+  store.getTask = (id) => backend.getTask(id);
+  store.patchTask = (id, raw, now) => performPatch(backend, id, raw, now);
   return store;
 }

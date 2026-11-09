@@ -1,4 +1,4 @@
-"""FastAPI app. Fixture routes are GET. Session routes and POST /api/tasks are the writes."""
+"""FastAPI app. Fixture routes are GET. Session routes, POST /api/tasks, and PATCH /api/tasks/{id} are the writes."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def create_app(
     app = FastAPI(
         title="joehub public read API",
         version="0.1.0",
-        description="Synthetic contract. Session posts and POST /api/tasks are the writes.",
+        description="Synthetic contract. Session posts, POST /api/tasks, and PATCH /api/tasks/{id} are the writes.",
         redirect_slashes=False,
     )
     app.state.settings = settings
@@ -130,6 +130,22 @@ def create_app(
         header = request.headers.get("idempotency-key")
         idem = header.strip() if isinstance(header, str) else ""
         status, body = request.app.state.tasks.create(payload, idem or None)
+        return JSONResponse(body, status_code=status)
+
+    @app.get("/api/tasks/{id}")
+    def get_task(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.tasks.get(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.patch("/api/tasks/{id}")
+    async def patch_task(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Task must be an object"}, status_code=400)
+        status, body = request.app.state.tasks.patch(id, payload)
         return JSONResponse(body, status_code=status)
 
     @app.post("/api/session/login", response_model=LoginResult)

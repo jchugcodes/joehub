@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { reservePort, spawnLogged, stopProcess, waitForHttp } from "./support/harness.mjs";
+import { detroitCalendarDate } from "../lib/detroit-date.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SECRET = "tasks-http-secret-value";
@@ -34,6 +35,17 @@ test("task api requires a session, persists a create, and dedupes an idempotency
       accept: (response) => response.status === 401,
     });
     assert.equal((await fetch(`${base}/api/tasks`)).status, 401);
+    assert.equal((await fetch(`${base}/api/tasks/missing-task`)).status, 401);
+    assert.equal(
+      (
+        await fetch(`${base}/api/tasks/missing-task`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Nope" }),
+        })
+      ).status,
+      401,
+    );
     assert.equal(
       (
         await fetch(`${base}/api/tasks`, {
@@ -124,6 +136,64 @@ test("task api requires a session, persists a create, and dedupes an idempotency
       body: JSON.stringify({ title: "Finished sample", status: "Done" }),
     });
     assert.equal(done.status, 400);
+
+    const edited = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ title: "Call the sample desk", status: "Blocked" }),
+    });
+    assert.equal(edited.status, 200, await edited.clone().text());
+    const editedBody = await edited.json();
+    assert.equal(editedBody.title, "Call the sample desk");
+    assert.equal(editedBody.status, "Blocked");
+    assert.equal(editedBody.notes, "Synthetic note");
+    assert.ok(editedBody.updatedAt > created.updatedAt);
+    assert.equal(editedBody.createdAt, created.createdAt);
+    const cleared = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ notes: null, dueDate: null, priority: null, project: null }),
+    });
+    assert.equal(cleared.status, 200);
+    const clearedBody = await cleared.json();
+    assert.equal(clearedBody.notes, undefined);
+    assert.equal(clearedBody.dueDate, undefined);
+    assert.equal(clearedBody.priority, undefined);
+    assert.equal(clearedBody.project, undefined);
+    const blankEdit = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ title: "   " }),
+    });
+    assert.equal(blankEdit.status, 400);
+    assert.equal((await blankEdit.json()).field, "title");
+    const doneEdit = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ status: "Done" }),
+    });
+    assert.equal(doneEdit.status, 400);
+    const missing = await fetch(`${base}/api/tasks/missing-task`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ title: "Nope" }),
+    });
+    assert.equal(missing.status, 404);
+    const today = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ dueDate: "today" }),
+    });
+    assert.equal(today.status, 200);
+    const todayBody = await today.json();
+    assert.equal(todayBody.dueDate, detroitCalendarDate(Date.now()));
+    const fetched = await fetch(`${base}/api/tasks/${created.id}`, { headers: { cookie } });
+    assert.equal(fetched.status, 200);
+    const stored = await fetched.json();
+    assert.equal(stored.title, "Call the sample desk");
+    assert.equal(stored.status, "Blocked");
+    assert.equal(stored.dueDate, todayBody.dueDate);
+    assert.equal(stored.notes, undefined);
   } finally {
     await stopProcess(started.child);
   }

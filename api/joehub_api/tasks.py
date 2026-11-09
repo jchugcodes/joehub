@@ -6,11 +6,16 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 PRIORITIES = {"High", "Medium", "Low"}
 CREATE_STATUSES = {"To do", "Doing", "Blocked"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 IDEM = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+TASK_ID = re.compile(r"^[A-Za-z0-9-]{1,80}$")
+DETROIT = ZoneInfo("America/Detroit")
+MISSING = {"detail": "This task is no longer here."}
 IDEM_TTL_MS = 24 * 60 * 60 * 1000
 
 
@@ -75,6 +80,73 @@ def validate_task(body: object) -> tuple[dict | None, dict | None]:
     return parsed, None
 
 
+def detroit_calendar_date(now_ms: int) -> str:
+    moment = datetime.fromtimestamp(now_ms / 1000, tz=DETROIT)
+    return moment.date().isoformat()
+
+
+def validate_task_patch(body: object, now_ms: int) -> tuple[dict | None, dict | None]:
+    if not isinstance(body, dict):
+        return None, {"detail": "Task must be an object"}
+    patch: dict = {}
+    if "title" in body:
+        title = body.get("title")
+        if not isinstance(title, str) or not title.strip():
+            return None, {"detail": "Enter a title.", "field": "title"}
+        title = title.strip()
+        if len(title) > 200:
+            return None, {"detail": "Title is too long.", "field": "title"}
+        patch["title"] = title
+    if "notes" in body:
+        notes = body.get("notes")
+        if notes in (None, ""):
+            patch["notes"] = None
+        elif not isinstance(notes, str):
+            return None, {"detail": "Notes must be text.", "field": "notes"}
+        else:
+            notes = notes.strip()
+            if len(notes) > 4000:
+                return None, {"detail": "Notes are too long.", "field": "notes"}
+            patch["notes"] = notes or None
+    if "dueDate" in body:
+        due = body.get("dueDate")
+        if due in (None, ""):
+            patch["dueDate"] = None
+        elif due == "today":
+            patch["dueDate"] = detroit_calendar_date(now_ms)
+        elif not isinstance(due, str) or not _calendar_date(due):
+            return None, {"detail": "Use a due date as YYYY-MM-DD.", "field": "dueDate"}
+        else:
+            patch["dueDate"] = due
+    if "priority" in body:
+        priority = body.get("priority")
+        if priority in (None, ""):
+            patch["priority"] = None
+        elif priority not in PRIORITIES:
+            return None, {"detail": "Priority must be High, Medium, or Low.", "field": "priority"}
+        else:
+            patch["priority"] = priority
+    if "status" in body:
+        status = body.get("status")
+        if status == "Done":
+            return None, {"detail": "Done isn't available when editing a task.", "field": "status"}
+        if status not in CREATE_STATUSES:
+            return None, {"detail": "Status must be To do, Doing, or Blocked.", "field": "status"}
+        patch["status"] = status
+    if "project" in body:
+        project = body.get("project")
+        if project in (None, ""):
+            patch["project"] = None
+        elif not isinstance(project, str):
+            return None, {"detail": "Project must be text.", "field": "project"}
+        else:
+            project = project.strip()
+            if len(project) > 120:
+                return None, {"detail": "Project is too long.", "field": "project"}
+            patch["project"] = project or None
+    return patch, None
+
+
 class TaskStore:
     def __init__(self, clock: Callable[[], int] | None = None) -> None:
         self.clock = clock or (lambda: int(time.time() * 1000))
@@ -113,3 +185,38 @@ class TaskStore:
         if idem_key:
             self.idem[idem_key] = (now + IDEM_TTL_MS, response)
         return 201, task
+
+    def get(self, task_id: str) -> tuple[int, dict]:
+        if not TASK_ID.fullmatch(task_id):
+            return 404, dict(MISSING)
+        task = self.tasks.get(task_id)
+        if task is None:
+            return 404, dict(MISSING)
+        return 200, task
+
+    def patch(self, task_id: str, body: object) -> tuple[int, dict]:
+        if not TASK_ID.fullmatch(task_id) or task_id not in self.tasks:
+            return 404, dict(MISSING)
+        now = self.clock()
+        patch, error = validate_task_patch(body, now)
+        if error:
+            return 400, error
+        assert patch is not None
+        current = self.tasks[task_id]
+        updated = dict(current)
+        if "title" in patch:
+            updated["title"] = patch["title"]
+        if "status" in patch:
+            updated["status"] = patch["status"]
+        for name in ("notes", "dueDate", "priority", "project"):
+            if name not in patch:
+                continue
+            if patch[name]:
+                updated[name] = patch[name]
+            else:
+                updated.pop(name, None)
+        updated["id"] = current["id"]
+        updated["createdAt"] = current["createdAt"]
+        updated["updatedAt"] = now if now > current["updatedAt"] else current["updatedAt"] + 1
+        self.tasks[task_id] = updated
+        return 200, updated

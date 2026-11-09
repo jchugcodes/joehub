@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { performCreate, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
+import { performCreate, performPatch, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -77,6 +77,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async putTask(task) {
       await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+    },
+    async getTask(id) {
+      if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return null;
+      return readJson(k(`joehub:task:${id}`));
     },
     async readIdem(key) {
       const parsed = await readJson(k(`joehub:task:idem:${key}`));
@@ -214,6 +218,12 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async createTask(raw, idemKey, now) {
       await ensureSeeded();
       return performCreate(tasks, raw, idemKey, now);
+    },
+    async getTask(id) {
+      return tasks.getTask(id);
+    },
+    async patchTask(id, raw, now) {
+      return performPatch(tasks, id, raw, now);
     },
   };
 }

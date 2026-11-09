@@ -5,14 +5,18 @@ import { handleGet, handleTasksGet, handleTasksPost } from "../lib/api.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
+import { detroitCalendarDate } from "../lib/detroit-date.mjs";
 import {
   createMemoryBackend,
   IDEMPOTENCY_TTL_MS,
   installMemoryTasks,
   performCreate,
+  performPatch,
   unfinishedNewestFirst,
   validateTaskCreate,
+  validateTaskPatch,
 } from "../lib/tasks.mjs";
+import { handleTaskGet, handleTaskPatch } from "../lib/api.mjs";
 
 const devEnv = { JOEHUB_DEV_AUTH: "1", JOEHUB_SESSION_SECRET: "tasks-unit-secret-value", NODE_ENV: "development" };
 
@@ -177,4 +181,88 @@ test("tasks share the api rate limiter", async () => {
   const blocked = await handleTasksPost({ title: "Limited" }, headers, devEnv, store, limiter, now, "ip");
   assert.equal(blocked.status, 429);
   assert.deepEqual(blocked.body, { detail: "rate limit" });
+});
+
+test("a patch validates fields and today is the Detroit calendar day", () => {
+  const afterUtcMidnight = Date.parse("2026-11-10T00:30:00.000Z");
+  const beforeDetroitMidnight = Date.parse("2026-11-10T04:59:00.000Z");
+  const afterDetroitMidnight = Date.parse("2026-11-10T05:01:00.000Z");
+  assert.equal(detroitCalendarDate(afterUtcMidnight), "2026-11-09");
+  assert.equal(detroitCalendarDate(beforeDetroitMidnight), "2026-11-09");
+  assert.equal(detroitCalendarDate(afterDetroitMidnight), "2026-11-10");
+  const today = validateTaskPatch({ dueDate: "today" }, afterUtcMidnight);
+  assert.equal(today.ok, true);
+  assert.equal(today.patch.dueDate, "2026-11-09");
+  const rolled = validateTaskPatch({ dueDate: "today" }, afterDetroitMidnight);
+  assert.equal(rolled.patch.dueDate, "2026-11-10");
+  assert.equal(validateTaskPatch({ title: "  " }, afterUtcMidnight).field, "title");
+  assert.equal(validateTaskPatch({ title: null }, afterUtcMidnight).ok, false);
+  assert.equal(validateTaskPatch({ status: "Done" }, afterUtcMidnight).field, "status");
+  assert.equal(validateTaskPatch({ notes: null, dueDate: null, priority: null, project: null }, afterUtcMidnight).ok, true);
+  assert.equal(validateTaskPatch({ dueDate: "2026-02-31" }, afterUtcMidnight).ok, false);
+});
+
+test("a patch persists, clears optional fields, and a failed write keeps the stored task", async () => {
+  const backend = createMemoryBackend();
+  const now = 1_700_000_000_000;
+  const created = await performCreate(
+    backend,
+    { title: "Edit me", notes: "Keep", dueDate: "2026-11-20", priority: "High", status: "Doing", project: "Home" },
+    "",
+    now,
+    () => "id-edit",
+  );
+  assert.equal(created.status, 201);
+  const patched = await performPatch(
+    backend,
+    "id-edit",
+    { title: "Edited", notes: null, dueDate: null, priority: null, project: null, status: "Blocked" },
+    now + 40,
+  );
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.title, "Edited");
+  assert.equal(patched.body.status, "Blocked");
+  assert.equal(patched.body.notes, undefined);
+  assert.equal(patched.body.dueDate, undefined);
+  assert.equal(patched.body.priority, undefined);
+  assert.equal(patched.body.project, undefined);
+  assert.equal(patched.body.createdAt, now);
+  assert.ok(patched.body.updatedAt > created.body.updatedAt);
+  const blank = await performPatch(backend, "id-edit", { title: "   " }, now + 50);
+  assert.equal(blank.status, 400);
+  assert.equal(blank.body.field, "title");
+  assert.equal(backend.tasks.get("id-edit").title, "Edited");
+  const done = await performPatch(backend, "id-edit", { status: "Done" }, now + 60);
+  assert.equal(done.status, 400);
+  assert.equal(done.body.field, "status");
+  assert.equal(backend.tasks.get("id-edit").status, "Blocked");
+  const missing = await performPatch(backend, "missing-task", { title: "Nope" }, now + 70);
+  assert.equal(missing.status, 404);
+  const today = await performPatch(backend, "id-edit", { dueDate: "today" }, Date.parse("2026-11-10T00:30:00.000Z"));
+  assert.equal(today.body.dueDate, "2026-11-09");
+
+  const before = structuredClone(backend.tasks.get("id-edit"));
+  backend.putTask = async () => {
+    throw new Error("unavailable");
+  };
+  await assert.rejects(() => performPatch(backend, "id-edit", { title: "Should not stick" }, now + 80));
+  assert.deepEqual(backend.tasks.get("id-edit"), before);
+});
+
+test("task get and patch require a session and share the api limiter", async () => {
+  const store = installMemoryTasks(createStore());
+  const limiter = createLimiter(2);
+  const now = 90_000;
+  const headers = { get: () => "" };
+  assert.equal((await handleTaskGet("id-edit", headers, devEnv, store, limiter, now, "other")).status, 401);
+  const logged = login({ username: "synthetic", password: "synthetic" }, devEnv, store, now);
+  const session = { get: (name) => (name === "cookie" ? `joehub_session=${logged.cookie}` : "") };
+  const created = await store.createTask({ title: "Limited edit" }, "", now);
+  assert.equal((await handleTaskGet(created.body.id, session, devEnv, store, limiter, now, "ip")).status, 200);
+  const changed = await handleTaskPatch(created.body.id, { title: "Limited edited" }, session, devEnv, store, limiter, now + 5, "ip");
+  assert.equal(changed.status, 200);
+  assert.ok(changed.body.updatedAt > created.body.updatedAt);
+  const blocked = await handleTaskPatch(created.body.id, { title: "Too many" }, session, devEnv, store, limiter, now + 6, "ip");
+  assert.equal(blocked.status, 429);
+  assert.equal((await store.getTask(created.body.id)).title, "Limited edited");
 });
