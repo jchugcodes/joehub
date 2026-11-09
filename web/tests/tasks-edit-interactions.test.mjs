@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { detroitCalendarDate } from "../lib/detroit-date.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -230,6 +231,8 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(prefilled.heading, "Edit task");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_edit_sheet_390.png");
+    assert.equal(await evalPage(send, clickText("Today")), "yes");
+    assert.equal(await evalPage(send, "document.getElementById('task-due').value"), detroitCalendarDate(Date.now()));
 
     assert.equal(
       await evalPage(
@@ -356,12 +359,18 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
       `(() => {
         const edit = document.querySelector("button[aria-label='Edit Pack the sample crate']");
         const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add a task");
-        return { editDisabled: Boolean(edit && edit.disabled), addDisabled: Boolean(add && add.disabled), dialog: Boolean(document.querySelector("[role='dialog']")) };
+        return {
+          editDisabled: Boolean(edit && edit.disabled),
+          addDisabled: Boolean(add && add.disabled),
+          dialog: Boolean(document.querySelector("[role='dialog']")),
+          editOpacity: edit ? getComputedStyle(edit).opacity : "",
+        };
       })()`,
     );
     assert.equal(offline.editDisabled, true);
     assert.equal(offline.addDisabled, true);
     assert.equal(offline.dialog, false);
+    assert.ok(Number(offline.editOpacity) < 1);
 
     await gotoTasks(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Pack the sample crate') ? 'yes' : ''", "seed 1280");
