@@ -13,11 +13,21 @@ const dmSans = localFont({
   adjustFontFallback: false,
 });
 
+/** Tasks and the Home tasks card only. Finance, Jobs, Journal, and More stay on DM Sans. */
+const outfit = localFont({
+  src: "../fonts/Outfit-variable.ttf",
+  variable: "--font-outfit",
+  weight: "100 900",
+  display: "block",
+  adjustFontFallback: false,
+  declarations: [{ prop: "font-optical-sizing", value: "none" }],
+});
+
 export const metadata: Metadata = { title: "joehub" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={dmSans.variable}>
+    <html lang="en" className={`${dmSans.variable} ${outfit.variable}`}>
       <body className="font-sans">
         <Suspense fallback={<main className="p-4">Loading joehub</main>}>
           <AppShell>{children}</AppShell>
