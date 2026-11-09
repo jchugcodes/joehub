@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sheet } from "../../components/Sheet";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 
@@ -93,6 +93,7 @@ export default function TasksPage() {
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
+  const [group, setGroup] = useState<"all" | "status" | "project">("all");
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -401,6 +402,17 @@ export default function TasksPage() {
   }
 
   const addDisabled = offline || mode !== "ready";
+  const groups = useMemo(() => {
+    if (group === "all") return [{ key: "all", label: "", items: tasks }];
+    const labelFor = (task: Task) => (group === "status" ? task.status : task.project || "No project");
+    const statusOrder = ["Doing", "To do", "Blocked", "Done"];
+    const seen = [...new Set(tasks.map(labelFor))];
+    const labels =
+      group === "status"
+        ? [...statusOrder.filter((status) => seen.includes(status as Task["status"])), ...seen.filter((status) => !statusOrder.includes(status))]
+        : [...seen.filter((label) => label !== "No project").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No project")];
+    return labels.map((label) => ({ key: label, label, items: tasks.filter((task) => labelFor(task) === label) }));
+  }, [group, tasks]);
   const controlsDisabled = offline || mode !== "ready";
 
   return (
@@ -474,6 +486,30 @@ export default function TasksPage() {
           </button>
         ) : null}
       </form>
+      <div className="mt-3 flex flex-wrap items-center gap-2 px-4" role="group" aria-label="Group tasks">
+        {(
+          [
+            ["all", "All"],
+            ["status", "Status"],
+            ["project", "Project"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={group === value}
+            className={`min-h-11 rounded-full px-3 text-ui-13 font-semibold ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
+            onClick={() => setGroup(value)}
+          >
+            {label}
+          </button>
+        ))}
+        {group !== "all" ? (
+          <button type="button" className="min-h-11 px-2 text-ui-13 font-semibold text-muted" onClick={() => setGroup("all")}>
+            Clear
+          </button>
+        ) : null}
+      </div>
       <div className="mt-4 px-4">
         <button
           type="button"
@@ -529,8 +565,17 @@ export default function TasksPage() {
         </div>
       ) : null}
       {mode === "ready" && tasks.length > 0 ? (
-        <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className="mt-4 space-y-3 px-4">
-          {tasks.map((task) => {
+        <div className="mt-4 space-y-4">
+          {groups.map((section) => (
+            <section key={section.key} aria-label={section.label || undefined}>
+              {section.label ? (
+                <h2 className="flex items-center justify-between px-5 text-ui-13 font-bold">
+                  <span>{section.label}</span>
+                  <span className="font-medium text-muted">{section.items.length}</span>
+                </h2>
+              ) : null}
+        <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className={`${section.label ? "mt-2" : ""} space-y-3 px-4`}>
+          {section.items.map((task) => {
             const done = task.status === "Done";
             return (
               <li key={task.id} className="card min-w-0 p-4">
@@ -592,6 +637,9 @@ export default function TasksPage() {
             );
           })}
         </ul>
+            </section>
+          ))}
+        </div>
       ) : null}
       <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · synthetic tasks</p>
       </div>
