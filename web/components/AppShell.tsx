@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 const tabs = [
-  { href: "/", label: "Home", icon: "home", match: (path: string) => path === "/" },
+  { href: "/", label: "Home", icon: "home", match: (path: string) => path === "/" || path.startsWith("/tasks") },
   { href: "/finance", label: "Finance", icon: "finance", match: (path: string) => path.startsWith("/finance") },
   { href: "/jobs", label: "Jobs", icon: "jobs", match: (path: string) => path.startsWith("/jobs") },
   { href: "/journal", label: "Journal", icon: "journal", match: (path: string) => path.startsWith("/journal") },
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* The frames are 390px. Wider viewports keep that column centered. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 max-w-phone pt-2 ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
       >
         {children}
       </main>
