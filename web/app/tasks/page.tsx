@@ -81,6 +81,8 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
+  const [link, setLink] = useState<"live" | "offline" | "reconnecting" | "back">("live");
+  const downRef = useRef(false);
   const [sheet, setSheet] = useState<null | "add" | "edit">(null);
   const [editingId, setEditingId] = useState("");
   const [gone, setGone] = useState("");
@@ -90,6 +92,7 @@ export default function TasksPage() {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
+  const [wide, setWide] = useState(false);
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -105,7 +108,9 @@ export default function TasksPage() {
       setSavedAt(snap.savedAt);
       setMode("ready");
     }
+    downRef.current = true;
     setOffline(true);
+    setLink("offline");
   }, []);
 
   const load = useCallback(async () => {
@@ -123,7 +128,10 @@ export default function TasksPage() {
       setTasks(next);
       if (!q) setSavedAt(at);
       setActiveQuery(q);
+      const recovered = downRef.current;
+      downRef.current = false;
       setOffline(false);
+      setLink(recovered ? "back" : "live");
       setMode("ready");
     } catch {
       if (gen !== loadGen.current) return;
@@ -139,7 +147,11 @@ export default function TasksPage() {
     const onOffline = () => {
       showCached(readCache());
     };
-    const onOnline = () => void load();
+    const onOnline = () => {
+      if (!downRef.current) return;
+      setLink("reconnecting");
+      void load();
+    };
     const onVisible = () => {
       if (document.visibilityState === "visible") void load();
     };
@@ -154,6 +166,49 @@ export default function TasksPage() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load, showCached]);
+
+  useEffect(() => {
+    if (!offline) return undefined;
+    let stopped = false;
+    let timer = 0;
+    let delay = 2000;
+    const probe = async () => {
+      if (stopped) return;
+      setLink("reconnecting");
+      let reachable = false;
+      try {
+        const response = await fetch("/api/health", { cache: "no-store" });
+        reachable = response.ok;
+      } catch {
+        reachable = false;
+      }
+      if (stopped) return;
+      if (reachable) await load();
+      else setLink("offline");
+      if (stopped) return;
+      timer = window.setTimeout(() => void probe(), delay);
+      delay = Math.min(delay * 2, 15000);
+    };
+    timer = window.setTimeout(() => void probe(), delay);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [offline, load]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setWide(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (link !== "back") return undefined;
+    const timer = window.setTimeout(() => setLink("live"), 3000);
+    return () => window.clearTimeout(timer);
+  }, [link]);
 
   function openAdd() {
     if (offline || mode !== "ready") return;
@@ -349,15 +404,36 @@ export default function TasksPage() {
   const controlsDisabled = offline || mode !== "ready";
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} className="min-w-0">
+    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}>
+      <div className="min-w-0 flex-1">
       <header className="px-5 pt-3">
         <p className="text-ui-13 text-muted">joehub</p>
         <h1 className="text-ui-22 font-bold">Tasks</h1>
-        <p className="mt-1 text-ui-13 leading-relaxed text-muted">Everything you haven’t finished, newest first.</p>
+        <p className="mt-1 text-ui-13 leading-relaxed text-muted">Everything unfinished · newest first</p>
       </header>
-      {offline && savedAt ? (
-        <p role="status" data-offline="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-ui-13 font-semibold">
-          Offline · last updated {formatDetroit(savedAt)}
+      {link === "offline" && savedAt ? (
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-ui-13 font-bold">
+          Offline · read-only
+          <span className="mt-0.5 block text-ui-12 font-medium text-muted">Last updated {formatDetroit(savedAt)}</span>
+        </p>
+      ) : null}
+      {link === "reconnecting" ? (
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-ui-13 font-bold text-[#8A6B14]">
+          Reconnecting…
+          <span className="mt-0.5 block text-ui-12 font-medium text-muted">
+            Still showing cached data{savedAt ? ` · last updated ${formatDetroit(savedAt)}` : ""}
+          </span>
+        </p>
+      ) : null}
+      {link === "back" ? (
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-ui-13 font-bold text-[#246C53]">
+          <span>
+            Back online
+            <span className="mt-0.5 block text-ui-12 font-medium text-muted">List refreshed · edits available</span>
+          </span>
+          <button type="button" className="text-ui-12 font-semibold text-muted" onClick={() => setLink("live")}>
+            Dismiss
+          </button>
         </p>
       ) : null}
       {gone ? (
@@ -447,10 +523,8 @@ export default function TasksPage() {
       {mode === "ready" && !activeQuery && tasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="card mt-4 p-4">
-            <h2 className="text-ui-20 font-bold">No unfinished tasks</h2>
-            <p className="mt-2 text-ui-14 leading-relaxed text-muted">
-              Add a task to keep it here. Done tasks stay off this list.
-            </p>
+            <h2 className="text-ui-20 font-bold">You&apos;re all caught up</h2>
+            <p className="mt-2 text-ui-14 leading-relaxed text-muted">No unfinished tasks. Add one when something comes up.</p>
           </div>
         </div>
       ) : null}
@@ -520,9 +594,32 @@ export default function TasksPage() {
         </ul>
       ) : null}
       <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · synthetic tasks</p>
+      </div>
       {sheet ? (
-        <Sheet title={sheet === "edit" ? "Edit task" : "Add a task"} onClose={cancel} frame>
-          <form className="mt-4" onSubmit={save}>
+        <Sheet
+          title={sheet === "edit" ? "Edit task" : "Add a task"}
+          onClose={cancel}
+          frame
+          dock={wide ? "panel" : "sheet"}
+          actions={
+            wide ? (
+              <div className="flex gap-2">
+                <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-ui-13 font-bold" onClick={cancel}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="task-form"
+                  className="flex min-h-10 items-center justify-center rounded-xl bg-ink px-4 text-ui-13 font-bold text-white disabled:opacity-50"
+                  disabled={offline || saving}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            ) : null
+          }
+        >
+          <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
             <label className="block text-ui-13 font-semibold" htmlFor="task-title">
               Title
             </label>
@@ -536,6 +633,7 @@ export default function TasksPage() {
               }}
               aria-invalid={titleError ? true : undefined}
               aria-describedby={titleError ? "task-title-error" : undefined}
+              placeholder="What needs doing?"
               className="relative z-10 mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
               autoComplete="off"
             />
@@ -619,6 +717,7 @@ export default function TasksPage() {
                 {formError}
               </p>
             ) : null}
+            {wide ? null : (
             <div className="sticky bottom-0 z-10 mt-5 flex gap-2 bg-surface py-3">
               <button
                 type="button"
@@ -636,6 +735,7 @@ export default function TasksPage() {
                 {saving ? "Saving…" : "Save"}
               </button>
             </div>
+            )}
           </form>
         </Sheet>
       ) : null}

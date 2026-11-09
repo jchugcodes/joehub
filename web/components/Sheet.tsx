@@ -9,14 +9,19 @@ export function Sheet({
   onClose,
   children,
   frame = false,
+  dock = "sheet",
+  actions = null,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   /** Finance category sheet (frame 1:10). Journal keeps the earlier sheet. */
   frame?: boolean;
+  /** Phone sheet, or the desktop tasks panel with header actions. */
+  dock?: "sheet" | "panel";
+  actions?: React.ReactNode;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLElement>(null);
   const titleId = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -55,6 +60,24 @@ export function Sheet({
       previous?.focus();
     };
   }, []);
+
+  if (dock === "panel") {
+    return (
+      <aside
+        ref={ref}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby={titleId}
+        className="sticky top-2 flex max-h-[calc(100dvh-7rem)] w-[420px] shrink-0 flex-col overflow-hidden rounded-[20px] border border-ink bg-surface shadow-2xl"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+          <h2 id={titleId} className="text-ui-18 font-bold">{title}</h2>
+          {actions}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
+      </aside>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40">

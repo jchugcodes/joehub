@@ -202,7 +202,7 @@ async function goOffline(send) {
   );
   await waitFor(
     send,
-    "document.querySelector(\"[data-offline='true']\")?.textContent.includes('Offline · last updated') ? 'yes' : ''",
+    "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
     "offline",
   );
 }
@@ -316,7 +316,8 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
         };
       })()`,
     );
-    assert.match(offline.banner, /^Offline · last updated /);
+    assert.match(offline.banner, /Offline · read-only/);
+    assert.match(offline.banner, /Last updated /);
     assert.equal(offline.searchDisabled, true);
     assert.equal(offline.searchButtonDisabled, true);
     assert.equal(offline.completesDisabled, true);
