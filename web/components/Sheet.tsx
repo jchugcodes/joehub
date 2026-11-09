@@ -24,13 +24,14 @@ export function Sheet({
   /** Tasks passes the Outfit section style. The default stays the Finance sheet. */
   titleClassName?: string;
 }) {
-  const ref = useRef<HTMLElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
   useEffect(() => {
-    const node = ref.current;
+    const node = panelRef.current ?? sheetRef.current;
     const previous = document.activeElement as HTMLElement | null;
     const focusable = () =>
       [...(node?.querySelectorAll<HTMLElement>("button, input, textarea, select, a[href], [tabindex]") ?? [])].filter(
@@ -67,7 +68,7 @@ export function Sheet({
   if (dock === "panel") {
     return (
       <aside
-        ref={ref}
+        ref={panelRef}
         role="dialog"
         aria-modal="false"
         aria-labelledby={titleId}
@@ -86,7 +87,7 @@ export function Sheet({
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40">
       <button type="button" className="absolute inset-0 z-0 cursor-default" aria-label={`Close ${title}`} onClick={onClose} />
       <div
-        ref={ref}
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
