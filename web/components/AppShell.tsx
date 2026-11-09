@@ -43,6 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
   const composing = pathname.startsWith("/journal/compose");
+  const tasksScreen = pathname.startsWith("/tasks");
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -81,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={tab.href}
                   aria-current={current ? "page" : undefined}
-                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center text-ui-10.5 leading-tight ${current ? "font-semibold" : "font-medium"} ${tone}`}
+                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center leading-tight ${tasksScreen ? "tasks-type text-meta font-normal" : `text-ui-10.5 ${current ? "font-semibold" : "font-medium"}`} ${tone}`}
                 >
                   <span className={`rounded-full px-3 py-1 ${current ? `${activePill[tab.label]} ${tone}` : ""}`}>
                     <Icon name={tab.icon} size={22} strokeWidth={current ? 2.2 : 1.8} />

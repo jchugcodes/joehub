@@ -277,34 +277,34 @@ export default function TasksPage() {
   const addDisabled = offline || mode !== "ready";
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={wide && open ? "flex min-w-0 items-start gap-6" : "min-w-0"}>
+    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && open ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="min-w-0 flex-1">
       <header className="px-5 pt-3">
-        <p className="text-ui-13 text-muted">joehub</p>
-        <h1 className="text-ui-22 font-bold">Tasks</h1>
-        <p className="mt-1 text-ui-13 leading-relaxed text-muted">Everything unfinished · newest first</p>
+        <p className="text-meta text-muted">joehub</p>
+        <h1 className="text-page font-medium">Tasks</h1>
+        <p className="mt-1 text-meta leading-relaxed text-muted">Everything unfinished · newest first</p>
       </header>
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-ui-13 font-bold">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
           Offline · read-only
-          <span className="mt-0.5 block text-ui-12 font-medium text-muted">Last updated {formatDetroit(savedAt)}</span>
+          <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-ui-13 font-bold text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
           Reconnecting…
-          <span className="mt-0.5 block text-ui-12 font-medium text-muted">
+          <span className="mt-0.5 block text-meta font-normal text-muted">
             Still showing cached data{savedAt ? ` · last updated ${formatDetroit(savedAt)}` : ""}
           </span>
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-ui-13 font-bold text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
           <span>
             Back online
-            <span className="mt-0.5 block text-ui-12 font-medium text-muted">List refreshed · edits available</span>
+            <span className="mt-0.5 block text-meta font-normal text-muted">List refreshed · edits available</span>
           </span>
-          <button type="button" className="text-ui-12 font-semibold text-muted" onClick={() => setLink("live")}>
+          <button type="button" className="text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
         </p>
@@ -312,7 +312,7 @@ export default function TasksPage() {
       <div className="mt-4 px-4">
         <button
           type="button"
-          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-ui-14 font-bold text-white disabled:opacity-50"
+          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
           onClick={openAdd}
           disabled={addDisabled}
         >
@@ -320,19 +320,19 @@ export default function TasksPage() {
         </button>
       </div>
       {mode === "loading" ? (
-        <p className="mt-5 px-5 text-ui-13 text-muted" role="status">
+        <p className="mt-5 px-5 text-meta text-muted" role="status">
           Loading tasks…
         </p>
       ) : null}
       {mode === "error" ? (
         <div className="px-4">
           <div className="card mt-4 p-4">
-            <h2 className="text-ui-20 font-bold">Tasks unavailable</h2>
-            <p className="mt-2 text-ui-14 leading-relaxed text-muted">The unfinished list couldn’t be loaded.</p>
+            <h2 className="text-section font-medium">Tasks unavailable</h2>
+            <p className="mt-2 text-body leading-relaxed text-muted">The unfinished list couldn’t be loaded.</p>
           </div>
           <button
             type="button"
-            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl border border-ink px-4 text-ui-14 font-bold"
+            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl border border-ink px-4 text-body font-medium"
             onClick={() => void load()}
           >
             Retry
@@ -342,8 +342,8 @@ export default function TasksPage() {
       {mode === "ready" && tasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="card mt-4 p-4">
-            <h2 className="text-ui-20 font-bold">You&apos;re all caught up</h2>
-            <p className="mt-2 text-ui-14 leading-relaxed text-muted">No unfinished tasks. Add one when something comes up.</p>
+            <h2 className="text-section font-medium">You&apos;re all caught up</h2>
+            <p className="mt-2 text-body leading-relaxed text-muted">No unfinished tasks. Add one when something comes up.</p>
           </div>
         </div>
       ) : null}
@@ -352,22 +352,22 @@ export default function TasksPage() {
           {tasks.map((task) => (
             <li key={task.id} className="card min-w-0 p-4">
               <div className="flex items-start justify-between gap-3">
-                <h2 className="min-w-0 break-words text-ui-16 font-bold">{task.title}</h2>
-                <span className="shrink-0 text-ui-12 font-semibold">{task.status}</span>
+                <h2 className="min-w-0 break-words text-body font-medium">{task.title}</h2>
+                <span className="shrink-0 text-meta font-medium">{task.status}</span>
               </div>
-              {task.project ? <p className="mt-1 break-words text-ui-12 text-muted">{task.project}</p> : null}
-              <p className="mt-2 text-ui-12 text-muted">
+              {task.project ? <p className="mt-1 break-words text-meta text-muted">{task.project}</p> : null}
+              <p className="mt-2 text-meta text-muted">
                 {task.priority ? <span>{task.priority}</span> : null}
                 {task.priority && task.dueDate ? <span> · </span> : null}
                 {task.dueDate ? <span>Due {task.dueDate}</span> : null}
                 {!task.priority && !task.dueDate ? <span>No due date</span> : null}
               </p>
-              {task.notes ? <p className="mt-2 break-words text-ui-13 leading-relaxed">{task.notes}</p> : null}
+              {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
             </li>
           ))}
         </ul>
       ) : null}
-      <p className="mb-4 mt-6 px-4 text-center text-ui-10 text-muted">EXAMPLE DATA · unfinished tasks only</p>
+      <p className="mb-4 mt-6 px-4 text-center text-meta text-muted">EXAMPLE DATA · unfinished tasks only</p>
       </div>
       {open ? (
         <Sheet
@@ -375,16 +375,17 @@ export default function TasksPage() {
           onClose={cancel}
           frame
           dock={wide ? "panel" : "sheet"}
+          titleClassName="text-section font-medium"
           actions={
             wide ? (
               <div className="flex gap-2">
-                <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-ui-13 font-bold" onClick={cancel}>
+                <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
                   Cancel
                 </button>
                 <button
                   type="submit"
                   form="task-form"
-                  className="flex min-h-10 items-center justify-center rounded-xl bg-ink px-4 text-ui-13 font-bold text-white disabled:opacity-50"
+                  className="flex min-h-10 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
                   disabled={offline || saving}
                 >
                   {saving ? "Saving…" : "Save"}
@@ -394,7 +395,7 @@ export default function TasksPage() {
           }
         >
           <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
-            <label className="block text-ui-13 font-semibold" htmlFor="task-title">
+            <label className="block text-meta font-medium" htmlFor="task-title">
               Title
             </label>
             <input
@@ -408,15 +409,15 @@ export default function TasksPage() {
               aria-invalid={titleError ? true : undefined}
               aria-describedby={titleError ? "task-title-error" : undefined}
               placeholder="What needs doing?"
-              className="relative z-10 mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="relative z-10 mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
               autoComplete="off"
             />
             {titleError ? (
-              <p id="task-title-error" role="alert" className="mt-1 text-ui-13 font-semibold text-finance-dining">
+              <p id="task-title-error" role="alert" className="mt-1 text-meta font-medium text-finance-dining">
                 {titleError}
               </p>
             ) : null}
-            <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-notes">
+            <label className="mt-3 block text-meta font-medium" htmlFor="task-notes">
               Notes
             </label>
             <textarea
@@ -424,9 +425,9 @@ export default function TasksPage() {
               value={draft.notes}
               onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
               rows={3}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             />
-            <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-due">
+            <label className="mt-3 block text-meta font-medium" htmlFor="task-due">
               Due date
             </label>
             <input
@@ -434,48 +435,48 @@ export default function TasksPage() {
               type="date"
               value={draft.dueDate}
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             />
-            <p className="mt-1 text-ui-12 text-muted">Optional.</p>
-            <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-priority">
+            <p className="mt-1 text-meta text-muted">Optional.</p>
+            <label className="mt-3 block text-meta font-medium" htmlFor="task-priority">
               Priority
             </label>
             <select
               id="task-priority"
               value={draft.priority}
               onChange={(event) => setDraft({ ...draft, priority: event.target.value as Draft["priority"] })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             >
               <option value="">None</option>
               <option>High</option>
               <option>Medium</option>
               <option>Low</option>
             </select>
-            <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-status">
+            <label className="mt-3 block text-meta font-medium" htmlFor="task-status">
               Status
             </label>
             <select
               id="task-status"
               value={draft.status}
               onChange={(event) => setDraft({ ...draft, status: event.target.value as Status })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             >
               <option>To do</option>
               <option>Doing</option>
               <option>Blocked</option>
             </select>
-            <label className="mt-3 block text-ui-13 font-semibold" htmlFor="task-project">
+            <label className="mt-3 block text-meta font-medium" htmlFor="task-project">
               Project
             </label>
             <input
               id="task-project"
               value={draft.project}
               onChange={(event) => setDraft({ ...draft, project: event.target.value })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-ui-16"
+              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
               autoComplete="off"
             />
             {formError ? (
-              <p role="alert" className="mt-3 text-ui-13 font-semibold text-finance-dining">
+              <p role="alert" className="mt-3 text-meta font-medium text-finance-dining">
                 {formError}
               </p>
             ) : null}
@@ -483,7 +484,7 @@ export default function TasksPage() {
             <div className="sticky bottom-0 z-10 mt-5 flex gap-2 bg-surface py-3">
               <button
                 type="button"
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-ink px-3 text-ui-14 font-bold"
+                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium"
                 onClick={cancel}
                 disabled={saving}
               >
@@ -491,7 +492,7 @@ export default function TasksPage() {
               </button>
               <button
                 type="submit"
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-ink px-3 text-ui-14 font-bold text-white disabled:opacity-50"
+                className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
                 disabled={offline || saving}
               >
                 {saving ? "Saving…" : "Save"}

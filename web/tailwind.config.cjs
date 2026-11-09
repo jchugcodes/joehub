@@ -61,10 +61,17 @@ module.exports = {
         "tab-line": "var(--tab-line)",
       },
       fontFamily: {
+        /* App default stays DM Sans. Tasks opts into Outfit with .tasks-type. */
         sans: ["var(--font-dm)", "DM Sans", "system-ui", "sans-serif"],
+        outfit: ["var(--font-outfit)", "Outfit", "system-ui", "sans-serif"],
       },
       fontSize: {
         /* rem so a 200% root font size doubles the computed size. 16px root matches the old px. */
+        /* Tasks scale from the v3 handoff: 13 / 15 / 17 / 24. Other screens keep the ui-* sizes. */
+        meta: "0.8125rem",
+        body: "0.9375rem",
+        section: "1.0625rem",
+        page: "1.5rem",
         "ui-9.5": "0.59375rem",
         "ui-10": "0.625rem",
         "ui-10.5": "0.65625rem",
