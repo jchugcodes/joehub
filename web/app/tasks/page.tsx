@@ -498,14 +498,14 @@ export default function TasksPage() {
             key={value}
             type="button"
             aria-pressed={group === value}
-            className={`min-h-11 rounded-full px-3 text-ui-13 font-semibold ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
+            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
             onClick={() => setGroup(value)}
           >
             {label}
           </button>
         ))}
         {group !== "all" ? (
-          <button type="button" className="min-h-11 px-2 text-ui-13 font-semibold text-muted" onClick={() => setGroup("all")}>
+          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setGroup("all")}>
             Clear
           </button>
         ) : null}
@@ -569,7 +569,7 @@ export default function TasksPage() {
           {groups.map((section) => (
             <section key={section.key} aria-label={section.label || undefined}>
               {section.label ? (
-                <h2 className="flex items-center justify-between px-5 text-ui-13 font-bold">
+                <h2 className="flex items-center justify-between px-5 text-meta font-medium">
                   <span>{section.label}</span>
                   <span className="font-medium text-muted">{section.items.length}</span>
                 </h2>
