@@ -603,7 +603,6 @@ export default function TasksPage() {
         </p>
       ) : null}
       {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
-      {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
       <>
       <form className="mt-4 px-4" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="task-search">
