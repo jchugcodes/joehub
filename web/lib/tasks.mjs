@@ -1,5 +1,25 @@
 import { detroitCalendarDate } from "./detroit-date.mjs";
 
+function addCalendarDays(ymd, count) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + count);
+  return date.toISOString().slice(0, 10);
+}
+
+export function completedRecently(task, now) {
+  if (!task || task.status !== "Done" || typeof task.completedAt !== "number" || typeof now !== "number") return false;
+  const today = detroitCalendarDate(now);
+  const doneOn = detroitCalendarDate(task.completedAt);
+  return doneOn <= today && doneOn >= addCalendarDays(today, -6);
+}
+
+export function recentCompletedNewestFirst(tasks, now) {
+  return tasks
+    .filter((task) => completedRecently(task, now))
+    .sort((left, right) => right.completedAt - left.completedAt || (left.id < right.id ? -1 : 1));
+}
+
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 export const DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const TASK_NAMESPACE = "3f1a0c2e-7b44-4d5a-9e11-8c2b6a0d4f77";
@@ -344,10 +364,7 @@ function touch(existing, now) {
 export async function performComplete(backend, id, now) {
   if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
   const existing = await backend.getTask(id);
-  if (!existing || existing.status === "Done" && dueForPurge(existing, now)) {
-    if (existing && dueForPurge(existing, now)) await backend.removeTask(id);
-    if (!existing || dueForPurge(existing, now)) return { status: 404, body: { detail: "This task is no longer here." } };
-  }
+  if (!existing) return { status: 404, body: { detail: "This task is no longer here." } };
   if (existing.status === "Done") return { status: 200, body: existing };
   const next = { ...existing, status: "Done", completedAt: now, updatedAt: touch(existing, now) };
   await backend.replaceTask(next);
@@ -369,10 +386,7 @@ export async function performDelete(backend, id) {
 export async function performReopen(backend, id, now) {
   if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
   const existing = await backend.getTask(id);
-  if (!existing || dueForPurge(existing, now)) {
-    if (existing) await backend.removeTask(id);
-    return { status: 404, body: { detail: "This task is no longer here." } };
-  }
+  if (!existing) return { status: 404, body: { detail: "This task is no longer here." } };
   if (existing.status !== "Done") return { status: 200, body: existing };
   const next = { ...existing, status: "To do", updatedAt: touch(existing, now) };
   delete next.completedAt;
@@ -403,16 +417,14 @@ export function createMemoryBackend() {
       }
     },
     async list(now) {
-      this.purge(now);
-      return unfinishedNewestFirst([...tasks.values()]);
+      const rows = [...tasks.values()];
+      return [...unfinishedNewestFirst(rows), ...recentCompletedNewestFirst(rows, now)];
     },
     async search(query, now) {
-      this.purge(now);
-      const windowStart = now - DONE_WINDOW_MS;
       const rows = [...tasks.values()];
       const unfinished = rows.filter((task) => task.status !== "Done");
-      const recentDone = rows.filter((task) => task.status === "Done" && task.completedAt >= windowStart);
-      return combineSearch(unfinished, recentDone, query);
+      const done = rows.filter((task) => task.status === "Done").sort((left, right) => (right.completedAt || 0) - (left.completedAt || 0));
+      return combineSearch(unfinished, done, query);
     },
     async complete(id, now) {
       return performComplete(this, id, now);
