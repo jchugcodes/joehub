@@ -387,8 +387,8 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
-      "!document.body.innerText.includes('Pack the sample trunk') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
-      "done leaves the list",
+      "document.querySelector(\"[aria-label='Completed']\") && document.querySelector(\"[aria-label='Reopen Pack the sample trunk']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
+      "done stays in Completed",
     );
   } finally {
     await page.close();
