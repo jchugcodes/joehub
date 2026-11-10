@@ -652,16 +652,33 @@ export default function TasksPage() {
                 {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
                 <div className="mt-3 flex gap-2">
                   {done ? (
-                    <button
-                      type="button"
-                      data-reopen="true"
-                      className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                      aria-label={`Reopen ${task.title}`}
-                      disabled={controlsDisabled}
-                      onClick={() => void reopenTask(task)}
-                    >
-                      Reopen
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        data-reopen="true"
+                        className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
+                        aria-label={`Reopen ${task.title}`}
+                        disabled={controlsDisabled}
+                        onClick={() => void reopenTask(task)}
+                      >
+                        Reopen
+                      </button>
+                      <button
+                        type="button"
+                        data-delete="true"
+                        className="flex min-h-11 items-center justify-center rounded-xl border border-[#E07A5F] px-3 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                        aria-label={`Delete ${task.title}`}
+                        disabled={controlsDisabled}
+                        onClick={() => {
+                          setEditingId(task.id);
+                          setDraft({ ...emptyDraft(), title: task.title });
+                          setFormError("");
+                          setConfirmDelete(true);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
                   ) : (
                     <>
                       <button
