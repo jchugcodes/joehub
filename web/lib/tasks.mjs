@@ -29,38 +29,74 @@ const PRIORITIES = new Set(["High", "Medium", "Low"]);
 const CREATE_STATUSES = new Set(["To do", "Doing", "Blocked"]);
 const PATCH_FIELDS = new Set(["title", "notes", "dueDate", "priority", "status", "project"]);
 
-export const SAMPLE_TASKS = [
-  {
-    id: "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
-    title: "Sketch the sample poster",
-    status: "Doing",
-    priority: "High",
-    project: "Home",
-    bot: { name: "Cela", detail: "Building sample list · 60%", progress: 60 },
-    createdAt: 1_762_000_000_000,
-    updatedAt: 1_762_000_000_000,
-  },
-  {
-    id: "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
-    title: "Pack the example bag",
-    notes: "Synthetic task. Not a real errand.",
-    dueDate: "2026-11-15",
-    priority: "Medium",
-    status: "To do",
-    project: "Errands",
-    createdAt: 1_761_000_000_000,
-    updatedAt: 1_761_000_000_000,
-  },
-  {
-    id: "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3",
-    title: "Hold for the sample reply",
-    status: "Blocked",
-    priority: "Low",
-    bot: { name: "Scout", detail: "Waiting on your reply · 2 of 3 questions" },
-    createdAt: 1_760_000_000_000,
-    updatedAt: 1_760_000_000_000,
-  },
-];
+export const HANDOFF_ID = "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4";
+export const KIT_ID = "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5";
+
+function kitCompletedAt(now) {
+  const [year, month, day] = detroitCalendarDate(now).split("-").map(Number);
+  return Date.UTC(year, month - 1, day - 3, 17, 0, 0);
+}
+
+export function detroitDay(now = Date.now()) {
+  return detroitCalendarDate(now);
+}
+
+export function buildSampleTasks(now = Date.now()) {
+  return [
+    {
+      id: "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
+      title: "Sketch the sample poster",
+      status: "Doing",
+      priority: "High",
+      project: "Home",
+      bot: { name: "Cela", detail: "Building sample list · 60%", progress: 60 },
+      createdAt: 1_762_000_000_000,
+      updatedAt: 1_762_000_000_000,
+    },
+    {
+      id: "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+      title: "Pack the example bag",
+      notes: "Synthetic task. Not a real errand.",
+      dueDate: "2026-11-15",
+      priority: "Medium",
+      status: "To do",
+      project: "Errands",
+      createdAt: 1_761_000_000_000,
+      updatedAt: 1_761_000_000_000,
+    },
+    {
+      id: "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3",
+      title: "Hold for the sample reply",
+      status: "Blocked",
+      priority: "Low",
+      bot: { name: "Scout", detail: "Waiting on your reply · 2 of 3 questions" },
+      createdAt: 1_760_000_000_000,
+      updatedAt: 1_760_000_000_000,
+    },
+    {
+      id: HANDOFF_ID,
+      title: "Draft the handoff note",
+      status: "To do",
+      priority: "High",
+      project: "joehub",
+      dueDate: detroitDay(now),
+      createdAt: 1_759_000_000_000,
+      updatedAt: 1_759_000_000_000,
+    },
+    {
+      id: KIT_ID,
+      title: "Ship the sample kit",
+      status: "Done",
+      priority: "Medium",
+      project: "joehub",
+      completedAt: kitCompletedAt(now),
+      createdAt: 1_758_000_000_000,
+      updatedAt: kitCompletedAt(now),
+    },
+  ];
+}
+
+export const SAMPLE_TASKS = buildSampleTasks();
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

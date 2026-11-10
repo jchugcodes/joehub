@@ -106,7 +106,7 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.equal(finance.body.caps.find((cap) => cap.slug === "dining-out").capCents, 8000);
   assert.equal(listed[0].title, "Prefixed sample");
   assert.equal(listed.some((task) => task.title === "Hold for the sample reply" && task.dueDate == null), true);
-  assert.equal(listed.some((task) => task.status === "Done"), false);
+  assert.equal(listed.filter((task) => task.status === "Done").map((task) => task.title).join(","), "Ship the sample kit");
 });
 
 test("a preview prefix replaces the joehub namespace on session and task keys", async () => {
