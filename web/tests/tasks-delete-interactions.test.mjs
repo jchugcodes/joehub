@@ -135,11 +135,16 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       return "yes";
     })()`);
     const rowBy = Date.now() + 10000;
-    while (Date.now() < rowBy && !(await evalPage("document.querySelector(\"[aria-label='Delete Delete the finished sample']\") ? 'yes' : ''"))) {
+    while (Date.now() < rowBy && !(await evalPage("document.querySelector(\"[aria-label='Edit Delete the finished sample']\") ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     assert.equal(await evalPage("document.querySelector(\"[aria-label='Reopen Delete the finished sample']\") ? 'yes' : 'no'"), "yes");
-    await evalPage("document.querySelector(\"[aria-label='Delete Delete the finished sample']\").click()");
+    await evalPage("document.querySelector(\"[aria-label='Edit Delete the finished sample']\").click()");
+    const sheetBy = Date.now() + 5000;
+    while (Date.now() < sheetBy && !(await evalPage("[...document.querySelectorAll('button')].some((el) => el.innerText.trim() === 'Delete') ? 'yes' : ''"))) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
     const dialogBy = Date.now() + 5000;
     while (Date.now() < dialogBy && !(await evalPage("document.getElementById('delete-title')?.textContent === 'Delete this task?' ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
