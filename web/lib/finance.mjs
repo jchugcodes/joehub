@@ -212,17 +212,22 @@ function spentFor(rows, slug) {
   return rows.reduce((sum, row) => (row.category === slug ? sum + spendCents(row) : sum), 0);
 }
 
-export function capsForWeek(txns, start) {
+export function defaultCaps() {
+  return Object.fromEntries(CATEGORIES.map((category) => [category.slug, category.capCents]));
+}
+
+export function capsForWeek(txns, start, caps = defaultCaps()) {
   const rows = rowsInWeek(txns, start);
   return CATEGORIES.map((category) => {
+    const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
     const spent = spentFor(rows, category.slug);
-    const state = capState(spent, category.capCents);
+    const state = capState(spent, capCents);
     return {
       slug: category.slug,
       name: category.name,
       color: category.color,
       spentCents: spent,
-      capCents: category.capCents,
+      capCents,
       ...state,
     };
   });
@@ -240,42 +245,41 @@ function ytdPoints() {
   });
 }
 
-function weeklySeries(txns) {
+export function seedSnapshots() {
+  return {
+    netWorthCents: NET_WORTH_CENTS,
+    ytdDeltaCents: YTD_DELTA_CENTS,
+    caption: `+${money(YTD_DELTA_CENTS)} (7.5%) YTD`,
+    points: ytdPoints(),
+  };
+}
+
+function weeklySeries(txns, from, to) {
   const weeks = new Map();
   for (const row of txns.map(effective)) {
     const start = weekStart(row.date);
+    if (from && start < from) continue;
+    if (to && start > to) continue;
     weeks.set(start, (weeks.get(start) || 0) + spendCents(row));
   }
-  if (!weeks.size) return [];
-  const first = [...weeks.keys()].sort()[0];
-  const last = [...weeks.keys()].sort().at(-1);
-  const points = [];
-  for (let cursor = first; cursor <= last; cursor = addDays(cursor, 7)) {
-    points.push({ week: cursor, cents: weeks.get(cursor) || 0 });
-  }
-  return points;
+  return [...weeks.keys()].sort().map((week) => ({ week, cents: weeks.get(week) }));
 }
 
-export function chartFor(txns, today, range) {
+export function chartFor(txns, today, range, snapshot) {
   const current = weekStart(today);
-  const all = weeklySeries(txns).filter((point) => point.week <= current);
   if (range === "YTD") {
-    return { range, kind: "net-worth", caption: `+${money(YTD_DELTA_CENTS)} (7.5%) YTD`, points: ytdPoints() };
+    const seeded = snapshot || seedSnapshots();
+    return { range, kind: "net-worth", caption: seeded.caption, points: seeded.points };
   }
-  let points = all;
-  if (range === "1W") points = all.filter((point) => point.week === current);
-  if (range === "1M") {
-    const month = monthBounds(today);
-    points = all.filter((point) => addDays(point.week, 6) >= month.start && point.week <= month.end);
-  }
-  if (range === "1Y") {
-    const from = addDays(today, -365);
-    points = all.filter((point) => point.week >= weekStart(from));
-  }
+  let from = null;
+  if (range === "1W") from = current;
+  if (range === "1M") from = weekStart(monthBounds(today).start);
+  if (range === "1Y") from = weekStart(addDays(today, -365));
+  const points = weeklySeries(txns, from, current);
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
-export function monthProgress(txns, today) {
+export function monthProgress(txns, today, planCents = PLAN_CENTS) {
   const month = monthBounds(today);
   const spent = txns
     .map(effective)
@@ -284,8 +288,8 @@ export function monthProgress(txns, today) {
   return {
     label: `${formatDay(month.start)}–${Number(today.slice(8))}`,
     spentCents: spent,
-    planCents: PLAN_CENTS,
-    percent: Math.round((spent / PLAN_CENTS) * 100),
+    planCents,
+    percent: Math.round((spent / planCents) * 100),
     day: month.day,
     days: month.days,
   };
@@ -303,13 +307,15 @@ function recentMeta(row) {
   return `${dateLabel(row.date)} · ${categoryBySlug(row.category)?.name || row.category}`;
 }
 
-export function overview(txns, now, week, range) {
+export function overview(txns, now, week, range, caps = defaultCaps(), context = {}) {
   const today = detroitYmd(now);
   const start = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : weekStart(today);
   if (start > weekStart(today)) {
     return { status: 400, body: { detail: "That week has not started.", field: "week" } };
   }
   const chosen = ["1W", "1M", "YTD", "1Y", "All"].includes(range) ? range : "YTD";
+  const planCents = context.planCents ?? PLAN_CENTS;
+  const snapshot = context.snapshot || seedSnapshots();
   const rows = rowsInWeek(txns, start);
   const order = new Map(RECENT_IDS.map((id, index) => [id, index]));
   const recent = [...rows].sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99) || (a.date < b.date ? 1 : -1));
@@ -324,10 +330,10 @@ export function overview(txns, now, week, range) {
       daysLeft: daysLeft(today, start),
       previousWeek: addDays(start, -7),
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
-      netWorthCents: NET_WORTH_CENTS,
-      chart: chartFor(txns, today, chosen),
-      month: monthProgress(txns, today),
-      caps: capsForWeek(txns, start),
+      netWorthCents: snapshot.netWorthCents,
+      chart: chartFor(txns, today, chosen, snapshot),
+      month: monthProgress(txns, today, planCents),
+      caps: capsForWeek(txns, start, caps),
       recent: recent.map((row) => ({
         id: row.id,
         payee: row.payee,
@@ -340,7 +346,7 @@ export function overview(txns, now, week, range) {
   };
 }
 
-export function categoryView(txns, now, week, categoryValue) {
+export function categoryView(txns, now, week, categoryValue, caps = defaultCaps()) {
   const category = resolveCategory(categoryValue);
   if (!category) return { status: 404, body: { detail: "That category is not here." } };
   const today = detroitYmd(now);
@@ -348,11 +354,13 @@ export function categoryView(txns, now, week, categoryValue) {
   if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
   const rows = rowsInWeek(txns, start).filter((row) => row.category === category.slug);
   const spent = rows.reduce((sum, row) => sum + spendCents(row), 0);
-  const state = capState(spent, category.capCents);
+  const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
+  const state = capState(spent, capCents);
   return {
     status: 200,
     body: {
       ...category,
+      capCents,
       spentCents: spent,
       ...state,
       weekStart: start,
@@ -386,10 +394,16 @@ export function publicTransactions(txns) {
 
 export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const rows = txns.map((row) => structuredClone(row));
-  store.financeOverview = (now, week, range) => overview(rows, now, week, range);
-  store.financeCategory = (now, week, category) => categoryView(rows, now, week, category);
-  store.financeAccounts = async () => structuredClone(ACCOUNTS);
-  store.financeGoals = async () => structuredClone(GOALS);
+  const caps = defaultCaps();
+  const planCents = PLAN_CENTS;
+  const snapshot = seedSnapshots();
+  const accounts = structuredClone(ACCOUNTS);
+  const goals = structuredClone(GOALS);
+  const context = () => ({ planCents, snapshot, netWorthCents: snapshot.netWorthCents });
+  store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps, context());
+  store.financeCategory = (now, week, category) => categoryView(rows, now, week, category, caps);
+  store.financeAccounts = async () => structuredClone(accounts);
+  store.financeGoals = async () => structuredClone(goals);
   store.financeTransactions = async () => publicTransactions(rows);
   return store;
 }

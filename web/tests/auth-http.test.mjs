@@ -11,7 +11,6 @@ const PAGES = [
   "/finance",
   "/finance/accounts",
   "/finance/caps",
-  "/finance/dining-out",
   "/finance/goals",
   "/finance/goals/student-loan-payoff",
   "/jobs",

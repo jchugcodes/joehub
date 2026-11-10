@@ -724,7 +724,7 @@ export default function TasksPage() {
           ))}
         </div>
       ) : null}
-      {mode === "ready" && !activeQuery && group !== "project" && completedTasks.length > 0 ? (
+      {mode === "ready" && !activeQuery && completedTasks.length > 0 ? (
         <section aria-label="Completed" className="mt-6" data-completed="true">
           <h2 className="flex items-center justify-between px-5 text-meta font-medium">
             <span>Completed</span>

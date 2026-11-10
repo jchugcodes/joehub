@@ -13,7 +13,7 @@ const links = [
 
 function selected(pathname: string, href: string) {
   if (href === "/finance") return pathname === "/finance";
-  if (href === "/finance/categories") return pathname.startsWith("/finance/categories") || pathname.startsWith("/finance/dining-out");
+  if (href === "/finance/categories") return pathname.startsWith("/finance/categories");
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

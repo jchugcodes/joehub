@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { categoryView, overview, publicTransactions, SEED_TRANSACTIONS, ACCOUNTS, GOALS } from "./finance.mjs";
+import { categoryView, defaultCaps, overview, publicTransactions, seedSnapshots, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -161,6 +161,49 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (parsed && parsed.pending && !parsed.taskId) await command(["DEL", k(`joehub:task:idem:${key}`)]);
     },
   };
+
+  function financeScore(row) {
+    const day = Number(String(row.date || "").replaceAll("-", ""));
+    const created = Number(row.createdAt) || 0;
+    return String(day * 1_000_000 + (created % 1_000_000));
+  }
+
+  function legacyFinance(raw) {
+    if (raw == null || raw === "1") return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.transactions)) return parsed;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function ensureFinance() {
+    const flagKey = k("joehub:finance:seeded");
+    const raw = await command(["GET", flagKey]);
+    if (raw === "1") return;
+    const legacy = legacyFinance(raw);
+    const transactions = legacy ? legacy.transactions : SEED_TRANSACTIONS;
+    const caps = legacy && legacy.caps && typeof legacy.caps === "object" ? legacy.caps : defaultCaps();
+    const planCents = legacy && Number.isInteger(legacy.planCents) ? legacy.planCents : PLAN_CENTS;
+    await command(["SET", k("joehub:finance:caps"), JSON.stringify(caps), "NX"]);
+    await command(["SET", k("joehub:finance:plan"), JSON.stringify({ cents: planCents }), "NX"]);
+    await command(["SET", k("joehub:finance:accounts"), JSON.stringify(legacy && legacy.accounts ? legacy.accounts : ACCOUNTS), "NX"]);
+    await command(["SET", k("joehub:finance:goals"), JSON.stringify(legacy && legacy.goals ? legacy.goals : GOALS), "NX"]);
+    await command(["SET", k("joehub:finance:snapshots"), JSON.stringify(legacy && legacy.snapshots ? legacy.snapshots : seedSnapshots()), "NX"]);
+    for (const row of transactions) {
+      await command(["SET", k(`joehub:finance:txn:${row.id}`), JSON.stringify(row), "NX"]);
+      await command(["ZADD", k("joehub:finance:txns"), financeScore(row), row.id]);
+    }
+    if (legacy && legacy.idem && typeof legacy.idem === "object") {
+      for (const [idemKey, value] of Object.entries(legacy.idem)) {
+        await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(value), "NX", "EX", "86400"]);
+      }
+    }
+    if (legacy) await command(["SET", flagKey, "1"]);
+    else await command(["SET", flagKey, "1", "NX"]);
+  }
 
   async function ensureGrocerySeeded() {
     const flagKey = k("joehub:grocery:seeded");
@@ -437,25 +480,37 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       return performGroceryClear(grocery);
     },
     async financeRows() {
-      const key = k("joehub:finance:seeded");
-      const existing = await readJson(key);
-      if (existing && Array.isArray(existing.transactions)) return existing.transactions;
-      await command(["SET", key, JSON.stringify({ transactions: SEED_TRANSACTIONS }), "NX"]);
-      const stored = await readJson(key);
-      return stored && Array.isArray(stored.transactions) ? stored.transactions : SEED_TRANSACTIONS;
+      return (await this.financeBundle()).transactions;
+    },
+    async financeBundle() {
+      await ensureFinance();
+      const caps = await readJson(k("joehub:finance:caps"));
+      const plan = await readJson(k("joehub:finance:plan"));
+      const snapshot = await readJson(k("joehub:finance:snapshots"));
+      const accounts = await readJson(k("joehub:finance:accounts"));
+      const goals = await readJson(k("joehub:finance:goals"));
+      if (!caps || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
+      const ids = (await command(["ZREVRANGE", k("joehub:finance:txns"), "0", "-1"])) || [];
+      const transactions = [];
+      for (const id of ids) {
+        const row = await readJson(k(`joehub:finance:txn:${id}`));
+        if (row) transactions.push(row);
+      }
+      return { transactions, caps, planCents: plan.cents, snapshot, accounts, goals };
     },
     async financeOverview(now, week, range) {
-      return overview(await this.financeRows(), now, week, range);
+      const state = await this.financeBundle();
+      return overview(state.transactions, now, week, range, state.caps, { planCents: state.planCents, snapshot: state.snapshot });
     },
     async financeCategory(now, week, category) {
-      return categoryView(await this.financeRows(), now, week, category);
+      const state = await this.financeBundle();
+      return categoryView(state.transactions, now, week, category, state.caps);
     },
     async financeAccounts() {
-      await this.financeRows();
-      return ACCOUNTS;
+      return (await this.financeBundle()).accounts;
     },
     async financeGoals() {
-      return GOALS;
+      return (await this.financeBundle()).goals;
     },
     async financeTransactions() {
       return publicTransactions(await this.financeRows());

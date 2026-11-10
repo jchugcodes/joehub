@@ -38,7 +38,9 @@ async function exercise(prefix) {
     await store.listUnfinishedTasks(now);
     await store.completeTask(created.body.id, now + 100);
     const grocery = await store.createGrocery({ name: "Prefixed oats", quantity: "1 bag" }, "grocery-idem-1", now + 60);
-    return { fake, session, created, listed, grocery };
+    const finance = await store.financeOverview(now);
+    await store.financeOverview(now);
+    return { fake, session, created, listed, grocery, finance };
   } finally {
     fake.stop();
   }
@@ -49,7 +51,7 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.equal(readKeyPrefix({}).prefix, "joehub:");
   assert.equal(readKeyPrefix({ JOEHUB_KEY_PREFIX: "" }).prefix, "joehub:");
   assert.equal(applyKeyPrefix("joehub:", "joehub:sess:abc"), "joehub:sess:abc");
-  const { fake, session, created, listed, grocery } = await exercise();
+  const { fake, session, created, listed, grocery, finance } = await exercise();
   const keys = redisKeys(fake.commands);
   for (const key of keys) {
     assert.equal(key.startsWith("joehub:"), true, key);
@@ -86,6 +88,22 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.ok(idem);
   assert.ok(idem.includes("EX"));
   assert.ok(idem.includes("86400"));
+  assert.ok(keys.includes("joehub:finance:caps"));
+  assert.ok(keys.includes("joehub:finance:plan"));
+  assert.ok(keys.includes("joehub:finance:txns"));
+  assert.ok(keys.includes("joehub:finance:snapshots"));
+  assert.ok(keys.includes("joehub:finance:accounts"));
+  assert.ok(keys.includes("joehub:finance:goals"));
+  assert.ok(keys.includes("joehub:finance:txn:fin-shell"));
+  assert.ok(keys.includes("joehub:finance:seeded"));
+  const financeFlag = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:finance:seeded");
+  assert.equal(financeFlag.length, 1);
+  assert.equal(financeFlag[0][2], "1");
+  assert.equal(financeFlag[0].includes("EX"), false);
+  const financeWrites = fake.commands.filter((args) => args[0] === "SET" && String(args[1]).startsWith("joehub:finance:") && args[1] !== "joehub:finance:seeded");
+  assert.ok(financeWrites.length >= 7);
+  for (const args of financeWrites) assert.equal(args.includes("EX"), false, args.join(" "));
+  assert.equal(finance.body.caps.find((cap) => cap.slug === "dining-out").capCents, 8000);
   assert.equal(listed[0].title, "Prefixed sample");
   assert.equal(listed.some((task) => task.title === "Hold for the sample reply" && task.dueDate == null), true);
   assert.equal(listed.some((task) => task.status === "Done"), false);
@@ -119,6 +137,21 @@ test("a preview prefix replaces the joehub namespace on session and task keys", 
   assert.ok(keys.includes("joehub-preview:grocery:item:idem:grocery-idem-1"));
   assert.equal(keys.includes("joehub:grocery:seeded"), false);
   assert.equal(keys.includes(`joehub:grocery:item:${grocery.body.id}`), false);
+  assert.ok(keys.includes("joehub-preview:finance:caps"));
+  assert.ok(keys.includes("joehub-preview:finance:plan"));
+  assert.ok(keys.includes("joehub-preview:finance:txns"));
+  assert.ok(keys.includes("joehub-preview:finance:snapshots"));
+  assert.ok(keys.includes("joehub-preview:finance:accounts"));
+  assert.ok(keys.includes("joehub-preview:finance:goals"));
+  assert.ok(keys.includes("joehub-preview:finance:txn:fin-shell"));
+  assert.ok(keys.includes("joehub-preview:finance:seeded"));
+  assert.equal(keys.includes("joehub:finance:caps"), false);
+  assert.equal(keys.includes("joehub:finance:seeded"), false);
+  assert.equal(keys.includes("joehub:finance:txn:fin-shell"), false);
+  const previewFlag = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub-preview:finance:seeded");
+  assert.equal(previewFlag.length, 1);
+  assert.equal(previewFlag[0][2], "1");
+  assert.equal(previewFlag[0].includes("EX"), false);
 });
 
 test("an invalid key prefix fails closed", async () => {
@@ -137,4 +170,45 @@ test("an invalid key prefix fails closed", async () => {
   assert.equal(health.type, "next");
   const allowed = await decide(new Request("http://127.0.0.1/tasks"), { ...dev, JOEHUB_KEY_PREFIX: "joehub-preview:" }, Date.now());
   assert.equal(allowed.type, "next");
+});
+
+test("a legacy finance blob migrates once and keeps saved caps", async () => {
+  const fake = await startFakeUpstash();
+  const prefix = "joehub-preview:";
+  const caps = { "dining-out": 9000, groceries: 11000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 };
+  await fetch(fake.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+    body: JSON.stringify(["SET", `${prefix}finance:seeded`, JSON.stringify({ transactions: [{ id: "fin-kept", payee: "Kept", amountCents: -100, date: "2026-11-10", category: "dining-out", type: "expense", source: "manual", corrected: false, createdAt: 1 }], caps })]),
+  });
+  const store = createUpstashStore({ url: fake.url, token: fake.token, prefix });
+  const first = await store.financeOverview(Date.parse("2026-11-10T15:00:00-05:00"));
+  const second = await store.financeOverview(Date.parse("2026-11-10T15:00:00-05:00"));
+  assert.equal(first.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9000);
+  assert.equal(second.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9000);
+  const flagWrites = fake.commands.filter((args) => args[0] === "SET" && args[1] === `${prefix}finance:seeded` && args[2] === "1");
+  assert.equal(flagWrites.length, 1);
+  const capWrites = fake.commands.filter((args) => args[0] === "SET" && args[1] === `${prefix}finance:caps`);
+  assert.equal(capWrites.length, 1);
+  assert.equal(JSON.parse(capWrites[0][2])["dining-out"], 9000);
+  assert.ok(redisKeys(fake.commands).includes(`${prefix}finance:txn:fin-kept`));
+  await fake.stop();
+});
+
+test("an existing caps key is kept when a legacy blob migrates", async () => {
+  const fake = await startFakeUpstash();
+  const prefix = "joehub-preview:";
+  const saved = { "dining-out": 9100, groceries: 12000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 };
+  const send = (args) =>
+    fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(args),
+    });
+  await send(["SET", `${prefix}finance:caps`, JSON.stringify(saved)]);
+  await send(["SET", `${prefix}finance:seeded`, JSON.stringify({ transactions: [], caps: { ...saved, "dining-out": 1000 } })]);
+  const store = createUpstashStore({ url: fake.url, token: fake.token, prefix });
+  const view = await store.financeOverview(Date.parse("2026-11-10T15:00:00-05:00"));
+  assert.equal(view.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9100);
+  await fake.stop();
 });
