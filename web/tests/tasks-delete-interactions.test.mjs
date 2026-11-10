@@ -114,6 +114,45 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     const listed = await fetch(`${baseOf(port)}/api/tasks`, { headers: { cookie: `joehub_session=${cookie}` } });
     const body = await listed.json();
     assert.equal(body.some((task) => task.title === "Delete the sample bag"), false);
+    const finished = await fetch(`${baseOf(port)}/api/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: `joehub_session=${cookie}`, "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ title: "Delete the finished sample" }),
+    });
+    assert.equal(finished.status, 201);
+    const finishedId = (await finished.json()).id;
+    const completed = await fetch(`${baseOf(port)}/api/tasks/${finishedId}/complete`, {
+      method: "POST",
+      headers: { cookie: `joehub_session=${cookie}` },
+    });
+    assert.equal(completed.status, 200);
+    await evalPage(`(() => {
+      const input = document.getElementById("task-search");
+      const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
+      desc.set.call(input, "finished sample");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.form.requestSubmit();
+      return "yes";
+    })()`);
+    const rowBy = Date.now() + 10000;
+    while (Date.now() < rowBy && !(await evalPage("document.querySelector(\"[aria-label='Delete Delete the finished sample']\") ? 'yes' : ''"))) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    assert.equal(await evalPage("document.querySelector(\"[aria-label='Reopen Delete the finished sample']\") ? 'yes' : 'no'"), "yes");
+    await evalPage("document.querySelector(\"[aria-label='Delete Delete the finished sample']\").click()");
+    const dialogBy = Date.now() + 5000;
+    while (Date.now() < dialogBy && !(await evalPage("document.getElementById('delete-title')?.textContent === 'Delete this task?' ? 'yes' : ''"))) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    assert.equal(await evalPage("document.getElementById('delete-dialog')?.innerText.includes('Delete the finished sample') ? 'yes' : 'no'"), "yes");
+    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete permanently').click()");
+    const removedBy = Date.now() + 10000;
+    while (Date.now() < removedBy && (await evalPage("document.body.innerText.includes('Delete the finished sample') ? 'yes' : ''"))) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    assert.equal(await evalPage("document.body.innerText.includes('Delete the finished sample') ? 'yes' : 'no'"), "no");
+    const after = await fetch(`${baseOf(port)}/api/tasks/${finishedId}`, { headers: { cookie: `joehub_session=${cookie}` } });
+    assert.equal(after.status, 404);
     ws.close();
   } finally {
     await stopProcess(chrome);

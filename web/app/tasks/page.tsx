@@ -7,7 +7,7 @@ import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 const CACHE_KEY = "joehub.tasks.unfinished";
 
 type Priority = "High" | "Medium" | "Low";
-type Status = "To do" | "Doing" | "Blocked";
+type Status = "To do" | "Doing" | "Blocked" | "Done";
 
 interface Task {
   id: string;
@@ -323,6 +323,7 @@ export default function TasksPage() {
     if (!title) {
       setTitleError("Enter a title.");
       setFormError("");
+      document.getElementById("task-title")?.focus();
       return;
     }
     savingRef.current = true;
@@ -365,6 +366,7 @@ export default function TasksPage() {
       }
       if (response.status === 400 && body?.field === "title") {
         setTitleError(body.detail || "Enter a title.");
+        document.getElementById("task-title")?.focus();
         return;
       }
       if (!response.ok || !body || typeof body.id !== "string") {
@@ -484,7 +486,7 @@ export default function TasksPage() {
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1">
       <header className="px-5 pt-3">
         <p className="text-meta text-muted">joehub</p>
         <h1 className="text-page font-medium">Tasks</h1>
@@ -493,14 +495,15 @@ export default function TasksPage() {
           <p className="mt-1 text-meta font-normal text-muted">Assigned bots update on next load · no assign control</p>
         ) : null}
       </header>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
           Offline · read-only
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
           Reconnecting…
           <span className="mt-0.5 block text-meta font-normal text-muted">
             Still showing cached data{savedAt ? ` · last updated ${formatDetroit(savedAt)}` : ""}
@@ -508,16 +511,17 @@ export default function TasksPage() {
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
           <span>
             Back online
             <span className="mt-0.5 block text-meta font-normal text-muted">List refreshed · edits available</span>
           </span>
-          <button type="button" className="text-meta font-medium text-muted" onClick={() => setLink("live")}>
+          <button type="button" className="pointer-events-auto text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
         </p>
       ) : null}
+      </div>
       {gone ? (
         <p role="alert" data-missing="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-meta font-medium">
           {gone}
@@ -670,16 +674,33 @@ export default function TasksPage() {
                 {task.bot ? <BotLine bot={task.bot} /> : null}
                 <div className="mt-3 flex gap-2">
                   {done ? (
-                    <button
-                      type="button"
-                      data-reopen="true"
-                      className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                      aria-label={`Reopen ${task.title}`}
-                      disabled={controlsDisabled}
-                      onClick={() => void reopenTask(task)}
-                    >
-                      Reopen
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        data-reopen="true"
+                        className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
+                        aria-label={`Reopen ${task.title}`}
+                        disabled={controlsDisabled}
+                        onClick={() => void reopenTask(task)}
+                      >
+                        Reopen
+                      </button>
+                      <button
+                        type="button"
+                        data-delete="true"
+                        className="flex min-h-11 items-center justify-center rounded-xl border border-[#E07A5F] px-3 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                        aria-label={`Delete ${task.title}`}
+                        disabled={controlsDisabled}
+                        onClick={() => {
+                          setEditingId(task.id);
+                          setDraft({ ...emptyDraft(), title: task.title });
+                          setFormError("");
+                          setConfirmDelete(true);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
                   ) : (
                     <>
                       <button
@@ -834,6 +855,7 @@ export default function TasksPage() {
               <option>To do</option>
               <option>Doing</option>
               <option>Blocked</option>
+              {sheet === "edit" ? <option>Done</option> : null}
             </select>
             <label className="mt-3 block text-meta font-medium" htmlFor="task-project">
               Project

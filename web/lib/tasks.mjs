@@ -158,11 +158,10 @@ export function validateTaskPatch(body, now) {
     } else patch.priority = body.priority;
   }
   if (Object.prototype.hasOwnProperty.call(body, "status")) {
-    if (body.status === "Done") return reject("status", "Done isn't available when editing a task.");
-    if (typeof body.status !== "string" || !CREATE_STATUSES.has(body.status)) {
+    if (body.status === "Done") patch.status = "Done";
+    else if (typeof body.status !== "string" || !CREATE_STATUSES.has(body.status)) {
       return reject("status", "Status must be To do, Doing, or Blocked.");
-    }
-    patch.status = body.status;
+    } else patch.status = body.status;
   }
   if (Object.prototype.hasOwnProperty.call(body, "project")) {
     if (body.project == null || body.project === "") patch.project = null;
@@ -338,6 +337,7 @@ export async function performPatch(backend, id, raw, now) {
     return { status: 400, body };
   }
   const next = applyTaskPatch(existing, parsed.patch, now);
+  if (parsed.patch.status === "Done" && existing.status !== "Done") next.completedAt = now;
   await backend.replaceTask(next);
   return { status: 200, body: next };
 }
