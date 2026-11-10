@@ -216,6 +216,13 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     );
     assert.equal(titlePaint, "yes");
     await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty");
+    assert.equal(
+      await evalPage(
+        send,
+        "document.querySelector(\"button[aria-label='Add an item']\") ? 'round' : ([...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Add an item') ? 'wide' : 'missing')",
+      ),
+      "wide",
+    );
     const nav = await evalPage(
       send,
       `(() => {
@@ -253,6 +260,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === false ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, click("Save")), "yes");
     assert.equal(await evalPage(send, "document.activeElement?.id || ''"), "grocery-name");
+    await shot(send, "grocery_blank_name_390.png");
     const footer = await evalPage(
       send,
       `(() => {
@@ -313,8 +321,31 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     );
     assert.equal(checks, "yes");
     await shot(send, "grocery_g01_390.png");
+    const phoneAdd = await evalPage(
+      send,
+      `(() => {
+        const round = document.querySelector("button[aria-label='Add an item']");
+        const pill = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add an item");
+        const box = round ? round.getBoundingClientRect() : null;
+        return round && !pill && getComputedStyle(round).position === "fixed" && box.width >= 44 && Math.abs(box.width - box.height) < 2 ? "yes" : "no";
+      })()`,
+    );
+    assert.equal(phoneAdd, "yes");
     await gotoGrocery(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Select an item') && document.body.innerText.includes('Bananas') ? 'yes' : ''", "desktop list");
+    const desktopAdd = await evalPage(
+      send,
+      `(() => {
+        const round = document.querySelector("button[aria-label='Add an item']");
+        const pill = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add an item");
+        if (!pill || round) return "no";
+        const box = pill.getBoundingClientRect();
+        const style = getComputedStyle(pill);
+        const inColumn = style.position !== "fixed" && box.height >= 44 && box.width < 280 && box.left < window.innerWidth / 2;
+        return inColumn ? "yes" : JSON.stringify({ left: box.left, width: box.width, height: box.height, position: style.position });
+      })()`,
+    );
+    assert.equal(desktopAdd, "yes");
     await shot(send, "grocery_g09_1280.png");
 
     await gotoGrocery(send, 390);
