@@ -138,7 +138,7 @@
       },
       "patch": {
         "operationId": "patchTask",
-        "description": "Change any field. Send null to clear notes, dueDate, priority, or project. Title cannot be cleared. Status is To do, Doing, or Blocked. dueDate may be YYYY-MM-DD or today, which is the America/Detroit calendar day. Done is rejected. updatedAt changes.",
+        "description": "Change any field. Send null to clear notes, dueDate, priority, or project. Title cannot be cleared. Status is To do, Doing, Blocked, or Done. Choosing Done completes the task: completedAt is set and the task leaves the unfinished list. dueDate may be YYYY-MM-DD or today, which is the America/Detroit calendar day. updatedAt changes.",
         "security": [{ "sessionCookie": [] }],
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
@@ -278,7 +278,7 @@
           "notes": { "type": ["string", "null"] },
           "dueDate": { "type": ["string", "null"], "description": "YYYY-MM-DD, or today for the America/Detroit calendar day. Null clears it." },
           "priority": { "type": ["string", "null"], "enum": ["High", "Medium", "Low", null] },
-          "status": { "type": "string", "enum": ["To do", "Doing", "Blocked"] },
+          "status": { "type": "string", "enum": ["To do", "Doing", "Blocked", "Done"] },
           "project": { "type": ["string", "null"] }
         }
       }

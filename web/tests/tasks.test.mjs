@@ -199,7 +199,9 @@ test("a patch validates fields and today is the Detroit calendar day", () => {
   assert.equal(rolled.patch.dueDate, "2026-11-10");
   assert.equal(validateTaskPatch({ title: "  " }, afterUtcMidnight).field, "title");
   assert.equal(validateTaskPatch({ title: null }, afterUtcMidnight).ok, false);
-  assert.equal(validateTaskPatch({ status: "Done" }, afterUtcMidnight).field, "status");
+  const done = validateTaskPatch({ status: "Done" }, afterUtcMidnight);
+  assert.equal(done.ok, true);
+  assert.equal(done.patch.status, "Done");
   assert.equal(validateTaskPatch({ notes: null, dueDate: null, priority: null, project: null }, afterUtcMidnight).ok, true);
   assert.equal(validateTaskPatch({ dueDate: "2026-02-31" }, afterUtcMidnight).ok, false);
   for (const field of ["id", "createdAt", "updatedAt", "completedAt", "mystery"]) {
@@ -241,9 +243,12 @@ test("a patch persists, clears optional fields, and a failed write keeps the sto
   assert.equal(blank.body.field, "title");
   assert.equal(backend.tasks.get("id-edit").title, "Edited");
   const done = await performPatch(backend, "id-edit", { status: "Done" }, now + 60);
-  assert.equal(done.status, 400);
-  assert.equal(done.body.field, "status");
-  assert.equal(backend.tasks.get("id-edit").status, "Blocked");
+  assert.equal(done.status, 200);
+  assert.equal(done.body.status, "Done");
+  assert.equal(done.body.completedAt, now + 60);
+  assert.equal(done.body.title, "Edited");
+  assert.equal((await backend.list()).some((task) => task.id === "id-edit"), false);
+  assert.equal(backend.tasks.get("id-edit").status, "Done");
   const locked = await performPatch(backend, "id-edit", { id: "other-id", title: "Renamed" }, now + 65);
   assert.equal(locked.status, 400);
   assert.equal(locked.body.field, "id");
@@ -377,6 +382,18 @@ test("get and patch seed sample tasks on a cold start", async () => {
     assert.equal(again.title, "Sketch the seeded poster");
     const flagSets = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded");
     assert.equal(flagSets.length, 1);
+    const finished = await store.patchTask(sample.id, { status: "Done" }, sample.updatedAt + 80);
+    assert.equal(finished.status, 200);
+    assert.equal(finished.body.status, "Done");
+    assert.equal(finished.body.completedAt, sample.updatedAt + 80);
+    assert.equal(finished.body.title, "Sketch the seeded poster");
+    assert.equal((await store.listUnfinishedTasks()).some((task) => task.id === sample.id), false);
+    assert.ok(fake.commands.some((args) => args[0] === "ZREM" && args[1] === "joehub:tasks:active" && args[2] === sample.id));
+    assert.ok(
+      fake.commands.some(
+        (args) => args[0] === "ZADD" && args[1] === "joehub:tasks:done" && args[2] === String(sample.updatedAt + 80) && args[3] === sample.id,
+      ),
+    );
   } finally {
     fake.stop();
   }

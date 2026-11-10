@@ -227,7 +227,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(prefilled.priority, "High");
     assert.equal(prefilled.status, "Doing");
     assert.equal(prefilled.project, "Errands");
-    assert.equal(prefilled.done, false);
+    assert.equal(prefilled.done, true);
     assert.equal(prefilled.heading, "Edit task");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_edit_sheet_390.png");
@@ -287,6 +287,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(await evalPage(send, fill({ "task-title": "   " })), "   ");
     assert.equal(await evalPage(send, clickText("Save")), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank title");
+    assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
     await shot(send, "tasks_edit_error_390.png");
     assert.equal(await evalPage(send, clickText("Cancel")), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "blank closed");
@@ -391,8 +392,17 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(await evalPage(send, fill({ "task-title": "" })), "");
     assert.equal(await evalPage(send, clickText("Save")), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank 1280");
+    assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
     await shot(send, "tasks_edit_error_1280.png");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Pack the sample trunk') ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('#task-status option')].map((option) => option.value).join('|')"), "To do|Doing|Blocked|Done");
+    assert.equal(await evalPage(send, fill({ "task-title": "Pack the sample trunk", "task-status": "Done" })), "Pack the sample trunk");
+    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    await waitFor(
+      send,
+      "!document.body.innerText.includes('Pack the sample trunk') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
+      "done leaves the list",
+    );
   } finally {
     await page.close();
   }
