@@ -383,6 +383,24 @@ def test_tasks_require_a_session_and_create_once() -> None:
     assert done.status_code == 400
 
 
+def test_create_rejects_bot_and_assignee() -> None:
+    client, _app = client_app()
+    cookie = login(client)
+    for field in ("bot", "assignee"):
+        rejected = client.post(
+            "/api/tasks",
+            json={"title": "Sample task", field: "Scout"},
+            cookies={COOKIE_NAME: cookie},
+        )
+        assert rejected.status_code == 400
+        body = rejected.json()
+        assert body["field"] == field
+        assert body["detail"] == "Bot assignment can't be changed."
+    listed = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert listed.status_code == 200
+    assert listed.json() == []
+
+
 def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     from joehub_api.tasks import TaskStore, detroit_calendar_date
 
