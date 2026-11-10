@@ -517,7 +517,10 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
     assert.equal(await evalPage(send, click("Save")), "yes");
     await waitFor(send, "document.getElementById('grocery-quantity-error')?.textContent === 'Enter a valid quantity.' ? 'yes' : ''", "edit quantity");
     assert.equal(await evalPage(send, fill("grocery-name", "")), "yes");
-    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === false ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "(document.getElementById('grocery-name-error')?.textContent || '').trim() === 'Enter a name.' ? 'yes' : ''", "blank edit name");
+    assert.equal(await evalPage(send, "document.activeElement?.id || ''"), "grocery-name");
     assert.equal(await evalPage(send, fill("grocery-name", "Oat milk")), "yes");
     assert.equal(await evalPage(send, fill("grocery-quantity", "")), "yes");
     assert.equal(await evalPage(send, fill("grocery-notes", "")), "yes");
