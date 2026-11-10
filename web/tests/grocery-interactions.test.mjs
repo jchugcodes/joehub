@@ -202,6 +202,19 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
   const auth = { cookie: `joehub_session=${cookie}`, "content-type": "application/json" };
   try {
     await gotoGrocery(send, 390);
+    const titlePaint = await evalPage(
+      send,
+      `(() => {
+        const h1 = document.querySelector("h1");
+        const theme = document.querySelector("[data-theme]");
+        const title = getComputedStyle(h1);
+        const ink = getComputedStyle(theme);
+        const readable = title.color === ink.color && title.color !== ink.backgroundColor;
+        const sized = Math.round(parseFloat(title.fontSize)) === 24;
+        return readable && sized ? "yes" : JSON.stringify({ color: title.color, ink: ink.color, bg: ink.backgroundColor, size: title.fontSize });
+      })()`,
+    );
+    assert.equal(titlePaint, "yes");
     await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty");
     const nav = await evalPage(
       send,
@@ -237,7 +250,9 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.equal(focused, "grocery-name");
     await clickBox(send, "#grocery-quantity");
     await waitFor(send, "(document.getElementById('grocery-name-error')?.textContent || '').trim() === 'Enter a name.' ? 'yes' : ''", "blank name");
-    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === false ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    assert.equal(await evalPage(send, "document.activeElement?.id || ''"), "grocery-name");
     const footer = await evalPage(
       send,
       `(() => {
@@ -345,9 +360,23 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
       await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
     }
 
+    async function firstItemTop() {
+      const value = await evalPage(
+        send,
+        `(() => {
+          const row = document.querySelector("section li");
+          if (!row) return "";
+          return String(Math.round(row.getBoundingClientRect().top));
+        })()`,
+      );
+      assert.match(String(value), /^\d+$/);
+      return Number(value);
+    }
+
     async function bannerCycle(width, offlineName, reconnectName, backName) {
       await gotoGrocery(send, width);
       await waitFor(send, "document.body.innerText.includes('Bananas') ? 'yes' : ''", `list ${width}`);
+      const rowBefore = await firstItemTop();
       await devtoolsOffline();
       await waitFor(send, "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline') && document.querySelector(\"[data-link='offline']\")?.textContent.includes('Last updated') ? 'yes' : ''", `offline ${width}`);
       assert.equal(await evalPage(send, "document.body.innerText.includes('Bananas') ? 'yes' : 'no'"), "yes");
@@ -360,6 +389,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
         })()`,
       );
       assert.equal(add, "yes");
+      assert.equal(await firstItemTop(), rowBefore);
       await shot(send, offlineName);
       await evalPage(
         send,
@@ -499,7 +529,10 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
     assert.equal(await evalPage(send, click("Save")), "yes");
     await waitFor(send, "document.getElementById('grocery-quantity-error')?.textContent === 'Enter a valid quantity.' ? 'yes' : ''", "edit quantity");
     assert.equal(await evalPage(send, fill("grocery-name", "")), "yes");
-    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === false ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "(document.getElementById('grocery-name-error')?.textContent || '').trim() === 'Enter a name.' ? 'yes' : ''", "blank edit name");
+    assert.equal(await evalPage(send, "document.activeElement?.id || ''"), "grocery-name");
     assert.equal(await evalPage(send, fill("grocery-name", "Oat milk")), "yes");
     assert.equal(await evalPage(send, fill("grocery-quantity", "")), "yes");
     assert.equal(await evalPage(send, fill("grocery-notes", "")), "yes");

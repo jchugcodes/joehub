@@ -71,7 +71,7 @@ module.exports = {
         meta: "0.8125rem",
         body: "0.9375rem",
         section: "1.0625rem",
-        page: "1.5rem",
+        title: "1.5rem",
         "ui-9.5": "0.59375rem",
         "ui-10": "0.625rem",
         "ui-10.5": "0.65625rem",
