@@ -472,29 +472,23 @@ export default function TasksPage() {
       <header className="px-5 pt-3">
         <p className="text-meta text-muted">joehub</p>
         <h1 className="text-page font-medium">Tasks</h1>
-        <p className="mt-1 text-meta leading-relaxed text-muted">Everything unfinished · newest first</p>
       </header>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
       {link === "offline" && savedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
-          Offline · read-only
+          Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
+          <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
         <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
           Reconnecting…
-          <span className="mt-0.5 block text-meta font-normal text-muted">
-            Still showing cached data{savedAt ? ` · last updated ${formatDetroit(savedAt)}` : ""}
-          </span>
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
-          <span>
-            Back online
-            <span className="mt-0.5 block text-meta font-normal text-muted">List refreshed · edits available</span>
-          </span>
+        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
+          <span>Back online</span>
           <button type="button" className="pointer-events-auto text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
@@ -597,7 +591,6 @@ export default function TasksPage() {
         <div className="px-4" data-search-empty="true">
           <div className="card mt-4 p-4">
             <h2 className="text-section font-medium">No tasks match this search.</h2>
-            <p className="mt-2 text-body leading-relaxed text-muted">Try another word, or clear the search to see unfinished tasks.</p>
             <button
               type="button"
               className="mt-3 flex min-h-11 items-center text-body font-medium disabled:opacity-50"
@@ -612,8 +605,7 @@ export default function TasksPage() {
       {mode === "ready" && !activeQuery && tasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="card mt-4 p-4">
-            <h2 className="text-section font-medium">You&apos;re all caught up</h2>
-            <p className="mt-2 text-body leading-relaxed text-muted">No unfinished tasks. Add one when something comes up.</p>
+            <h2 className="text-section font-medium">No unfinished tasks</h2>
           </div>
         </div>
       ) : null}
@@ -711,7 +703,6 @@ export default function TasksPage() {
           ))}
         </div>
       ) : null}
-      <p className="mb-4 mt-6 px-4 text-center text-meta text-muted">EXAMPLE DATA · synthetic tasks</p>
       </div>
       {sheet ? (
         <Sheet
@@ -791,9 +782,8 @@ export default function TasksPage() {
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
               className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             />
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <p className="text-meta text-muted">Optional.</p>
-              {sheet === "edit" ? (
+            {sheet === "edit" ? (
+              <div className="mt-1 flex justify-end">
                 <button
                   type="button"
                   className="min-h-11 px-1 text-meta font-medium disabled:opacity-50"
@@ -802,8 +792,8 @@ export default function TasksPage() {
                 >
                   Today
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <label className="mt-3 block text-meta font-medium" htmlFor="task-priority">
               Priority
             </label>
