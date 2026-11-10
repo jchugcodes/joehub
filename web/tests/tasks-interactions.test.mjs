@@ -203,6 +203,19 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
   const { send } = page;
   try {
     await gotoTasks(send, 390);
+    const titlePaint = await evalPage(
+      send,
+      `(() => {
+        const h1 = document.querySelector("h1");
+        const theme = document.querySelector("[data-theme]");
+        const title = getComputedStyle(h1);
+        const ink = getComputedStyle(theme);
+        const readable = title.color === ink.color && title.color !== ink.backgroundColor;
+        const sized = Math.round(parseFloat(title.fontSize)) === 24;
+        return readable && sized ? "yes" : JSON.stringify({ color: title.color, ink: ink.color, bg: ink.backgroundColor, size: title.fontSize });
+      })()`,
+    );
+    assert.equal(titlePaint, "yes");
     await waitFor(send, "document.querySelector(\"[data-empty='true']\") ? 'yes' : ''", "empty 390");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_empty_390.png");
