@@ -438,8 +438,6 @@ def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     blank = client.patch(f"/api/tasks/{task_id}", json={"title": "   "}, cookies={COOKIE_NAME: cookie})
     assert blank.status_code == 400
     assert blank.json()["field"] == "title"
-    done = client.patch(f"/api/tasks/{task_id}", json={"status": "Done"}, cookies={COOKIE_NAME: cookie})
-    assert done.status_code == 400
     for field in ("id", "createdAt", "updatedAt", "completedAt", "mystery"):
         rejected = client.patch(
             f"/api/tasks/{task_id}",
@@ -459,3 +457,12 @@ def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     assert stored.json()["title"] == "Edited"
     assert stored.json()["status"] == "Blocked"
     assert "notes" not in stored.json()
+    done = client.patch(f"/api/tasks/{task_id}", json={"status": "Done"}, cookies={COOKIE_NAME: cookie})
+    assert done.status_code == 200
+    assert done.json()["status"] == "Done"
+    assert isinstance(done.json()["completedAt"], int)
+    listed = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert all(row["id"] != task_id for row in listed.json())
+    finished = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
+    assert finished.json()["status"] == "Done"
+    assert finished.json()["completedAt"] == done.json()["completedAt"]

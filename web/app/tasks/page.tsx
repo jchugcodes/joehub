@@ -7,7 +7,7 @@ import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 const CACHE_KEY = "joehub.tasks.unfinished";
 
 type Priority = "High" | "Medium" | "Low";
-type Status = "To do" | "Doing" | "Blocked";
+type Status = "To do" | "Doing" | "Blocked" | "Done";
 
 interface Task {
   id: string;
@@ -539,6 +539,7 @@ export default function TasksPage() {
               <option>To do</option>
               <option>Doing</option>
               <option>Blocked</option>
+              {sheet === "edit" ? <option>Done</option> : null}
             </select>
             <label className="mt-3 block text-meta font-medium" htmlFor="task-project">
               Project

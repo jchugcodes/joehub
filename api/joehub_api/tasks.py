@@ -135,8 +135,8 @@ def validate_task_patch(body: object, now_ms: int) -> tuple[dict | None, dict | 
     if "status" in body:
         status = body.get("status")
         if status == "Done":
-            return None, {"detail": "Done isn't available when editing a task.", "field": "status"}
-        if status not in CREATE_STATUSES:
+            patch["status"] = "Done"
+        elif status not in CREATE_STATUSES:
             return None, {"detail": "Status must be To do, Doing, or Blocked.", "field": "status"}
         patch["status"] = status
     if "project" in body:
@@ -214,6 +214,8 @@ class TaskStore:
             updated["title"] = patch["title"]
         if "status" in patch:
             updated["status"] = patch["status"]
+            if patch["status"] == "Done" and current.get("status") != "Done":
+                updated["completedAt"] = now
         for name in ("notes", "dueDate", "priority", "project"):
             if name not in patch:
                 continue

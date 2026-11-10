@@ -76,6 +76,12 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
   const tasks = {
     async putTask(task) {
       await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
+      if (task.status === "Done") {
+        await command(["ZREM", k("joehub:tasks:active"), task.id]);
+        await command(["ZADD", k("joehub:tasks:done"), String(task.completedAt || task.updatedAt), task.id]);
+        return;
+      }
+      await command(["ZREM", k("joehub:tasks:done"), task.id]);
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
     },
     async getTask(id) {

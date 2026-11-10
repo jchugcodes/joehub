@@ -167,12 +167,6 @@ test("task api requires a session, persists a create, and dedupes an idempotency
     });
     assert.equal(blankEdit.status, 400);
     assert.equal((await blankEdit.json()).field, "title");
-    const doneEdit = await fetch(`${base}/api/tasks/${created.id}`, {
-      method: "PATCH",
-      headers: auth,
-      body: JSON.stringify({ status: "Done" }),
-    });
-    assert.equal(doneEdit.status, 400);
     const locked = await fetch(`${base}/api/tasks/${created.id}`, {
       method: "PATCH",
       headers: auth,
@@ -203,6 +197,17 @@ test("task api requires a session, persists a create, and dedupes an idempotency
     assert.equal(stored.status, "Blocked");
     assert.equal(stored.dueDate, todayBody.dueDate);
     assert.equal(stored.notes, undefined);
+    const doneEdit = await fetch(`${base}/api/tasks/${created.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ status: "Done" }),
+    });
+    assert.equal(doneEdit.status, 200);
+    const doneBody = await doneEdit.json();
+    assert.equal(doneBody.status, "Done");
+    assert.equal(typeof doneBody.completedAt, "number");
+    const unfinished = await fetch(`${base}/api/tasks`, { headers: { cookie } });
+    assert.equal((await unfinished.json()).some((task) => task.id === created.id), false);
   } finally {
     await stopProcess(started.child);
   }

@@ -46,6 +46,11 @@ export async function startFakeUpstash() {
       zsets.set(key, zset);
       return 1;
     }
+    if (op === "ZREM") {
+      const zset = zsets.get(key);
+      if (!zset) return 0;
+      return zset.delete(String(args[2])) ? 1 : 0;
+    }
     if (op === "ZREVRANGE") {
       const zset = zsets.get(key) || new Map();
       const rows = [...zset.entries()].sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1));
