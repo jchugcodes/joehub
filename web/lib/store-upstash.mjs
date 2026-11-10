@@ -62,15 +62,37 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
   }
 
+  async function ensureBotSamples() {
+    const flagKey = k("joehub:tasks:seeded:v2");
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const sample of SAMPLE_TASKS) {
+      if (!sample.bot) continue;
+      const key = k(`joehub:task:${sample.id}`);
+      const existing = await readJson(key);
+      if (!existing) {
+        const created = await command(["SET", key, JSON.stringify(sample), "NX"]);
+        if (created === "OK") {
+          await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+        }
+        continue;
+      }
+      if (existing.bot) continue;
+      await command(["SET", key, JSON.stringify({ ...existing, bot: sample.bot })]);
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
   async function ensureSeeded() {
     const flagKey = k("joehub:tasks:seeded");
     const flag = await command(["GET", flagKey]);
-    if (flag != null) return;
-    for (const sample of SAMPLE_TASKS) {
-      await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample)]);
-      await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+    if (flag == null) {
+      for (const sample of SAMPLE_TASKS) {
+        await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample)]);
+        await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+      }
+      await command(["SET", flagKey, "1", "NX"]);
     }
-    await command(["SET", flagKey, "1", "NX"]);
+    await ensureBotSamples();
   }
 
   const tasks = {

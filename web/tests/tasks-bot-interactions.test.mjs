@@ -71,7 +71,7 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
     };
     await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${baseOf(port)}/` });
     const shoot = async (width, name) => {
-      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 800 });
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 1200, deviceScaleFactor: 1, mobile: width < 800 });
       await send("Page.navigate", { url: `${baseOf(port)}/tasks` });
       const deadline = Date.now() + 20000;
       while (Date.now() < deadline && (await evalPage("document.body.innerText.includes('Scout') && document.body.innerText.includes('Cela') ? 'yes' : ''")) !== "yes") {
@@ -99,7 +99,11 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
     }
     assert.equal(await evalPage("document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage("document.getElementById('task-title') ? 'yes' : 'no'"), "yes");
+    const editWide = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(`${ARTIFACTS}/tasks_bot_edit_1280.png`, Buffer.from(editWide.result.data, "base64"));
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
+    const editPhone = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(`${ARTIFACTS}/tasks_bot_edit_390.png`, Buffer.from(editPhone.result.data, "base64"));
     for (const path of ["/", "/finance", "/jobs", "/journal", "/more"]) {
       await send("Page.navigate", { url: `${baseOf(port)}${path}` });
       const readyBy = Date.now() + 15000;

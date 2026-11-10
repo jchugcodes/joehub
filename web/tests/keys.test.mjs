@@ -98,6 +98,8 @@ test("a preview prefix replaces the joehub namespace on session and task keys", 
   assert.ok(keys.includes("joehub-preview:tasks:done"));
   assert.equal(keys.includes("joehub:tasks:done"), false);
   assert.ok(keys.includes("joehub-preview:tasks:seeded"));
+  assert.ok(keys.includes("joehub-preview:tasks:seeded:v2"));
+  assert.equal(keys.includes("joehub:tasks:seeded:v2"), false);
   assert.equal(keys.includes(`joehub:sess:${session.id}`), false);
   assert.equal(keys.includes(`joehub:task:${created.body.id}`), false);
 });
