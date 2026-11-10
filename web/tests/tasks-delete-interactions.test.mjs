@@ -105,7 +105,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     while (Date.now() < confirmBy && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete permanently').click()");
+    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete').click()");
     const goneBy = Date.now() + 10000;
     while (Date.now() < goneBy && (await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -144,8 +144,8 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     while (Date.now() < dialogBy && !(await evalPage("document.getElementById('delete-title')?.textContent === 'Delete this task?' ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    assert.equal(await evalPage("document.getElementById('delete-dialog')?.innerText.includes('Delete the finished sample') ? 'yes' : 'no'"), "yes");
-    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete permanently').click()");
+    assert.equal(await evalPage("document.getElementById('delete-dialog')?.innerText.includes('permanently removed') ? 'yes' : 'no'"), "no");
+    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete').click()");
     const removedBy = Date.now() + 10000;
     while (Date.now() < removedBy && (await evalPage("document.body.innerText.includes('Delete the finished sample') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));

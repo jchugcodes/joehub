@@ -863,10 +863,9 @@ export default function TasksPage() {
         <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-28" role="alertdialog" aria-labelledby="delete-title">
           <div className="card w-full max-w-phone p-5 shadow-2xl">
             <h2 id="delete-title" className="text-section font-medium">Delete this task?</h2>
-            <p className="mt-2 text-body text-muted">“{draft.title}” will be permanently removed, including from search. This can’t be undone.</p>
             {formError ? <p role="alert" className="mt-2 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
             <button type="button" autoFocus className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] text-body font-medium text-white" onClick={() => void removeTask()}>
-              Delete permanently
+              Delete
             </button>
             <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-ink text-body font-medium" onClick={() => setConfirmDelete(false)}>
               Cancel
