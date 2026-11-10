@@ -1,8 +1,22 @@
 import Link from "next/link";
 import { Ring, Sparkline } from "../components/Charts";
 import { home } from "../lib/design-fixtures";
+import { store } from "../lib/store.mjs";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+type HomeTask = { title: string; status: string; dueDate?: string };
+
+function detroitToday(now = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+export default async function HomePage() {
+  const tasks = (await store.listUnfinishedTasks()) as HomeTask[];
+  const today = detroitToday();
+  const blocked = tasks.filter((task) => task.status === "Blocked").length;
+  const dueToday = tasks.filter((task) => task.dueDate === today);
+  const highlight = dueToday[0] || tasks[0] || null;
   const spentWidth = 27;
   return (
     <div>
@@ -88,7 +102,18 @@ export default function HomePage() {
           <span>TASKS</span>
           <span aria-hidden className="text-inactive">›</span>
         </div>
-        <span className="mt-2.5 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-white">Open tasks</span>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <p><span className="block text-title font-medium">{tasks.length}</span><span className="text-meta text-muted">Open</span></p>
+          <p><span className="block text-title font-medium text-[#E07A5F]">{blocked}</span><span className="text-meta text-muted">Blocked</span></p>
+          <p><span className="block text-title font-medium text-[#C4A035]">{dueToday.length}</span><span className="text-meta text-muted">Due today</span></p>
+        </div>
+        {highlight ? (
+          <p className="mt-3 rounded-xl bg-[#F5F6F4] px-3 py-2.5 text-body">
+            {highlight.title}
+            {highlight.dueDate === today ? <span className="text-muted"> · due today</span> : null}
+          </p>
+        ) : null}
+        <span className="mt-3 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-white">Open tasks</span>
       </Link>
 
       <section className="card p-4" aria-labelledby="goals-heading">
