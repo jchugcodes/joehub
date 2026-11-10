@@ -12,6 +12,7 @@ import {
   installMemoryGrocery,
   itemIdForKey,
   performCheck,
+  performClear,
   performCreate,
   performDelete,
   performPatch,
@@ -252,4 +253,31 @@ test("check and uncheck persist, repeat, and a failed move leaves the item", asy
   } finally {
     fake.stop();
   }
+});
+
+test("clear deletes only checked items, and a failed delete leaves every row", async () => {
+  const store = installMemoryGrocery(createStore());
+  const bread = await store.createGrocery({ name: "Sourdough", quantity: "1 loaf", section: "Bakery" }, "clear-1", 10);
+  await store.createGrocery({ name: "Bananas", quantity: "6", section: "Produce" }, "clear-2", 20);
+  await store.checkGrocery(bread.body.id, 30);
+  const cleared = await store.clearGrocery();
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(cleared.body, { deleted: 1, ids: [bread.body.id] });
+  assert.deepEqual((await store.listGrocery()).map((item) => item.name), ["Bananas"]);
+  const none = await store.clearGrocery();
+  assert.deepEqual(none.body, { deleted: 0, ids: [] });
+
+  const backend = createMemoryBackend();
+  const made = await performCreate(backend, { name: "Sparkling water" }, "clear-3", 40, () => "item-clear-3");
+  await performCheck(backend, made.body.id, 50, true);
+  const deleteItem = backend.deleteItem.bind(backend);
+  backend.deleteItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performClear(backend));
+  assert.equal((await backend.getItem(made.body.id)).name, "Sparkling water");
+  backend.deleteItem = deleteItem;
+  const gone = await performClear(backend);
+  assert.deepEqual(gone.body.ids, [made.body.id]);
+  assert.equal(await backend.getItem(made.body.id), null);
 });

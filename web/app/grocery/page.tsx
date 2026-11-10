@@ -90,6 +90,7 @@ export default function GroceryPage() {
   const [sheet, setSheet] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [nameError, setNameError] = useState("");
   const [quantityError, setQuantityError] = useState("");
@@ -254,17 +255,18 @@ export default function GroceryPage() {
   }
 
   useEffect(() => {
-    if (!confirmDelete) return undefined;
+    if (!confirmDelete && !confirmClear) return undefined;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || savingRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       setConfirmDelete(false);
+      setConfirmClear(false);
       setFormError("");
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [confirmDelete]);
+  }, [confirmDelete, confirmClear]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -348,6 +350,35 @@ export default function GroceryPage() {
     }
   }
 
+  async function clearChecked() {
+    if (savingRef.current || offline) {
+      if (offline) setCheckNotice(true);
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setFormError("");
+    try {
+      const response = await fetch("/api/grocery/clear-checked", { method: "POST" });
+      const body = (await response.json().catch(() => null)) as { deleted?: number; ids?: string[] } | null;
+      if (!response.ok || !body || !Array.isArray(body.ids)) {
+        setFormError("Couldn't remove checked items.");
+        return;
+      }
+      const gone = new Set(body.ids);
+      const next = items.filter((row) => !gone.has(row.id));
+      setItems(next);
+      await writeCache(next, Date.now());
+      setConfirmClear(false);
+      void load();
+    } catch {
+      setFormError("Couldn't remove checked items.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
   async function removeItem() {
     if (savingRef.current || offline || !editingId) return;
     savingRef.current = true;
@@ -380,6 +411,7 @@ export default function GroceryPage() {
   const groups = useMemo(() => groupGrocery(items) as { label: string; items: GroceryItem[] }[], [items]);
   const sections = useMemo(() => sectionSuggestions(items) as string[], [items]);
   const hint = existingName(items, draft.name, editingId || "");
+  const checkedCount = items.filter((item) => item.checked).length;
   const addDisabled = offline || mode !== "ready";
   const saveDisabled = offline || saving || !draft.name.trim();
 
@@ -396,6 +428,26 @@ export default function GroceryPage() {
         <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
           Reconnecting…
         </p>
+      ) : null}
+      {checkedCount > 0 ? (
+        <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
+          <p className="text-body">{checkedCount} checked</p>
+          <button
+            type="button"
+            className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+            aria-disabled={offline || undefined}
+            onClick={() => {
+              if (offline) {
+                setCheckNotice(true);
+                return;
+              }
+              setFormError("");
+              setConfirmClear(true);
+            }}
+          >
+            Remove checked
+          </button>
+        </div>
       ) : null}
       {checkNotice ? (
         <p role="status" data-check-notice="true" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body">
@@ -651,6 +703,20 @@ export default function GroceryPage() {
             )}
           </form>
         </Sheet>
+      ) : null}
+      {confirmClear ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-clear-title" id="grocery-clear-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
+            <h2 id="grocery-clear-title" className="text-section font-medium">Remove {checkedCount} checked {checkedCount === 1 ? "item" : "items"}?</h2>
+            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
+            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void clearChecked()} disabled={offline || saving}>
+              Remove checked
+            </button>
+            <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={() => { setConfirmClear(false); setFormError(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
       {confirmDelete ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">

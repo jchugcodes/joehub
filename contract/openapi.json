@@ -266,6 +266,33 @@
         }
       }
     },
+    "/api/grocery/clear-checked": {
+      "post": {
+        "operationId": "clearCheckedGrocery",
+        "description": "Delete every checked item. Unchecked items stay. An empty checked set deletes nothing.",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "How many checked items were deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["deleted", "ids"],
+                  "properties": {
+                    "deleted": { "type": "integer" },
+                    "ids": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
     "/api/grocery/{id}": {
       "get": {
         "operationId": "getGroceryItem",

@@ -187,6 +187,12 @@ def create_app(
         status, body = request.app.state.grocery.create(payload, idem or None)
         return JSONResponse(body, status_code=status)
 
+    @app.post("/api/grocery/clear-checked")
+    def clear_grocery(request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.clear_checked()
+        return JSONResponse(body, status_code=status)
+
     @app.get("/api/grocery/{id}")
     def get_grocery(id: str, request: Request) -> JSONResponse:
         require_session(request)

@@ -86,6 +86,9 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/grocery":
             assert expected == {"get", "post"}
             continue
+        if path == "/api/grocery/clear-checked":
+            assert expected == {"post"}
+            continue
         if path == "/api/grocery/{id}":
             assert expected == {"get", "patch", "delete"}
             continue
@@ -630,3 +633,24 @@ def test_grocery_create_rejects_invalid_fields_and_replays_one_item() -> None:
     assert "checkedAt" not in back.json()
     assert client.post("/api/grocery/missing-item/check", cookies=cookies).status_code == 404
     assert client.post("/api/grocery/missing-item/uncheck", cookies=cookies).status_code == 404
+    assert client.post("/api/grocery/clear-checked").status_code == 401
+    water = client.post("/api/grocery", json={"name": "Sparkling water", "quantity": "8 cans"}, cookies=cookies)
+    assert water.status_code == 201
+    assert client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies).status_code == 200
+    kept = client.post("/api/grocery", json={"name": "Bananas", "quantity": "6", "section": "Produce"}, cookies=cookies)
+    assert kept.status_code == 201
+    empty = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert empty.status_code == 200
+    assert bread.json()["id"] in empty.json()["ids"]
+    assert water.json()["id"] not in empty.json()["ids"]
+    assert kept.json()["id"] not in empty.json()["ids"]
+    names = [row["name"] for row in client.get("/api/grocery", cookies=cookies).json()]
+    assert "Sourdough" not in names
+    assert "Sparkling water" in names
+    assert "Bananas" in names
+    assert client.post(f"/api/grocery/{water.json()['id']}/check", cookies=cookies).status_code == 200
+    second = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert second.json()["ids"] == [water.json()["id"]]
+    noop = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert noop.json()["deleted"] == 0
+    assert noop.json()["ids"] == []

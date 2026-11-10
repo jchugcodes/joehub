@@ -285,6 +285,16 @@ export async function performCheck(backend, id, now, checked) {
   return { status: 200, body: next };
 }
 
+export async function performClear(backend) {
+  const items = await backend.list();
+  const ids = items.filter((item) => item && item.checked).map((item) => item.id);
+  for (const id of ids) {
+    const removed = await backend.deleteItem(id);
+    if (!removed) return { status: 404, body: { detail: "This item is no longer here." } };
+  }
+  return { status: 200, body: { deleted: ids.length, ids } };
+}
+
 export async function performDelete(backend, id) {
   if (!isItemId(id)) return { status: 404, body: { detail: "This item is no longer here." } };
   const removed = await backend.deleteItem(id);
@@ -446,5 +456,6 @@ export function installMemoryGrocery(store, options = {}) {
   store.deleteGrocery = (id) => performDelete(backend, id);
   store.checkGrocery = (id, now) => performCheck(backend, id, now, true);
   store.uncheckGrocery = (id, now) => performCheck(backend, id, now, false);
+  store.clearGrocery = () => performClear(backend);
   return store;
 }

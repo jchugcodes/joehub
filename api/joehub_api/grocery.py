@@ -195,6 +195,12 @@ class GroceryStore:
         del self.items[item_id]
         return 200, {"deleted": True, "id": item_id}
 
+    def clear_checked(self) -> tuple[int, dict]:
+        ids = [item["id"] for item in self.items.values() if item.get("checked")]
+        for item_id in ids:
+            del self.items[item_id]
+        return 200, {"deleted": len(ids), "ids": ids}
+
     def list_items(self) -> list[dict]:
         rows = list(self.items.values())
         rows.sort(key=lambda item: (item["createdAt"], item["id"]))

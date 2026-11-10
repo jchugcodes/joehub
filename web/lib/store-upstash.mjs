@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { performCheck as performGroceryCheck, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
+import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
@@ -426,6 +426,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async uncheckGrocery(id, now) {
       await ensureGrocerySeeded();
       return performGroceryCheck(grocery, id, now, false);
+    },
+    async clearGrocery() {
+      await ensureGrocerySeeded();
+      return performGroceryClear(grocery);
     },
   };
 }

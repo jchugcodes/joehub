@@ -693,7 +693,7 @@ test("grocery check and uncheck hold, and an offline attempt queues nothing", { 
       })()`,
     );
     assert.equal(struck, "yes");
-    assert.equal(await evalPage(send, "document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "no");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('2 checked') && document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "yes");
     await size(send, 390, 1180);
     await evalPage(send, "document.querySelector(\"section[aria-label='Checked']\")?.scrollIntoView({ block: 'end' }); 'yes'");
     await shot(send, "grocery_g05_390.png");
@@ -709,7 +709,7 @@ test("grocery check and uncheck hold, and an offline attempt queues nothing", { 
     await waitFor(send, "document.querySelector(\"[aria-label='Uncheck Sourdough']\") ? 'yes' : ''", "rechecked");
     await gotoGrocery(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Checked') && document.body.innerText.includes('Sourdough') ? 'yes' : ''", "desktop checked");
-    assert.equal(await evalPage(send, "document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "no");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('2 checked') && document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "yes");
     await size(send, 1280, 1100);
     await shot(send, "grocery_g05_1280.png");
     await size(send, 1280, 844);
@@ -747,6 +747,184 @@ test("grocery check and uncheck hold, and an offline attempt queues nothing", { 
     await waitFor(send, "document.querySelector(\"[aria-label='Check Bananas']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "still unchecked");
     assert.equal(await evalPage(send, "window.__checkPosts"), posts);
     assert.equal((await (await fetch(`${base()}/api/grocery/${ids.Bananas}`, { headers: { cookie: auth.cookie } })).json()).checked, false);
+  } finally {
+    await page.close();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+    chrome = null;
+    child = null;
+  }
+});
+
+test("grocery clear removes only checked items after confirmation", { timeout: 240000, skip }, async () => {
+  const cookie = await boot();
+  const page = await openPage(cookie);
+  const { send } = page;
+  const auth = { cookie: `joehub_session=${cookie}`, "content-type": "application/json" };
+  const samples = [
+    { name: "Bananas", quantity: "6", section: "Produce" },
+    { name: "Organic gluten-free rolled oats, family size", quantity: "1 bag", section: "Produce" },
+    { name: "Oat milk", quantity: "1 carton", section: "Dairy", notes: "Barista style if they have it" },
+    { name: "Eggs", quantity: "1 dozen", section: "Dairy" },
+    { name: "Paper towels", quantity: "2" },
+    { name: "Sourdough", quantity: "1 loaf", section: "Bakery" },
+    { name: "Sparkling water", quantity: "8 cans" },
+  ];
+  try {
+    const ids = {};
+    for (const sample of samples) {
+      const created = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(sample) });
+      assert.equal(created.status, 201);
+      ids[sample.name] = (await created.json()).id;
+    }
+    assert.equal((await fetch(`${base()}/api/grocery/${ids.Sourdough}/check`, { method: "POST", headers: auth })).status, 200);
+    assert.equal((await fetch(`${base()}/api/grocery/${ids["Sparkling water"]}/check`, { method: "POST", headers: auth })).status, 200);
+    await gotoGrocery(send, 390, 1180);
+    await waitFor(send, "document.body.innerText.includes('2 checked') && document.body.innerText.includes('Sparkling water') ? 'yes' : ''", "bar");
+    await shot(send, "grocery_g05_390.png");
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.getElementById('grocery-clear-dialog')?.innerText.includes('Remove 2 checked items?') ? 'yes' : ''", "confirm");
+    await shot(send, "grocery_g06_390.png");
+    await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
+    await waitFor(send, "!document.getElementById('grocery-clear-dialog') && document.body.innerText.includes('Sourdough') ? 'yes' : ''", "escape");
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.getElementById('grocery-clear-dialog') ? 'yes' : ''", "confirm again");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-clear-dialog button")].find((el) => (el.innerText || "").trim() === "Cancel");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "!document.getElementById('grocery-clear-dialog') ? 'yes' : ''", "cancel clear");
+    assert.equal((await (await fetch(`${base()}/api/grocery`, { headers: { cookie: auth.cookie } })).json()).length, 7);
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.getElementById('grocery-clear-dialog') ? 'yes' : ''", "confirm fail");
+    await evalPage(
+      send,
+      `(() => {
+        const orig = window.fetch;
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+          if (method === "POST" && url.includes("/clear-checked")) {
+            window.fetch = orig;
+            return Promise.resolve(new Response(JSON.stringify({ detail: "unavailable" }), { status: 500, headers: { "content-type": "application/json" } }));
+          }
+          return orig(input, init);
+        };
+        return "yes";
+      })()`,
+    );
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-clear-dialog button")].find((el) => (el.innerText || "").trim() === "Remove checked");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "document.getElementById('grocery-clear-dialog')?.innerText.includes('Couldn\\'t remove checked items.') ? 'yes' : ''", "clear failed");
+    assert.equal((await (await fetch(`${base()}/api/grocery`, { headers: { cookie: auth.cookie } })).json()).length, 7);
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-clear-dialog button")].find((el) => (el.innerText || "").trim() === "Remove checked");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "!document.getElementById('grocery-clear-dialog') && !document.body.innerText.includes('Sourdough') && document.body.innerText.includes('Bananas') ? 'yes' : ''", "cleared", 20000);
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('Bananas') && !document.body.innerText.includes('Sourdough') && !document.body.innerText.includes('Sparkling water') ? 'yes' : ''", "clear held");
+    const listed = await (await fetch(`${base()}/api/grocery`, { headers: { cookie: auth.cookie } })).json();
+    assert.equal(listed.length, 5);
+    assert.equal(listed.some((item) => item.checked), false);
+
+    for (const item of listed) {
+      assert.equal((await fetch(`${base()}/api/grocery/${item.id}/check`, { method: "POST", headers: auth })).status, 200);
+    }
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.body.innerText.includes('5 checked') ? 'yes' : ''", "all checked");
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.getElementById('grocery-clear-dialog')?.innerText.includes('Remove 5 checked items?') ? 'yes' : ''", "clear all");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-clear-dialog button")].find((el) => (el.innerText || "").trim() === "Remove checked");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty after clear", 20000);
+    await shot(send, "grocery_g02_cleared_390.png");
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty held");
+
+    for (const sample of samples) {
+      const created = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(sample) });
+      assert.equal(created.status, 201);
+      if (sample.name === "Sourdough" || sample.name === "Sparkling water") {
+        const id = (await created.json()).id;
+        assert.equal((await fetch(`${base()}/api/grocery/${id}/check`, { method: "POST", headers: auth })).status, 200);
+      }
+    }
+    await gotoGrocery(send, 1280, 900);
+    await waitFor(send, "document.body.innerText.includes('2 checked') ? 'yes' : ''", "desktop bar");
+    await shot(send, "grocery_g05_1280.png");
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.getElementById('grocery-clear-dialog')?.innerText.includes('Remove 2 checked items?') ? 'yes' : ''", "desktop confirm");
+    await shot(send, "grocery_g06_1280.png");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-clear-dialog button")].find((el) => (el.innerText || "").trim() === "Cancel");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.body.innerText.includes('2 checked') ? 'yes' : ''", "offline bar");
+    await evalPage(
+      send,
+      `(() => {
+        const orig = window.fetch;
+        window.__clearPosts = 0;
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+          if (method === "POST" && url.includes("/clear-checked")) window.__clearPosts += 1;
+          return orig(input, init);
+        };
+        return "yes";
+      })()`,
+    );
+    await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    await waitFor(send, "document.querySelector(\"[data-link='offline']\") ? 'yes' : ''", "offline clear");
+    assert.equal(await evalPage(send, click("Remove checked")), "yes");
+    await waitFor(send, "document.querySelector(\"[data-check-notice='true']\")?.textContent.trim() === \"Can't check off offline\" ? 'yes' : ''", "clear notice");
+    assert.equal(await evalPage(send, "document.getElementById('grocery-clear-dialog') ? 'yes' : 'no'"), "no");
+    assert.equal(await evalPage(send, "window.__clearPosts"), 0);
+    assert.equal((await (await fetch(`${base()}/api/grocery`, { headers: { cookie: auth.cookie } })).json()).filter((item) => item.checked).length, 2);
   } finally {
     await page.close();
     await stopProcess(chrome);
