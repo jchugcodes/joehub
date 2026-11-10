@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pressLabel } from "./support/pointer.mjs";
 import { detroitCalendarDate } from "../lib/detroit-date.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -397,11 +398,11 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(await evalPage(send, "document.body.innerText.includes('Pack the sample trunk') ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('#task-status option')].map((option) => option.value).join('|')"), "To do|Doing|Blocked|Done");
     assert.equal(await evalPage(send, fill({ "task-title": "Pack the sample trunk", "task-status": "Done" })), "Pack the sample trunk");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    await pressLabel(send, evalPage, "Save");
     await waitFor(
       send,
-      "!document.body.innerText.includes('Pack the sample trunk') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
-      "done leaves the list",
+      "document.querySelector(\"[aria-label='Completed']\") && document.querySelector(\"[aria-label='Reopen Pack the sample trunk']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
+      "done stays in Completed",
     );
   } finally {
     await page.close();
