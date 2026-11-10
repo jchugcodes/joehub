@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
+import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -62,10 +62,26 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
   }
 
-  async function ensureBotSamples() {
+  async function placeSample(sample) {
+    const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+    if (created !== "OK") return;
+    const done = sample.status === "Done";
+    const index = done ? "joehub:tasks:done" : "joehub:tasks:active";
+    const score = done ? sample.completedAt : sample.createdAt;
+    await command(["ZADD", k(index), String(score), sample.id]);
+  }
+
+  async function addMissingSamples(samples, version) {
+    const flagKey = k(`joehub:tasks:seeded:${version}`);
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const sample of samples) await placeSample(sample);
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
+  async function ensureBotSamples(samples) {
     const flagKey = k("joehub:tasks:seeded:v2");
     if ((await command(["GET", flagKey])) != null) return;
-    for (const sample of SAMPLE_TASKS) {
+    for (const sample of samples) {
       if (!sample.bot) continue;
       const key = k(`joehub:task:${sample.id}`);
       const existing = await readJson(key);
@@ -84,15 +100,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
 
   async function ensureSeeded() {
     const flagKey = k("joehub:tasks:seeded");
-    const flag = await command(["GET", flagKey]);
-    if (flag == null) {
-      for (const sample of SAMPLE_TASKS) {
-        await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample)]);
-        await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
-      }
+    const samples = buildSampleTasks(Date.now());
+    if ((await command(["GET", flagKey])) == null) {
+      for (const sample of samples) await placeSample(sample);
       await command(["SET", flagKey, "1", "NX"]);
     }
-    await ensureBotSamples();
+    await ensureBotSamples(samples);
+    await addMissingSamples(samples.filter((sample) => sample.status !== "Done"), "v3");
+    await addMissingSamples(samples.filter((sample) => sample.status === "Done"), "v4");
   }
 
   const tasks = {
