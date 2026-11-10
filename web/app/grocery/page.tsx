@@ -602,6 +602,7 @@ export default function GroceryPage() {
           <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-delete-title" id="grocery-delete-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
             <h2 id="grocery-delete-title" className="text-section font-medium">Delete this item?</h2>
             <p className="mt-2 break-words text-body">{draft.name.trim()}</p>
+            <p className="mt-2 text-body text-muted">This can't be undone.</p>
             {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
             <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void removeItem()} disabled={offline || saving}>
               Delete
