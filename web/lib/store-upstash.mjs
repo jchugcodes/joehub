@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { performCreate as performGroceryCreate, SAMPLE_GROCERY } from "./grocery.mjs";
-import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
+import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -320,18 +320,22 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async listUnfinishedTasks(now) {
       await ensureSeeded();
-      await tasks.purgeDone(now);
       const ids = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
-      const rows = [];
+      const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
+      const open = [];
       for (const id of ids) {
         const task = await readJson(k(`joehub:task:${id}`));
-        if (task && task.status !== "Done") rows.push(task);
+        if (task && task.status !== "Done") open.push(task);
       }
-      return unfinishedNewestFirst(rows);
+      const done = [];
+      for (const id of doneIds) {
+        const task = await readJson(k(`joehub:task:${id}`));
+        if (task && task.status === "Done") done.push(task);
+      }
+      return [...unfinishedNewestFirst(open), ...recentCompletedNewestFirst(done, now)];
     },
     async searchTasks(query, now) {
       await ensureSeeded();
-      await tasks.purgeDone(now);
       const activeIds = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
       const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
       const unfinished = [];
@@ -339,13 +343,13 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         const task = await readJson(k(`joehub:task:${id}`));
         if (task && task.status !== "Done") unfinished.push(task);
       }
-      const windowStart = now - DONE_WINDOW_MS;
-      const recentDone = [];
+      const done = [];
       for (const id of doneIds) {
         const task = await readJson(k(`joehub:task:${id}`));
-        if (task && task.status === "Done" && task.completedAt >= windowStart) recentDone.push(task);
+        if (task && task.status === "Done") done.push(task);
       }
-      return combineSearch(unfinished, recentDone, query);
+      done.sort((left, right) => (right.completedAt || 0) - (left.completedAt || 0));
+      return combineSearch(unfinished, done, query);
     },
     async createTask(raw, idemKey, now, scope) {
       await ensureSeeded();
