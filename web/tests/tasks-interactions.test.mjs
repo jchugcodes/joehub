@@ -447,7 +447,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await devtoolsOffline();
     await waitFor(
       send,
-      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
+      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline') ? 'yes' : ''",
       "offline 390",
     );
     const offline = await evalPage(
@@ -462,8 +462,10 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         };
       })()`,
     );
-    assert.match(offline.banner, /Offline · read-only/);
+    assert.match(offline.banner, /Offline/);
+    assert.doesNotMatch(offline.banner, /read-only/);
     assert.match(offline.banner, /Last updated /);
+    assert.match(offline.banner, /America\/Detroit/);
     assert.equal(offline.saveDisabled, true);
     assert.equal(offline.addDisabled, true);
     assert.equal(offline.kept, true);
@@ -485,7 +487,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await devtoolsOffline();
     await waitFor(
       send,
-      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
+      "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline') ? 'yes' : ''",
       "offline 1280",
     );
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");

@@ -202,7 +202,7 @@ async function goOffline(send) {
   );
   await waitFor(
     send,
-    "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline · read-only') ? 'yes' : ''",
+    "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline') ? 'yes' : ''",
     "offline",
   );
 }
@@ -316,8 +316,10 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
         };
       })()`,
     );
-    assert.match(offline.banner, /Offline · read-only/);
+    assert.match(offline.banner, /Offline/);
+    assert.doesNotMatch(offline.banner, /read-only/);
     assert.match(offline.banner, /Last updated /);
+    assert.match(offline.banner, /America\/Detroit/);
     assert.equal(offline.searchDisabled, true);
     assert.equal(offline.searchButtonDisabled, true);
     assert.equal(offline.completesDisabled, true);
