@@ -337,9 +337,9 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
       await gotoGrocery(send, width);
       await waitFor(send, "document.body.innerText.includes('Bananas') ? 'yes' : ''", `list ${width}`);
       await devtoolsOffline();
-      await waitFor(send, "document.querySelector(\"[data-link='offline']\")?.textContent.trim() === 'Offline' ? 'yes' : ''", `offline ${width}`);
+      await waitFor(send, "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Offline') && document.querySelector(\"[data-link='offline']\")?.textContent.includes('Last updated') ? 'yes' : ''", `offline ${width}`);
       assert.equal(await evalPage(send, "document.body.innerText.includes('Bananas') ? 'yes' : 'no'"), "yes");
-      assert.equal(await evalPage(send, "document.body.innerText.includes('Last updated') ? 'yes' : 'no'"), "no");
+      assert.equal(await evalPage(send, "document.querySelector(\"[data-link='offline']\")?.textContent.includes('America/Detroit') && !document.querySelector(\"[data-link='offline']\")?.textContent.includes('read-only') ? 'yes' : 'no'"), "yes");
       const add = await evalPage(
         send,
         `(() => {
@@ -362,7 +362,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
         })()`,
       );
       await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-      await waitFor(send, "document.querySelector(\"[data-link='reconnecting']\")?.textContent.trim() === 'Reconnecting' ? 'yes' : ''", `reconnecting ${width}`, 20000);
+      await waitFor(send, "document.querySelector(\"[data-link='reconnecting']\")?.textContent.trim() === 'Reconnecting…' ? 'yes' : ''", `reconnecting ${width}`, 20000);
       await shot(send, reconnectName);
       await waitFor(send, "document.querySelector(\"[data-link='back']\")?.innerText.includes('Back online') ? 'yes' : ''", `back ${width}`, 20000);
       assert.equal(await evalPage(send, "document.body.innerText.includes('Bananas') ? 'yes' : 'no'"), "yes");

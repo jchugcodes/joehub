@@ -70,11 +70,23 @@ function metaLine(item: GroceryItem) {
   return quantity || section;
 }
 
+function formatDetroit(ms: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(ms);
+}
+
 export default function GroceryPage() {
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [offline, setOffline] = useState(false);
   const [link, setLink] = useState<"live" | "offline" | "reconnecting" | "back">("live");
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [sheet, setSheet] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [nameError, setNameError] = useState("");
@@ -90,6 +102,7 @@ export default function GroceryPage() {
   const showCached = useCallback((snap: { savedAt: number; items: GroceryItem[] } | null) => {
     if (snap) {
       setItems(snap.items);
+      setSavedAt(snap.savedAt);
       setMode("ready");
     }
     downRef.current = true;
@@ -109,6 +122,7 @@ export default function GroceryPage() {
       const at = Date.now();
       await writeCache(next, at);
       setItems(next);
+      setSavedAt(at);
       const recovered = downRef.current;
       downRef.current = false;
       setOffline(false);
@@ -279,14 +293,16 @@ export default function GroceryPage() {
 
   const banners = (
     <>
-      {link === "offline" ? (
+      {link === "offline" && savedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
           Offline
+          <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
+          <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
         <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
-          Reconnecting
+          Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
@@ -304,6 +320,7 @@ export default function GroceryPage() {
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`grocery-type ${wide ? "flex min-w-0 items-start gap-6 px-8 pt-4" : "min-w-0"}`}>
       <div className={`min-w-0 flex-1 ${wide ? (sheet ? "max-w-[520px] opacity-50" : "max-w-[640px]") : ""}`}>
         <header className={wide ? "" : "px-5 pt-2"}>
+          <p className="text-meta text-muted">joehub</p>
           <h1 className="text-page font-medium">Grocery</h1>
         </header>
         {banners}
@@ -438,7 +455,6 @@ export default function GroceryPage() {
                   value={draft.quantity}
                   aria-invalid={quantityError ? true : undefined}
                   aria-describedby={quantityError ? "grocery-quantity-error" : undefined}
-                  placeholder="Optional"
                   onChange={(event) => {
                     setDraft({ ...draft, quantity: event.target.value });
                     if (quantityError) setQuantityError("");
@@ -455,7 +471,6 @@ export default function GroceryPage() {
                   id="grocery-section"
                   value={draft.section}
                   list="grocery-sections"
-                  placeholder="Suggestions…"
                   onChange={(event) => setDraft({ ...draft, section: event.target.value })}
                   className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-body"
                   autoComplete="off"
@@ -474,7 +489,6 @@ export default function GroceryPage() {
             <textarea
               id="grocery-notes"
               value={draft.notes}
-              placeholder="Optional"
               onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
               rows={2}
               className="mt-1.5 w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-3 text-body"
