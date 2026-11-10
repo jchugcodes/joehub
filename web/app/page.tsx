@@ -7,12 +7,19 @@ import { store } from "../lib/store.mjs";
 
 export const dynamic = "force-dynamic";
 
+type HomeOverview = {
+  netWorthCents: number;
+  chart?: { caption?: string };
+  month: { spentCents: number; planCents: number; percent: number };
+  caps?: { slug: string; name: string; status: string }[];
+};
+
 export default async function HomePage() {
   const now = Date.now();
-  let overview = null;
+  let overview: HomeOverview | null = null;
   try {
     const result = await store.financeOverview(now);
-    if (result && result.status === 200) overview = result.body;
+    if (result && result.status === 200) overview = result.body as HomeOverview;
   } catch {
     overview = null;
   }
