@@ -489,7 +489,7 @@ export default function TasksPage() {
       <div className="relative min-w-0 flex-1">
       <header className="px-5 pt-3">
         <p className="text-meta text-muted">joehub</p>
-        <h1 className="text-page font-medium">Tasks</h1>
+        <h1 className="text-title font-medium">Tasks</h1>
         {tasks.some((task) => task.bot) ? <p className="mt-1 text-meta font-medium text-[#3A86C8]">Bot progress</p> : null}
       </header>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
