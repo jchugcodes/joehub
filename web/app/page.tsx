@@ -33,9 +33,10 @@ export default async function HomePage() {
   const spentWidth = overview ? Math.min(100, Math.max(0, overview.month.percent)) : 0;
   const tasks = (await store.listUnfinishedTasks()) as HomeTask[];
   const today = detroitToday(now);
-  const blocked = tasks.filter((task) => task.status === "Blocked").length;
-  const dueToday = tasks.filter((task) => task.dueDate === today);
-  const highlight = dueToday[0] || tasks[0] || null;
+  const open = tasks.filter((task) => task.status !== "Done");
+  const blocked = open.filter((task) => task.status === "Blocked").length;
+  const dueToday = open.filter((task) => task.dueDate === today);
+  const highlight = dueToday[0] || open[0] || null;
   return (
     <div>
       <header className="flex items-center justify-between px-5 pt-2">
@@ -126,7 +127,7 @@ export default async function HomePage() {
           <span aria-hidden className="text-inactive">›</span>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <p><span className="block text-title font-medium">{tasks.length}</span><span className="text-meta text-muted">Open</span></p>
+          <p><span className="block text-title font-medium">{open.length}</span><span className="text-meta text-muted">Open</span></p>
           <p><span className="block text-title font-medium text-[#E07A5F]">{blocked}</span><span className="text-meta text-muted">Blocked</span></p>
           <p><span className="block text-title font-medium text-[#C4A035]">{dueToday.length}</span><span className="text-meta text-muted">Due today</span></p>
         </div>
