@@ -11,6 +11,7 @@ import {
   createMemoryBackend,
   detroitDay,
   HANDOFF_ID,
+  KIT_ID,
   IDEMPOTENCY_TTL_MS,
   installMemoryTasks,
   performCreate,
@@ -213,6 +214,53 @@ test("an existing seed gains the handoff task without rewriting the others", asy
     const posterSets = fake.commands.filter((args) => args[0] === "SET" && args[1] === `joehub:task:${poster.id}`);
     assert.equal(posterSets.filter((args) => !args.includes("NX")).length, 1);
     assert.equal(JSON.parse(posterSets.find((args) => !args.includes("NX"))[2]).title, "Sketch the edited poster");
+  } finally {
+    fake.stop();
+  }
+});
+
+test("sample search includes the done kit and leaves an edited task alone", async () => {
+  const fake = await startFakeUpstash();
+  const poster = buildSampleTasks().find((task) => task.title === "Sketch the sample poster");
+  try {
+    await fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(["SET", "joehub:tasks:seeded", "1"]),
+    });
+    await fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(["SET", "joehub:tasks:seeded:v3", "1"]),
+    });
+    for (const sample of buildSampleTasks()) {
+      if (sample.status === "Done") continue;
+      const stored = sample.id === poster.id ? { ...sample, title: "Sketch the sample poster edited" } : sample;
+      await fetch(fake.url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+        body: JSON.stringify(["SET", `joehub:task:${sample.id}`, JSON.stringify(stored)]),
+      });
+      await fetch(fake.url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+        body: JSON.stringify(["ZADD", "joehub:tasks:active", String(sample.createdAt), sample.id]),
+      });
+    }
+    const store = createUpstashStore({ url: fake.url, token: fake.token });
+    const found = await store.searchTasks("sample", Date.now());
+    assert.deepEqual(found.map((task) => task.title).sort(), ["Hold for the sample reply", "Ship the sample kit", "Sketch the sample poster edited"]);
+    const kit = found.find((task) => task.id === KIT_ID);
+    assert.equal(kit.status, "Done");
+    assert.equal(kit.project, "joehub");
+    const listed = await store.listUnfinishedTasks(Date.now());
+    const open = listed.filter((task) => task.status !== "Done");
+    assert.equal(open.length, 4);
+    assert.equal(open.filter((task) => task.status === "Blocked").length, 1);
+    assert.equal(open.filter((task) => task.dueDate === detroitDay()).map((task) => task.title).join(","), "Draft the handoff note");
+    assert.equal(listed.find((task) => task.id === poster.id).title, "Sketch the sample poster edited");
+    assert.equal(fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded:v4").length, 1);
+    assert.equal(fake.commands.filter((args) => args[0] === "SET" && args[1] === `joehub:task:${poster.id}` && !args.includes("NX")).length, 1);
   } finally {
     fake.stop();
   }

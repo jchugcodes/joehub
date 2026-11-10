@@ -30,6 +30,12 @@ const CREATE_STATUSES = new Set(["To do", "Doing", "Blocked"]);
 const PATCH_FIELDS = new Set(["title", "notes", "dueDate", "priority", "status", "project"]);
 
 export const HANDOFF_ID = "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4";
+export const KIT_ID = "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5";
+
+function kitCompletedAt(now) {
+  const [year, month, day] = detroitCalendarDate(now).split("-").map(Number);
+  return Date.UTC(year, month - 1, day - 3, 17, 0, 0);
+}
 
 export function detroitDay(now = Date.now()) {
   return detroitCalendarDate(now);
@@ -74,6 +80,16 @@ export function buildSampleTasks(now = Date.now()) {
       dueDate: detroitDay(now),
       createdAt: 1_759_000_000_000,
       updatedAt: 1_759_000_000_000,
+    },
+    {
+      id: KIT_ID,
+      title: "Ship the sample kit",
+      status: "Done",
+      priority: "Medium",
+      project: "joehub",
+      completedAt: kitCompletedAt(now),
+      createdAt: 1_758_000_000_000,
+      updatedAt: kitCompletedAt(now),
     },
   ];
 }

@@ -425,6 +425,16 @@ export default function TasksPage() {
     void load();
   }
 
+  useEffect(() => {
+    if (offline || mode === "loading") return undefined;
+    const handle = window.setTimeout(() => {
+      if (query.trim() === queryRef.current.trim()) return;
+      queryRef.current = query;
+      void load();
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [query, offline, mode, load]);
+
   function clearSearch() {
     if (offline) return;
     queryRef.current = "";
@@ -525,6 +535,7 @@ export default function TasksPage() {
           {gone}
         </p>
       ) : null}
+      {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
       <form className="mt-4 px-4" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="task-search">
           Search tasks
@@ -548,6 +559,7 @@ export default function TasksPage() {
           ) : null}
         </div>
       </form>
+      )}
       {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
