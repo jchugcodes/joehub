@@ -89,7 +89,6 @@ export default function HomePage() {
           <span aria-hidden className="text-inactive">›</span>
         </div>
         <p className="mt-1 text-body font-medium">Open tasks</p>
-        <p className="text-meta font-normal text-muted">Unfinished work, newest first. Counts load on the tasks page.</p>
         <span className="mt-2.5 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-white">Open tasks</span>
       </Link>
 
