@@ -362,8 +362,13 @@ export default function TasksPage() {
       ) : null}
       {mode === "ready" && tasks.length === 0 ? (
         <div className="px-4" data-empty="true">
-          <div className="card mt-4 p-4">
-            <h2 className="text-section font-medium">No unfinished tasks</h2>
+          <div className="mt-10 flex flex-col items-center">
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-[#E4E6E2] text-ink">
+              <span className="grid h-7 w-7 place-items-center rounded-md border-2 border-current">
+                <Icon name="check" size={16} />
+              </span>
+            </span>
+            <h2 className="mt-4 text-section font-medium">No unfinished tasks</h2>
           </div>
         </div>
       ) : null}

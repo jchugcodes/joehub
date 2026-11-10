@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { performCreate, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
+import { buildSampleTasks, performCreate, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -62,15 +62,31 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
   }
 
-  async function ensureSeeded() {
-    const flagKey = k("joehub:tasks:seeded");
-    const flag = await command(["GET", flagKey]);
-    if (flag != null) return;
-    for (const sample of SAMPLE_TASKS) {
-      await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample)]);
-      await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+  async function addMissingSamples(samples, version) {
+    const flagKey = k(`joehub:tasks:seeded:${version}`);
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const sample of samples) {
+      const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+      if (created === "OK") {
+        await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+      }
     }
     await command(["SET", flagKey, "1", "NX"]);
+  }
+
+  async function ensureSeeded() {
+    const flagKey = k("joehub:tasks:seeded");
+    const samples = buildSampleTasks(Date.now());
+    if ((await command(["GET", flagKey])) == null) {
+      for (const sample of samples) {
+        const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+        if (created === "OK") {
+          await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+        }
+      }
+      await command(["SET", flagKey, "1", "NX"]);
+    }
+    await addMissingSamples(samples, "v3");
   }
 
   const tasks = {

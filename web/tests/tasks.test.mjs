@@ -6,7 +6,10 @@ import { createLimiter } from "../lib/ratelimit.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
 import {
+  buildSampleTasks,
   createMemoryBackend,
+  detroitDay,
+  HANDOFF_ID,
   IDEMPOTENCY_TTL_MS,
   installMemoryTasks,
   performCreate,
@@ -161,6 +164,50 @@ test("upstash returns the stored task when the idempotency write fails", async (
     const listed = await store.listUnfinishedTasks();
     assert.equal(listed.filter((task) => task.id === retried.body.id).length, 1);
     assert.equal(listed.filter((task) => task.title === "Other").length, 0);
+  } finally {
+    fake.stop();
+  }
+});
+
+test("an existing seed gains the handoff task without rewriting the others", async () => {
+  const fake = await startFakeUpstash();
+  const poster = buildSampleTasks().find((task) => task.title === "Sketch the sample poster");
+  try {
+    await fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(["SET", "joehub:tasks:seeded", "1"]),
+    });
+    await fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(["SET", `joehub:task:${poster.id}`, JSON.stringify({ ...poster, title: "Sketch the edited poster" })]),
+    });
+    await fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(["ZADD", "joehub:tasks:active", String(poster.createdAt), poster.id]),
+    });
+    const store = createUpstashStore({ url: fake.url, token: fake.token });
+    const listed = await store.listUnfinishedTasks();
+    const edited = listed.find((task) => task.id === poster.id);
+    const handoff = listed.find((task) => task.id === HANDOFF_ID);
+    assert.equal(edited.title, "Sketch the edited poster");
+    assert.equal(handoff.title, "Draft the handoff note");
+    assert.equal(handoff.dueDate, detroitDay());
+    assert.equal(handoff.project, "joehub");
+    assert.equal(handoff.priority, "High");
+    const open = listed.filter((task) => task.status !== "Done");
+    assert.equal(open.length, 4);
+    assert.equal(open.filter((task) => task.status === "Blocked").length, 1);
+    assert.equal(open.filter((task) => task.dueDate === detroitDay()).length, 1);
+    assert.equal(open.filter((task) => task.dueDate === detroitDay())[0].title, "Draft the handoff note");
+    const again = await store.listUnfinishedTasks();
+    assert.equal(again.find((task) => task.id === poster.id).title, "Sketch the edited poster");
+    assert.equal(fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded:v3").length, 1);
+    const posterSets = fake.commands.filter((args) => args[0] === "SET" && args[1] === `joehub:task:${poster.id}`);
+    assert.equal(posterSets.filter((args) => !args.includes("NX")).length, 1);
+    assert.equal(JSON.parse(posterSets.find((args) => !args.includes("NX"))[2]).title, "Sketch the edited poster");
   } finally {
     fake.stop();
   }
