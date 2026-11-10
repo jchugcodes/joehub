@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 
@@ -39,6 +40,39 @@ const emptyDraft = (): Draft => ({
   status: "To do",
   project: "",
 });
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const STATUS_CLASS: Record<string, string> = {
+  Doing: "bg-[#3A86C81F] text-[#3A86C8]",
+  "To do": "bg-[#EEF0EC] text-[#6B746E]",
+  Blocked: "bg-[#E07A5F1F] text-[#E07A5F]",
+  Done: "bg-[#2E8B6A1F] text-[#2E8B6A]",
+};
+
+function detroitToday(now = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+function dueLabel(iso: string, today = detroitToday()) {
+  if (!iso) return "";
+  if (iso === today) return "Due Today";
+  const month = Number(iso.slice(5, 7));
+  const day = Number(iso.slice(8, 10));
+  if (!month || !day) return `Due ${iso}`;
+  return `Due ${MONTHS[month - 1]} ${day}`;
+}
+
+function completedLabel(ms: number) {
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+  const month = Number(ymd.slice(5, 7));
+  const day = Number(ymd.slice(8, 10));
+  if (!month || !day) return "Completed";
+  return `Completed ${MONTHS[month - 1]} ${day}`;
+}
+
+function taskMeta(task: Task, today = detroitToday()) {
+  return [task.project, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
+}
 
 function formatDetroit(ms: number) {
   return new Intl.DateTimeFormat("en-US", {
@@ -465,80 +499,50 @@ export default function TasksPage() {
         : [...seen.filter((label) => label !== "No project").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No project")];
     return labels.map((label) => ({ key: label, label, items: source.filter((task) => labelFor(task) === label) }));
   }, [activeQuery, group, openTasks, tasks]);
+  const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
+  const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
   function renderTask(task: Task) {
     const done = task.status === "Done";
+    const meta = taskMeta(task);
     return (
-      <li key={task.id} className="card min-w-0 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
+      <li key={task.id} className="card flex min-w-0 items-start gap-1 p-2">
+        <button
+          type="button"
+          data-complete={done ? undefined : "true"}
+          data-reopen={done ? "true" : undefined}
+          className="grid h-11 w-11 shrink-0 place-items-center disabled:opacity-50"
+          aria-label={done ? `Reopen ${task.title}` : `Complete ${task.title}`}
+          disabled={controlsDisabled}
+          onClick={() => void (done ? reopenTask(task) : completeTask(task))}
+        >
+          <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${done ? "border-[#2E8B6A] bg-[#2E8B6A] text-white" : "border-[#C9CEC8]"}`}>
+            {done ? <Icon name="check" size={14} /> : null}
+          </span>
+        </button>
+        <div className="min-w-0 flex-1 py-2 pr-2">
+          <button type="button" className="block w-full text-left disabled:opacity-50" aria-label={`Edit ${task.title}`} disabled={offline} onClick={() => openEdit(task)}>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
+              <span data-done={done ? "true" : undefined} className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>
+                {task.status}
+              </span>
+            </div>
+            {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
+            {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
+            {done && typeof task.completedAt === "number" ? <p className="mt-1 text-meta text-muted">{completedLabel(task.completedAt)}</p> : null}
+          </button>
           {done ? (
-            <span data-done="true" className="shrink-0 rounded-full bg-ink px-2 py-1 text-meta font-medium text-white">
-              Done
-            </span>
-          ) : (
-            <span className="shrink-0 text-meta font-medium">{task.status}</span>
-          )}
-        </div>
-        {task.project ? <p className="mt-1 break-words text-meta text-muted">{task.project}</p> : null}
-        <p className="mt-2 text-meta text-muted">
-          {task.priority ? <span>{task.priority}</span> : null}
-          {task.priority && task.dueDate ? <span> · </span> : null}
-          {task.dueDate ? <span>Due {task.dueDate}</span> : null}
-          {!task.priority && !task.dueDate ? <span>No due date</span> : null}
-        </p>
-        {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
-        <div className="mt-3 flex gap-2">
-          {done ? (
-            <>
-              <button
-                type="button"
-                data-reopen="true"
-                className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                aria-label={`Reopen ${task.title}`}
-                disabled={controlsDisabled}
-                onClick={() => void reopenTask(task)}
-              >
-                Reopen
-              </button>
-              <button
-                type="button"
-                data-delete="true"
-                className="flex min-h-11 items-center justify-center rounded-xl border border-[#E07A5F] px-3 text-body font-medium text-[#E07A5F] disabled:opacity-50"
-                aria-label={`Delete ${task.title}`}
-                disabled={controlsDisabled}
-                onClick={() => {
-                  setEditingId(task.id);
-                  setDraft({ ...emptyDraft(), title: task.title });
-                  setFormError("");
-                  setConfirmDelete(true);
-                }}
-              >
-                Delete
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                aria-label={`Edit ${task.title}`}
-                disabled={offline}
-                onClick={() => openEdit(task)}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                data-complete="true"
-                className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
-                aria-label={`Complete ${task.title}`}
-                disabled={controlsDisabled}
-                onClick={() => void completeTask(task)}
-              >
-                Complete
-              </button>
-            </>
-          )}
+            <button
+              type="button"
+              data-reopen="true"
+              className="mt-2 flex min-h-11 items-center justify-center rounded-xl border border-line px-3 text-body font-medium disabled:opacity-50"
+              aria-label={`Reopen ${task.title}`}
+              disabled={controlsDisabled}
+              onClick={() => void reopenTask(task)}
+            >
+              Reopen
+            </button>
+          ) : null}
         </div>
       </li>
     );
@@ -547,69 +551,69 @@ export default function TasksPage() {
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="relative min-w-0 flex-1">
-      <header className="px-5 pt-3">
-        <p className="text-meta text-muted">joehub</p>
-        <h1 className="text-title font-medium">Tasks</h1>
+      <header className="flex items-start justify-between gap-3 px-5 pt-3">
+        <div>
+          <p className="text-meta text-muted">joehub</p>
+          <h1 className="text-title font-medium">Tasks</h1>
+        </div>
+        <button type="button" aria-label="Search tasks" className="grid h-11 w-11 place-items-center text-ink" onClick={() => document.getElementById("task-search")?.focus()}>
+          <Icon name="search" size={22} />
+        </button>
       </header>
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
           <span>Back online</span>
-          <button type="button" className="pointer-events-auto text-meta font-medium text-muted" onClick={() => setLink("live")}>
+          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
         </p>
       ) : null}
-      </div>
+      {offline ? (
+        <div className="mt-3 px-4">
+          <button type="button" className="flex min-h-11 w-full items-center justify-center rounded-xl border border-line bg-surface px-4 text-body font-medium text-muted" disabled>
+            Add a task
+          </button>
+        </div>
+      ) : null}
       {gone ? (
         <p role="alert" data-missing="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-meta font-medium">
           {gone}
         </p>
       ) : null}
       <form className="mt-4 px-4" onSubmit={submitSearch}>
-        <label className="block text-meta font-medium" htmlFor="task-search">
-          Search
+        <label className="sr-only" htmlFor="task-search">
+          Search tasks
         </label>
-        <div className="mt-1 flex min-w-0 gap-2">
+        <div className="flex min-h-12 items-center gap-2 rounded-full border border-line bg-surface px-3">
+          <Icon name="search" size={18} className="shrink-0 text-muted" />
           <input
             id="task-search"
             type="search"
             value={query}
+            placeholder="Search tasks"
             disabled={controlsDisabled}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-3 text-body disabled:opacity-50"
+            className="min-w-0 flex-1 bg-transparent py-3 text-body outline-none disabled:opacity-50"
             autoComplete="off"
           />
-          <button
-            type="submit"
-            className="flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-            disabled={controlsDisabled}
-          >
-            Search
-          </button>
+          {query ? (
+            <button type="button" className="min-h-11 shrink-0 px-2 text-body text-muted disabled:opacity-50" onClick={clearSearch} disabled={controlsDisabled}>
+              Clear
+            </button>
+          ) : null}
         </div>
-        {activeQuery ? (
-          <button
-            type="button"
-            className="mt-2 flex min-h-11 items-center text-meta font-medium disabled:opacity-50"
-            onClick={clearSearch}
-            disabled={controlsDisabled}
-          >
-            Clear search
-          </button>
-        ) : null}
       </form>
       <div className="mt-3 flex flex-wrap items-center gap-2 px-4" role="group" aria-label="Group tasks">
         {(
@@ -635,16 +639,7 @@ export default function TasksPage() {
           </button>
         ) : null}
       </div>
-      <div className="mt-4 px-4">
-        <button
-          type="button"
-          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
-          onClick={openAdd}
-          disabled={addDisabled}
-        >
-          Add a task
-        </button>
-      </div>
+      {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
           Loading tasks…
@@ -713,6 +708,24 @@ export default function TasksPage() {
           <ul className="mt-2 space-y-3 px-4">{completedTasks.map((task) => renderTask(task))}</ul>
         </section>
       ) : null}
+      {showAddBar && !offline ? (
+        <div className="mt-4 px-4">
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+            onClick={openAdd}
+            disabled={addDisabled}
+          >
+            Add a task
+          </button>
+        </div>
+      ) : null}
+      {showFab ? (
+        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-lg" onClick={openAdd}>
+          <Icon name="plus" size={22} />
+          <span className="sr-only">Add a task</span>
+        </button>
+      ) : null}
       </div>
       {sheet ? (
         <Sheet
@@ -721,6 +734,18 @@ export default function TasksPage() {
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
+          aside={
+            sheet === "edit" ? (
+              <button
+                type="button"
+                className="min-h-11 px-1 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                disabled={offline}
+              >
+                Delete
+              </button>
+            ) : null
+          }
           actions={
             wide ? (
               <div className="flex gap-2">
@@ -740,16 +765,6 @@ export default function TasksPage() {
           }
         >
           <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
-            {sheet === "edit" ? (
-              <button
-                type="button"
-                className="mb-3 text-meta font-medium text-[#E07A5F] disabled:opacity-50"
-                onClick={() => setConfirmDelete(true)}
-                disabled={offline}
-              >
-                Delete
-              </button>
-            ) : null}
             <label className="block text-meta font-medium" htmlFor="task-title">
               Title
             </label>
