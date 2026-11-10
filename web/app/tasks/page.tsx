@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 
@@ -38,6 +39,31 @@ const emptyDraft = (): Draft => ({
   status: "To do",
   project: "",
 });
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const STATUS_CLASS: Record<string, string> = {
+  Doing: "bg-[#3A86C81F] text-[#3A86C8]",
+  "To do": "bg-[#EEF0EC] text-[#6B746E]",
+  Blocked: "bg-[#E07A5F1F] text-[#E07A5F]",
+  Done: "bg-[#2E8B6A1F] text-[#2E8B6A]",
+};
+
+function detroitToday(now = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+function dueLabel(iso: string, today = detroitToday()) {
+  if (!iso) return "";
+  if (iso === today) return "Due Today";
+  const month = Number(iso.slice(5, 7));
+  const day = Number(iso.slice(8, 10));
+  if (!month || !day) return `Due ${iso}`;
+  return `Due ${MONTHS[month - 1]} ${day}`;
+}
+
+function taskMeta(task: Task, today = detroitToday()) {
+  return [task.project, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
+}
 
 function formatDetroit(ms: number) {
   return new Intl.DateTimeFormat("en-US", {
@@ -323,6 +349,8 @@ export default function TasksPage() {
   }
 
   const addDisabled = offline || mode !== "ready";
+  const showFab = !wide && !offline && mode === "ready" && tasks.length > 0;
+  const showAddBar = !showFab && !offline && (wide || (mode === "ready" && tasks.length === 0));
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
@@ -331,43 +359,38 @@ export default function TasksPage() {
         <p className="text-meta text-muted">joehub</p>
         <h1 className="text-title font-medium">Tasks</h1>
       </header>
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
           <span>Back online</span>
-          <button type="button" className="pointer-events-auto text-meta font-medium text-muted" onClick={() => setLink("live")}>
+          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
         </p>
       ) : null}
-      </div>
+      {offline ? (
+        <div className="mt-3 px-4">
+          <button type="button" className="flex min-h-11 w-full items-center justify-center rounded-xl border border-line bg-surface px-4 text-body font-medium text-muted" disabled>
+            Add a task
+          </button>
+        </div>
+      ) : null}
       {gone ? (
         <p role="alert" data-missing="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-meta font-medium">
           {gone}
         </p>
       ) : null}
-      <div className="mt-4 px-4">
-        <button
-          type="button"
-          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
-          onClick={openAdd}
-          disabled={addDisabled}
-        >
-          Add a task
-        </button>
-      </div>
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
           Loading tasks…
@@ -397,7 +420,9 @@ export default function TasksPage() {
       ) : null}
       {mode === "ready" && tasks.length > 0 ? (
         <ul aria-label="Unfinished tasks" className="mt-4 space-y-3 px-4">
-          {tasks.map((task) => (
+          {tasks.map((task) => {
+            const meta = taskMeta(task);
+            return (
             <li key={task.id} className="min-w-0">
               <button
                 type="button"
@@ -408,20 +433,33 @@ export default function TasksPage() {
               >
               <div className="flex items-start justify-between gap-3">
                 <h2 className="min-w-0 break-words text-body font-medium">{task.title}</h2>
-                <span className="shrink-0 text-meta font-medium">{task.status}</span>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>{task.status}</span>
               </div>
-              {task.project ? <p className="mt-1 break-words text-meta text-muted">{task.project}</p> : null}
-              <p className="mt-2 text-meta text-muted">
-                {task.priority ? <span>{task.priority}</span> : null}
-                {task.priority && task.dueDate ? <span> · </span> : null}
-                {task.dueDate ? <span>Due {task.dueDate}</span> : null}
-                {!task.priority && !task.dueDate ? <span>No due date</span> : null}
-              </p>
+              {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
               {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
+      ) : null}
+      {showAddBar && !offline ? (
+        <div className="mt-4 px-4">
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+            onClick={openAdd}
+            disabled={addDisabled}
+          >
+            Add a task
+          </button>
+        </div>
+      ) : null}
+      {showFab ? (
+        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-lg" onClick={openAdd}>
+          <Icon name="plus" size={22} />
+          <span className="sr-only">Add a task</span>
+        </button>
       ) : null}
       </div>
       {sheet ? (
