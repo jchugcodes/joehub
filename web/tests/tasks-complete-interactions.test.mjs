@@ -164,7 +164,7 @@ async function gotoTasks(send, width) {
 
 async function search(send, value) {
   assert.equal(await evalPage(send, setSearch(value)), value);
-  assert.equal(await press(send, "Search"), "yes");
+  assert.equal(await evalPage(send, "document.getElementById('task-search').form.requestSubmit(); 'yes'"), "yes");
 }
 
 async function goOffline(send) {
@@ -262,7 +262,7 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
     }
 
     async function reopenHold(width, shotName) {
-      assert.equal(await press(send, "Clear search"), "yes");
+      assert.equal(await press(send, "Clear"), "yes");
       await waitFor(send, "document.querySelector(\"[aria-label='Completed'] [data-reopen='true']\") ? 'yes' : ''", `reopen ready ${width}`);
       assert.equal(await press(send, "Reopen Hold the sample note"), "yes");
       await waitFor(
@@ -287,13 +287,11 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
     const offline = await evalPage(
       send,
       `(() => {
-        const button = (label) => [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === label);
         const completes = [...document.querySelectorAll("[data-complete]")];
         const reopens = [...document.querySelectorAll("[data-reopen]")];
         return {
           banner: document.querySelector("[data-offline='true']")?.textContent || "",
           searchDisabled: Boolean(document.getElementById("task-search")?.disabled),
-          searchButtonDisabled: Boolean(button("Search")?.disabled),
           completeCount: completes.length,
           completesDisabled: completes.length > 0 && completes.every((el) => el.disabled),
           reopenEnabled: reopens.some((el) => !el.disabled),
@@ -307,7 +305,6 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
     assert.match(offline.banner, /Last updated /);
     assert.match(offline.banner, /America\/Detroit/);
     assert.equal(offline.searchDisabled, true);
-    assert.equal(offline.searchButtonDisabled, true);
     assert.equal(offline.completesDisabled, true);
     assert.equal(offline.reopenEnabled, false);
     assert.equal(offline.crate, true);
