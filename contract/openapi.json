@@ -38,6 +38,19 @@
         "responses": { "200": { "description": "Synthetic category rows for one week" } }
       }
     },
+    "/api/finance/caps": {
+      "patch": {
+        "operationId": "financeSaveCaps",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Saved weekly caps. The set total stays $390." },
+          "400": { "description": "Invalid amount or the set total changed." }
+        }
+      }
+    },
     "/api/finance/accounts": {
       "get": {
         "operationId": "financeAccounts",

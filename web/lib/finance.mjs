@@ -212,17 +212,53 @@ function spentFor(rows, slug) {
   return rows.reduce((sum, row) => (row.category === slug ? sum + spendCents(row) : sum), 0);
 }
 
-export function capsForWeek(txns, start) {
+export function defaultCaps() {
+  return Object.fromEntries(CATEGORIES.map((item) => [item.slug, item.capCents]));
+}
+
+export const ENVELOPE_CENTS = CATEGORIES.reduce((sum, item) => sum + item.capCents, 0);
+
+export function parseCaps(input, current = defaultCaps()) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, field: CATEGORIES[0].slug, detail: "Enter an amount." };
+  }
+  const caps = {};
+  for (const category of CATEGORIES) {
+    if (!Object.prototype.hasOwnProperty.call(input, category.slug)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    const raw = input[category.slug];
+    if (raw === "" || raw == null) {
+      caps[category.slug] = 0;
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isInteger(raw)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    if (raw < 0) return { ok: false, field: category.slug, detail: "Can’t be negative." };
+    caps[category.slug] = raw;
+  }
+  const total = Object.values(caps).reduce((sum, value) => sum + value, 0);
+  if (total !== ENVELOPE_CENTS) {
+    const increased = CATEGORIES.find((item) => caps[item.slug] > (current[item.slug] || 0));
+    const changed = CATEGORIES.find((item) => caps[item.slug] !== (current[item.slug] || 0));
+    return { ok: false, field: (increased || changed || CATEGORIES[0]).slug, detail: "That total has to stay $390." };
+  }
+  return { ok: true, caps };
+}
+
+export function capsForWeek(txns, start, caps = defaultCaps()) {
   const rows = rowsInWeek(txns, start);
   return CATEGORIES.map((category) => {
+    const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
     const spent = spentFor(rows, category.slug);
-    const state = capState(spent, category.capCents);
+    const state = capState(spent, capCents);
     return {
       slug: category.slug,
       name: category.name,
       color: category.color,
       spentCents: spent,
-      capCents: category.capCents,
+      capCents,
       ...state,
     };
   });
@@ -303,7 +339,7 @@ function recentMeta(row) {
   return `${dateLabel(row.date)} · ${categoryBySlug(row.category)?.name || row.category}`;
 }
 
-export function overview(txns, now, week, range) {
+export function overview(txns, now, week, range, caps = defaultCaps()) {
   const today = detroitYmd(now);
   const start = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : weekStart(today);
   if (start > weekStart(today)) {
@@ -327,7 +363,7 @@ export function overview(txns, now, week, range) {
       netWorthCents: NET_WORTH_CENTS,
       chart: chartFor(txns, today, chosen),
       month: monthProgress(txns, today),
-      caps: capsForWeek(txns, start),
+      caps: capsForWeek(txns, start, caps),
       recent: recent.map((row) => ({
         id: row.id,
         payee: row.payee,
@@ -340,7 +376,7 @@ export function overview(txns, now, week, range) {
   };
 }
 
-export function categoryView(txns, now, week, categoryValue) {
+export function categoryView(txns, now, week, categoryValue, caps = defaultCaps()) {
   const category = resolveCategory(categoryValue);
   if (!category) return { status: 404, body: { detail: "That category is not here." } };
   const today = detroitYmd(now);
@@ -348,11 +384,13 @@ export function categoryView(txns, now, week, categoryValue) {
   if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
   const rows = rowsInWeek(txns, start).filter((row) => row.category === category.slug);
   const spent = rows.reduce((sum, row) => sum + spendCents(row), 0);
-  const state = capState(spent, category.capCents);
+  const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
+  const state = capState(spent, capCents);
   return {
     status: 200,
     body: {
       ...category,
+      capCents,
       spentCents: spent,
       ...state,
       weekStart: start,
@@ -386,10 +424,22 @@ export function publicTransactions(txns) {
 
 export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const rows = txns.map((row) => structuredClone(row));
-  store.financeOverview = (now, week, range) => overview(rows, now, week, range);
-  store.financeCategory = (now, week, category) => categoryView(rows, now, week, category);
+  let caps = defaultCaps();
+  const idem = new Map();
+  store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps);
+  store.financeCategory = (now, week, category) => categoryView(rows, now, week, category, caps);
   store.financeAccounts = async () => structuredClone(ACCOUNTS);
   store.financeGoals = async () => structuredClone(GOALS);
   store.financeTransactions = async () => publicTransactions(rows);
+  store.financeCaps = async () => ({ caps: { ...caps }, envelopeCents: ENVELOPE_CENTS });
+  store.financeSaveCaps = async (body, key) => {
+    if (key && idem.has(key)) return idem.get(key);
+    const parsed = parseCaps(body && body.caps, caps);
+    if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
+    caps = parsed.caps;
+    const result = { status: 200, body: { caps: { ...caps }, envelopeCents: ENVELOPE_CENTS } };
+    if (key) idem.set(key, result);
+    return result;
+  };
   return store;
 }

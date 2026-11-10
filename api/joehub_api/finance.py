@@ -172,13 +172,45 @@ def _rows_in_week(txns, start: str):
     return [effective(row) for row in txns if start <= effective(row)["date"] <= end]
 
 
-def caps_for_week(txns, start: str):
-    rows = _rows_in_week(txns, start)
-    caps = []
+def default_caps() -> dict:
+    return {item["slug"]: item["capCents"] for item in CATEGORIES}
+
+
+ENVELOPE_CENTS = sum(default_caps().values())
+
+
+def parse_caps(raw, current: dict | None = None) -> dict:
+    current = current or default_caps()
+    if not isinstance(raw, dict):
+        return {"ok": False, "field": CATEGORIES[0]["slug"], "detail": "Enter an amount."}
+    caps = {}
     for category in CATEGORIES:
+        slug = category["slug"]
+        if slug not in raw:
+            return {"ok": False, "field": slug, "detail": "Enter an amount."}
+        value = raw[slug]
+        if value in ("", None):
+            caps[slug] = 0
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {"ok": False, "field": slug, "detail": "Can’t be negative." if isinstance(value, int) and value < 0 else "Enter an amount."}
+        caps[slug] = value
+    if sum(caps.values()) != ENVELOPE_CENTS:
+        increased = next((item["slug"] for item in CATEGORIES if caps[item["slug"]] > current.get(item["slug"], 0)), None)
+        changed = next((item["slug"] for item in CATEGORIES if caps[item["slug"]] != current.get(item["slug"], 0)), None)
+        return {"ok": False, "field": increased or changed or CATEGORIES[0]["slug"], "detail": "That total has to stay $390."}
+    return {"ok": True, "caps": caps}
+
+
+def caps_for_week(txns, start: str, caps: dict | None = None):
+    amounts = caps or default_caps()
+    rows = _rows_in_week(txns, start)
+    result = []
+    for category in CATEGORIES:
+        cap_cents = amounts.get(category["slug"], category["capCents"])
         spent = sum(spend_cents(row) for row in rows if row["category"] == category["slug"])
-        caps.append({**category, "spentCents": spent, "capCents": category["capCents"], **_cap_state(spent, category["capCents"])})
-    return caps
+        result.append({**category, "spentCents": spent, "capCents": cap_cents, **_cap_state(spent, cap_cents)})
+    return result
 
 
 def _ytd_points():
@@ -264,7 +296,7 @@ def _meta(row: dict) -> str:
     return f"{_date_label(row['date'])} · {_category_name(row['category'])}"
 
 
-def overview(txns, now_ms: int, week: str = "", selected: str = "") -> dict:
+def overview(txns, now_ms: int, week: str = "", selected: str = "", caps: dict | None = None) -> dict:
     today = detroit_ymd(now_ms)
     start = week_start(week) if week and len(week) == 10 else week_start(today)
     if start > week_start(today):
@@ -287,7 +319,7 @@ def overview(txns, now_ms: int, week: str = "", selected: str = "") -> dict:
             "netWorthCents": NET_WORTH_CENTS,
             "chart": chart_for(txns, today, chosen),
             "month": month_progress(txns, today),
-            "caps": caps_for_week(txns, start),
+            "caps": caps_for_week(txns, start, caps),
             "recent": [
                 {"id": row["id"], "payee": row["payee"], "amountCents": row["amountCents"], "meta": _meta(row), "corrected": row["corrected"]}
                 for row in recent
@@ -297,7 +329,7 @@ def overview(txns, now_ms: int, week: str = "", selected: str = "") -> dict:
     }
 
 
-def category_view(txns, now_ms: int, week: str, category_value: str) -> dict:
+def category_view(txns, now_ms: int, week: str, category_value: str, caps: dict | None = None) -> dict:
     category = next((item for item in CATEGORIES if item["slug"] == category_value or item["name"].lower() == category_value.lower()), None)
     if not category:
         return {"status": 404, "body": {"detail": "That category is not here."}}
@@ -307,13 +339,14 @@ def category_view(txns, now_ms: int, week: str, category_value: str) -> dict:
         return {"status": 400, "body": {"detail": "That week has not started.", "field": "week"}}
     rows = [row for row in _rows_in_week(txns, start) if row["category"] == category["slug"]]
     spent = sum(spend_cents(row) for row in rows)
+    cap_cents = (caps or default_caps()).get(category["slug"], category["capCents"])
     return {
         "status": 200,
         "body": {
             **category,
             "spentCents": spent,
-            "capCents": category["capCents"],
-            **_cap_state(spent, category["capCents"]),
+            "capCents": cap_cents,
+            **_cap_state(spent, cap_cents),
             "weekStart": start,
             "label": week_label(start, today),
             "daysLeft": days_left(today, start),

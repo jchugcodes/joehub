@@ -96,6 +96,9 @@ def test_contract_paths_match_the_app() -> None:
         if path in {"/api/grocery/{id}/check", "/api/grocery/{id}/uncheck"}:
             assert expected == {"post"}
             continue
+        if path == "/api/finance/caps":
+            assert expected == {"patch"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -299,6 +302,22 @@ def test_http_contract_is_json_and_matches_fixtures() -> None:
     overview_body = client.get("/api/finance/overview", params={"asOf": "2026-11-10T15:00:00-05:00"}, cookies={COOKIE_NAME: cookie}).json()
     assert overview_body["month"]["spentCents"] == 112_600
     assert overview_body["label"] == "This week · Nov 9–15"
+    moved = client.patch(
+        "/api/finance/caps",
+        cookies={COOKIE_NAME: cookie},
+        json={"caps": {"dining-out": 9000, "groceries": 11000, "transport": 6000, "subscriptions": 5500, "shopping": 7500, "utilities": 0}},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["envelopeCents"] == 39000
+    over = client.patch(
+        "/api/finance/caps",
+        cookies={COOKIE_NAME: cookie},
+        json={"caps": {"dining-out": 10000, "groceries": 12000, "transport": 6000, "subscriptions": 5500, "shopping": 7500, "utilities": 0}},
+    )
+    assert over.status_code == 400
+    assert over.json()["field"] == "dining-out"
+    after = client.get("/api/finance/overview", params={"asOf": "2026-11-10T15:00:00-05:00"}, cookies={COOKIE_NAME: cookie}).json()
+    assert next(cap["capCents"] for cap in after["caps"] if cap["slug"] == "dining-out") == 9000
     unprefixed = client.get("/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert unprefixed.status_code == 404
     assert unprefixed.json() != fixtures["accounts"]

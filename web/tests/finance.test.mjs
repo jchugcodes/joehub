@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { capsForWeek, categoryView, chartFor, daysLeft, monthProgress, overview, SEED_TRANSACTIONS, weekStart } from "../lib/finance.mjs";
+import { createStore } from "../lib/sessions.mjs";
+import { capsForWeek, categoryView, chartFor, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, SEED_TRANSACTIONS, weekStart } from "../lib/finance.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -73,4 +74,57 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(empty.body.daysLeft, null);
   assert.equal(empty.body.netWorthCents, 1847236);
   assert.equal(empty.body.caps.every((cap) => cap.spentCents === 0), true);
+});
+
+test("moving budget keeps the $390 total and rejects an over-move", async () => {
+  const moved = parseCaps({
+    "dining-out": 9000,
+    groceries: 11000,
+    transport: 6000,
+    subscriptions: 5500,
+    shopping: 7500,
+    utilities: 0,
+  });
+  assert.equal(moved.ok, true);
+  assert.equal(Object.values(moved.caps).reduce((sum, value) => sum + value, 0), ENVELOPE_CENTS);
+  const over = parseCaps({
+    "dining-out": 10000,
+    groceries: 12000,
+    transport: 6000,
+    subscriptions: 5500,
+    shopping: 7500,
+    utilities: 0,
+  });
+  assert.equal(over.ok, false);
+  assert.equal(over.field, "dining-out");
+  assert.equal(over.detail, "That total has to stay $390.");
+  assert.equal(parseCaps({ "dining-out": -1, groceries: 12000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 }).detail, "Can’t be negative.");
+  assert.equal(parseCaps({ "dining-out": 80.5, groceries: 12000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 }).detail, "Enter an amount.");
+  const cleared = parseCaps({
+    "dining-out": 0,
+    groceries: 20000,
+    transport: 6000,
+    subscriptions: 5500,
+    shopping: 7500,
+    utilities: 0,
+  });
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.caps["dining-out"], 0);
+
+  const store = installMemoryFinance(createStore());
+  const saved = await store.financeSaveCaps({
+    caps: { "dining-out": 9000, groceries: 11000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 },
+  }, "cap-1");
+  assert.equal(saved.status, 200);
+  const again = await store.financeSaveCaps({ caps: { "dining-out": 1 } }, "cap-1");
+  assert.equal(again.body.caps["dining-out"], 9000);
+  const view = await store.financeOverview(NOW, "2026-11-09", "YTD");
+  assert.equal(view.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9000);
+  assert.equal(view.body.caps.find((cap) => cap.slug === "dining-out").status, "$2 over");
+  const rejected = await store.financeSaveCaps({
+    caps: { "dining-out": "nope", groceries: 12000, transport: 6000, subscriptions: 5500, shopping: 7500, utilities: 0 },
+  }, "cap-bad");
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.field, "dining-out");
+  assert.equal(view.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9000);
 });

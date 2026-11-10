@@ -359,7 +359,12 @@ export function FinanceOverview() {
                 <Icon name="chevron" size={18} />
               </button>
             </div>
-            <h3 className="mt-4 text-body font-medium">Weekly caps</h3>
+            <div className="mt-4 flex items-baseline justify-between gap-3">
+              <h3 className="text-body font-medium">Weekly caps</h3>
+              <Link href={`/finance/caps${suffix}`} className="text-body font-medium text-finance-primary">
+                Edit caps
+              </Link>
+            </div>
             <div className="mt-3 grid grid-cols-3 gap-3">
               {overview.caps.map((cap) => (
                 <Link key={cap.slug} href={`/finance/categories/${cap.slug}${suffix}`} className="min-h-11 rounded-2xl border border-line p-3">

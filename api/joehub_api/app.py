@@ -21,7 +21,7 @@ from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
 from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionRecord, SessionStore
 from joehub_api.settings import ApiSettings
-from joehub_api.finance import ACCOUNTS, GOALS, SEED_TRANSACTIONS, category_view, overview, public_transactions
+from joehub_api.finance import ACCOUNTS, ENVELOPE_CENTS, GOALS, SEED_TRANSACTIONS, category_view, default_caps, overview, parse_caps, public_transactions
 from joehub_api.grocery import GroceryStore
 from joehub_api.tasks import TaskStore
 
@@ -58,6 +58,7 @@ def create_app(
     app.state.sessions = SessionStore(settings, clock or _utcnow)
     app.state.tasks = TaskStore()
     app.state.grocery = GroceryStore()
+    app.state.finance_caps = default_caps()
     app.state.login_limiter = RateLimiter(login_limit)
     app.state.api_limiter = RateLimiter(api_limit)
 
@@ -113,14 +114,27 @@ def create_app(
     @app.get("/api/finance/overview")
     def finance_overview(request: Request) -> JSONResponse:
         finance_gate(request)
-        result = overview(SEED_TRANSACTIONS, finance_now(request), request.query_params.get("week") or "", request.query_params.get("range") or "")
+        result = overview(SEED_TRANSACTIONS, finance_now(request), request.query_params.get("week") or "", request.query_params.get("range") or "", request.app.state.finance_caps)
         return JSONResponse(result["body"], status_code=result["status"])
 
     @app.get("/api/finance/weeks/{start}/categories/{category}")
     def finance_category(request: Request, start: str, category: str) -> JSONResponse:
         finance_gate(request)
-        result = category_view(SEED_TRANSACTIONS, finance_now(request), start, category)
+        result = category_view(SEED_TRANSACTIONS, finance_now(request), start, category, request.app.state.finance_caps)
         return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.patch("/api/finance/caps")
+    async def finance_caps(request: Request) -> JSONResponse:
+        finance_gate(request)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Enter an amount.", "field": "dining-out"}, status_code=400)
+        parsed = parse_caps(body.get("caps") if isinstance(body, dict) else None, request.app.state.finance_caps)
+        if not parsed["ok"]:
+            return JSONResponse({"detail": parsed["detail"], "field": parsed["field"]}, status_code=400)
+        request.app.state.finance_caps = parsed["caps"]
+        return JSONResponse({"caps": parsed["caps"], "envelopeCents": ENVELOPE_CENTS})
 
     @app.get("/api/finance/accounts")
     def finance_accounts(request: Request) -> JSONResponse:
