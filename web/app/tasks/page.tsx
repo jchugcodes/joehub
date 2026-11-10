@@ -410,7 +410,7 @@ export default function TasksPage() {
       <div className="relative min-w-0 flex-1">
       <header className="px-5 pt-3">
         <p className="text-meta text-muted">joehub</p>
-        <h1 className="text-page font-medium">Tasks</h1>
+        <h1 className="text-title font-medium">Tasks</h1>
       </header>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
       {link === "offline" && savedAt ? (
