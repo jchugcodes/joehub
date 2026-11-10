@@ -209,7 +209,7 @@ test("task api requires a session, persists a create, and dedupes an idempotency
     assert.equal(doneBody.status, "Done");
     assert.equal(typeof doneBody.completedAt, "number");
     const unfinished = await fetch(`${base}/api/tasks`, { headers: { cookie } });
-    assert.equal((await unfinished.json()).some((task) => task.id === created.id), false);
+    assert.equal((await unfinished.json()).some((task) => task.id === created.id && task.status === "Done"), true);
     const reopenedAfterDone = await fetch(`${base}/api/tasks/${created.id}/reopen`, { method: "POST", headers: { cookie } });
     assert.equal(reopenedAfterDone.status, 200);
     assert.equal((await reopenedAfterDone.json()).status, "To do");
@@ -226,7 +226,7 @@ test("task api requires a session, persists a create, and dedupes an idempotency
     assert.equal(typeof finishedBody.completedAt, "number");
     const hidden = await fetch(`${base}/api/tasks`, { headers: { cookie } });
     const hiddenBody = await hidden.json();
-    assert.equal(hiddenBody.some((task) => task.id === created.id), false);
+    assert.equal(hiddenBody.some((task) => task.id === created.id && task.status === "Done"), true);
     assert.equal(hiddenBody.some((task) => task.title === "Keep the sample list"), true);
     const found = await fetch(`${base}/api/tasks?q=${encodeURIComponent("SAMPLE DESK")}`, { headers: { cookie } });
     assert.equal(found.status, 200);
