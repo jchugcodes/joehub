@@ -227,37 +227,30 @@ def _ytd_points():
     return points
 
 
-def _weekly_series(txns):
+def _weekly_series(txns, start_from=None, end=None):
     weeks = {}
     for row in (effective(item) for item in txns):
         start = week_start(row["date"])
+        if start_from and start < start_from:
+            continue
+        if end and start > end:
+            continue
         weeks[start] = weeks.get(start, 0) + spend_cents(row)
-    if not weeks:
-        return []
-    ordered = sorted(weeks)
-    points = []
-    cursor = ordered[0]
-    while cursor <= ordered[-1]:
-        points.append({"week": cursor, "cents": weeks.get(cursor, 0)})
-        cursor = add_days(cursor, 7)
-    return points
+    return [{"week": week, "cents": weeks[week]} for week in sorted(weeks)]
 
 
 def chart_for(txns, today: str, selected: str) -> dict:
     current = week_start(today)
-    all_points = [point for point in _weekly_series(txns) if point["week"] <= current]
     if selected == "YTD":
         return {"range": "YTD", "kind": "net-worth", "caption": f"+{money(YTD_DELTA_CENTS)} (7.5%) YTD", "points": _ytd_points()}
-    points = all_points
+    start_from = None
     if selected == "1W":
-        points = [point for point in all_points if point["week"] == current]
+        start_from = current
     elif selected == "1M":
-        month_start = f"{today[:7]}-01"
-        month_end = add_days(month_start, 32)[:8] + "01"
-        month_end = add_days(month_end, -1)
-        points = [point for point in all_points if add_days(point["week"], 6) >= month_start and point["week"] <= month_end]
+        start_from = week_start(f"{today[:7]}-01")
     elif selected == "1Y":
-        points = [point for point in all_points if point["week"] >= week_start(add_days(today, -365))]
+        start_from = week_start(add_days(today, -365))
+    points = _weekly_series(txns, start_from, current)
     return {"range": selected, "kind": "weekly", "caption": "", "points": [point["cents"] for point in points]}
 
 

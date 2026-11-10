@@ -16,6 +16,7 @@ function dollars(cents: number) {
 function parseDollars(value: string) {
   const text = value.trim();
   if (text === "") return { ok: true, cents: 0 };
+  if (text.startsWith("-") || text.startsWith("−")) return { ok: false, cents: 0, detail: "Can’t be negative." };
   if (!/^\d+(\.\d{1,2})?$/.test(text)) return { ok: false, cents: 0 };
   return { ok: true, cents: Math.round(Number(text) * 100) };
 }
@@ -28,6 +29,7 @@ export function FinanceCaps() {
   const [field, setField] = useState("");
   const [offline, setOffline] = useState(false);
   const [ready, setReady] = useState(false);
+  const [backHref, setBackHref] = useState("/finance");
   const [saving, setSaving] = useState(false);
   const idempotency = useRef("");
 
@@ -37,6 +39,7 @@ export function FinanceCaps() {
     if (params.get("asOf")) query.set("asOf", params.get("asOf") || "");
     if (params.get("week")) query.set("week", params.get("week") || "");
     const suffix = query.toString() ? `?${query.toString()}` : "";
+    setBackHref(`/finance${suffix}`);
     const onOffline = () => setOffline(true);
     const onOnline = () => setOffline(false);
     setOffline(!navigator.onLine);
@@ -94,7 +97,7 @@ export function FinanceCaps() {
     for (const slug of ORDER) {
       const parsed = parseDollars(fields[slug] || "");
       if (!parsed.ok) {
-        setError("Enter an amount.");
+        setError(parsed.detail || "Enter an amount.");
         setField(slug);
         document.getElementById(`cap-${slug}`)?.focus();
         return;
@@ -127,7 +130,7 @@ export function FinanceCaps() {
   return (
     <main className="finance-type min-w-0 text-ink" data-ready={ready ? "true" : undefined}>
       <div className="flex items-center gap-2 px-3 pt-2">
-        <Link href="/finance" aria-label="Back to overview" className="grid h-11 w-11 place-items-center" onClick={(event) => { event.preventDefault(); back(); }}>
+        <Link href={backHref} aria-label="Back to overview" className="grid h-11 w-11 place-items-center" onClick={(event) => { event.preventDefault(); back(); }}>
           <Icon name="back" size={20} />
         </Link>
         <h1 className="text-title font-medium">Weekly caps</h1>

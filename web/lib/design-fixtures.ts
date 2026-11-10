@@ -33,7 +33,7 @@ export const finance = {
     { label: "YTD saved", value: "$9.8k", tone: "jobs-text" },
   ],
   caps: [
-    { name: "Dining Out", left: "$62", rest: "left $18", cap: "$80/wk", width: 78, tone: "dining", icon: "dining", href: "/finance/dining-out" },
+    { name: "Dining Out", left: "$62", rest: "left $18", cap: "$80/wk", width: 78, tone: "dining", icon: "dining", href: "/finance/categories/dining-out" },
     { name: "Groceries", left: "$94", rest: "left $26", cap: "$120/wk", width: 78, tone: "groceries", icon: "groceries" },
     { name: "Transport", left: "$31", rest: "left $29", cap: "$60/wk", width: 52, tone: "transport", icon: "transport" },
     { name: "Subscriptions", left: "$48", rest: "left $7", cap: "$55/wk", width: 87, tone: "subscriptions", icon: "subscriptions" },

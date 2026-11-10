@@ -32,11 +32,16 @@ function money(cents: number, digits = true, signed = false) {
 export function FinanceCategory({ slug, tabs = false }: { slug: string; tabs?: boolean }) {
   const [category, setCategory] = useState<Category | null>(null);
   const [message, setMessage] = useState("");
+  const [backHref, setBackHref] = useState("/finance");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const asOf = params.get("asOf") || "";
     const week = params.get("week") || "";
+    const back = new URLSearchParams();
+    if (week) back.set("week", week);
+    if (asOf) back.set("asOf", asOf);
+    setBackHref(back.toString() ? `/finance?${back.toString()}` : "/finance");
     const query = new URLSearchParams();
     if (asOf) query.set("asOf", asOf);
     const suffix = query.toString() ? `?${query.toString()}` : "";
@@ -64,7 +69,7 @@ export function FinanceCategory({ slug, tabs = false }: { slug: string; tabs?: b
     <main className="finance-type min-w-0 text-ink" data-ready={category ? "true" : undefined}>
       {tabs ? <FinanceTabs /> : null}
       <div className="flex items-center gap-2 px-3 pt-2">
-        <Link href="/finance" aria-label="Back to overview" className="grid h-11 w-11 place-items-center">
+        <Link href={backHref} aria-label="Back to overview" className="grid h-11 w-11 place-items-center">
           <Icon name="back" size={20} />
         </Link>
         <h1 className="text-title font-medium">{category?.name || "Category"}</h1>
