@@ -167,6 +167,15 @@ function press(send, label, scope) {
   return pressLabel(send, evalPage, label, scope);
 }
 
+function click(label) {
+  return `(() => {
+    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === ${JSON.stringify(label)} || el.getAttribute("aria-label") === ${JSON.stringify(label)});
+    if (!node) return "";
+    node.click();
+    return "yes";
+  })()`;
+}
+
 async function gotoTasks(send, width, height = 900) {
   await size(send, width, height);
   await send("Page.navigate", { url: `${base()}/tasks` });
@@ -175,7 +184,7 @@ async function gotoTasks(send, width, height = 900) {
 
 function buttonInView(label) {
   return `(() => {
-    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === ${JSON.stringify(label)});
+    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === ${JSON.stringify(label)} || el.getAttribute("aria-label") === ${JSON.stringify(label)});
     if (!node) return "";
     const rect = node.getBoundingClientRect();
     const inside = rect.top >= 0 && rect.bottom <= window.innerHeight && rect.left >= 0 && rect.right <= window.innerWidth && rect.height > 0;
@@ -333,7 +342,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       send,
       `(() => ({
         doing: document.body.innerText.includes("Doing"),
-        due: document.body.innerText.includes("2026-11-20"),
+        due: document.body.innerText.includes("Due Nov 20"),
         project: document.body.innerText.includes("Errands"),
         notes: document.body.innerText.includes("A made-up reminder."),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -442,7 +451,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         send,
         `(() => {
           const banner = document.querySelector("[data-offline='true']");
-          const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Add a task");
+          const add = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === "Add a task" || el.getAttribute("aria-label") === "Add a task");
           return !banner && add && !add.disabled ? "yes" : "";
         })()`,
         `devtools online ${width}`,
@@ -464,7 +473,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     const offline = await evalPage(
       send,
       `(() => {
-        const button = (label) => [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === label);
+        const button = (label) => [...document.querySelectorAll("button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === label || el.getAttribute("aria-label") === label);
         return {
           banner: document.querySelector("[data-offline='true']")?.textContent || "",
           saveDisabled: Boolean(button("Save") && button("Save").disabled),
@@ -482,9 +491,11 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(offline.kept, true);
     assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[data-offline='true']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline visible");
-    assert.equal(await firstRowTop(), rowBefore390);
+    assert.equal(await evalPage(send, "(() => { const title = document.querySelector('h1').getBoundingClientRect(); const banner = document.querySelector(\"[data-link='offline']\").getBoundingClientRect(); const row = document.querySelector(\"ul[aria-label='Unfinished tasks'] li\").getBoundingClientRect(); return banner.top >= title.bottom - 1 && row.top >= banner.bottom - 1 ? 'yes' : 'no'; })()"), "yes");
     await shot(send, "tasks_offline_390.png");
     await backFromDevtoolsOffline(390);
+    await evalPage(send, click("Dismiss"));
+    await waitFor(send, "!document.querySelector('[data-link]') ? 'yes' : ''", "banner dismissed 390");
     assert.equal(await firstRowTop(), rowBefore390);
 
     await gotoTasks(send, 1280);
@@ -504,10 +515,12 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
     assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "!document.querySelector(\"[role='dialog']\") && document.querySelector(\"[data-offline='true']\") ? 'yes' : ''", "offline banner 1280");
-    assert.equal(await firstRowTop(), rowBefore1280);
+    assert.equal(await evalPage(send, "(() => { const title = document.querySelector('h1').getBoundingClientRect(); const banner = document.querySelector(\"[data-link='offline']\").getBoundingClientRect(); const row = document.querySelector(\"ul[aria-label='Unfinished tasks'] li\").getBoundingClientRect(); return banner.top >= title.bottom - 1 && row.top >= banner.bottom - 1 ? 'yes' : 'no'; })()"), "yes");
     await shot(send, "tasks_offline_1280.png");
     assert.equal(await evalPage(send, "typeof window.__joehubIgnoredOnline === 'number' ? 'yes' : 'no'"), "yes");
     await backFromDevtoolsOffline(1280);
+    await evalPage(send, click("Dismiss"));
+    await waitFor(send, "!document.querySelector('[data-link]') ? 'yes' : ''", "banner dismissed 1280");
     assert.equal(await firstRowTop(), rowBefore1280);
 
     await size(send, 390, 844);
@@ -519,6 +532,13 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         "String((document.querySelector('a.tasks-type').innerText.match(/Open tasks/g) || []).length)",
       ),
       "1",
+    );
+    assert.equal(
+      await evalPage(
+        send,
+        "(() => { const text = document.querySelector('a.tasks-type').innerText; return text.includes('Open') && text.includes('Blocked') && text.includes('Due today') && text.includes('Buy synthetic oats') ? 'yes' : text; })()",
+      ),
+      "yes",
     );
     await evalPage(send, "document.querySelector('a.tasks-type').scrollIntoView({ block: 'center' }); 'yes'");
     await shot(send, "tasks_home_card_390.png");

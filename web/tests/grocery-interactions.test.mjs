@@ -475,8 +475,8 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     );
     assert.equal(financeFont.grocery, "no");
     assert.equal(financeFont.tasks, "no");
-    const financeOutfit = financeFont.outfit.replaceAll(/['"]/g, "").trim().toLowerCase();
-    assert.equal(financeFont.body.toLowerCase().includes(financeOutfit), false);
+    assert.match(financeFont.body, /DM Sans|__DM_Sans/i, JSON.stringify(financeFont));
+    assert.doesNotMatch(financeFont.body, /Outfit/i, JSON.stringify(financeFont));
   } finally {
     await page.close();
     await stopProcess(chrome);
