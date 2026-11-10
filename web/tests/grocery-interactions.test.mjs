@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pressLabel } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -607,27 +608,16 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
 
     assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Delete this item?') ? 'yes' : 'no'"), "no");
-    assert.equal(await evalPage(send, click("Delete")), "yes");
-    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Delete this item?') && document.getElementById('grocery-delete-dialog')?.innerText.includes('Oat milk') ? 'yes' : ''", "confirm");
+    await pressLabel(send, evalPage, "Delete");
+    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Delete this item?') && document.getElementById('grocery-delete-dialog')?.innerText.includes('Oat milk') && document.getElementById('grocery-delete-dialog')?.innerText.includes(\"This can't be undone.\") ? 'yes' : ''", "confirm");
     await shot(send, "grocery_g04_delete_390.png");
     await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
     await waitFor(send, "!document.getElementById('grocery-delete-dialog') && document.querySelector('[role=dialog] h2')?.textContent === 'Edit item' ? 'yes' : ''", "escape confirm");
-    assert.equal(await evalPage(send, click("Delete")), "yes");
+    await pressLabel(send, evalPage, "Delete");
     await waitFor(send, "document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "confirm again");
-    assert.equal(
-      await evalPage(
-        send,
-        `(() => {
-          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Cancel");
-          if (!button) return "";
-          button.click();
-          return "yes";
-        })()`,
-      ),
-      "yes",
-    );
+    await pressLabel(send, evalPage, "Cancel", "document.getElementById('grocery-delete-dialog')");
     await waitFor(send, "!document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "cancel confirm");
-    assert.equal(await evalPage(send, click("Delete")), "yes");
+    await pressLabel(send, evalPage, "Delete");
     await waitFor(send, "document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "confirm delete");
     await evalPage(
       send,
@@ -645,30 +635,10 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
         return "yes";
       })()`,
     );
-    assert.equal(
-      await evalPage(
-        send,
-        `(() => {
-          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Delete");
-          button.click();
-          return "yes";
-        })()`,
-      ),
-      "yes",
-    );
+    await pressLabel(send, evalPage, "Delete", "document.getElementById('grocery-delete-dialog')");
     await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Couldn\\'t delete this item.') ? 'yes' : ''", "delete failed");
     assert.equal((await (await fetch(`${base()}/api/grocery/${id}`, { headers: { cookie: auth.cookie } })).json()).name, "Oat milk");
-    assert.equal(
-      await evalPage(
-        send,
-        `(() => {
-          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Delete");
-          button.click();
-          return "yes";
-        })()`,
-      ),
-      "yes",
-    );
+    await pressLabel(send, evalPage, "Delete", "document.getElementById('grocery-delete-dialog')");
     await waitFor(send, "!document.querySelector('[role=dialog]') && !document.body.innerText.includes('Oat milk') && document.body.innerText.includes('Bananas') ? 'yes' : ''", "deleted", 20000);
     await send("Page.reload", { ignoreCache: true });
     await waitFor(send, "document.body.innerText.includes('Bananas') && !document.body.innerText.includes('Oat milk') ? 'yes' : ''", "delete held");
