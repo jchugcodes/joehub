@@ -14,6 +14,7 @@ LEADING_NEGATIVE = re.compile(r"^-\s*\d")
 REAL_AMOUNT = re.compile(r"[A-Za-z0-9]")
 MISSING = {"detail": "This item is no longer here."}
 IDEM_TTL_MS = 24 * 60 * 60 * 1000
+GROCERY_NAMESPACE = uuid.UUID("6c4e1a90-2b77-4f18-9d33-1a8e5c0b7d44")
 
 
 def _quantity(value: object) -> tuple[str | None, dict | None]:
@@ -79,7 +80,7 @@ class GroceryStore:
         self.items: dict[str, dict] = {}
         self.idem: dict[str, tuple[int, dict]] = {}
 
-    def create(self, body: object, idem_key: str | None) -> tuple[int, dict]:
+    def create(self, body: object, idem_key: str | None, scope: str | None = None) -> tuple[int, dict]:
         now = self.clock()
         if idem_key:
             if not IDEM.fullmatch(idem_key):
@@ -91,8 +92,15 @@ class GroceryStore:
         if error:
             return 400, error
         assert parsed is not None
+        item_id = str(uuid.uuid5(GROCERY_NAMESPACE, f"{scope or ''}\0{idem_key}")) if idem_key else str(uuid.uuid4())
+        existing = self.items.get(item_id)
+        if existing is not None:
+            response = {"status": 201, "body": existing}
+            if idem_key:
+                self.idem[idem_key] = (now + IDEM_TTL_MS, response)
+            return 201, existing
         item = {
-            "id": str(uuid.uuid4()),
+            "id": item_id,
             "name": parsed["name"],
             "checked": False,
             "createdAt": now,

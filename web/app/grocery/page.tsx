@@ -231,6 +231,7 @@ export default function GroceryPage() {
     if (!name) {
       setNameError("Enter a name.");
       setFormError("");
+      document.getElementById("grocery-name")?.focus();
       return;
     }
     savingRef.current = true;
@@ -251,6 +252,7 @@ export default function GroceryPage() {
       const body = (await response.json().catch(() => null)) as { detail?: string; field?: string; id?: string } | null;
       if (response.status === 400 && body?.field === "name") {
         setNameError(body.detail || "Enter a name.");
+        document.getElementById("grocery-name")?.focus();
         return;
       }
       if (response.status === 400 && body?.field === "quantity") {
@@ -289,26 +291,26 @@ export default function GroceryPage() {
   }, [items]);
   const hint = existingName(items, draft.name);
   const addDisabled = offline || mode !== "ready";
-  const saveDisabled = offline || saving || !draft.name.trim();
+  const saveDisabled = offline || saving;
 
   const banners = (
     <>
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
           <span>Back online</span>
-          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
+          <button type="button" className="pointer-events-auto min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
           </button>
         </p>
@@ -318,12 +320,12 @@ export default function GroceryPage() {
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`grocery-type ${wide ? "flex min-w-0 items-start gap-6 px-8 pt-4" : "min-w-0"}`}>
-      <div className={`min-w-0 flex-1 ${wide ? (sheet ? "max-w-[520px] opacity-50" : "max-w-[640px]") : ""}`}>
+      <div className={`relative min-w-0 flex-1 ${wide ? (sheet ? "max-w-[520px] opacity-50" : "max-w-[640px]") : ""}`}>
         <header className={wide ? "" : "px-5 pt-2"}>
           <p className="text-meta text-muted">joehub</p>
-          <h1 className="text-page font-medium">Grocery</h1>
+          <h1 className="text-title font-medium">Grocery</h1>
         </header>
-        {banners}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
         {mode === "ready" && items.length === 0 ? (
           <div className="mt-16 flex flex-col items-center px-5 text-center">
             <div className="grid h-16 w-16 place-items-center rounded-full bg-ink/[0.12]" aria-hidden="true">

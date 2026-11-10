@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -577,6 +578,9 @@ def test_grocery_create_rejects_invalid_fields_and_replays_one_item() -> None:
     assert first.status_code == 201
     assert second.status_code == 201
     assert first.json()["id"] == second.json()["id"]
+    session = client.app.state.sessions.resolve(cookie)
+    expected = str(uuid.uuid5(uuid.UUID("6c4e1a90-2b77-4f18-9d33-1a8e5c0b7d44"), f"{session.id}\0grocery-key-1"))
+    assert first.json()["id"] == expected
     assert first.json()["checked"] is False
     again = client.post("/api/grocery", json={"name": "Oat milk", "quantity": "a bunch"}, cookies=cookies)
     assert again.status_code == 201
