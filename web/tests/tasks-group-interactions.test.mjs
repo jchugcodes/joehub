@@ -32,8 +32,12 @@ async function evalPage(send, expression) {
 async function waitFor(send, expression, label) {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
-    const value = await evalPage(send, expression);
-    if (value) return value;
+    try {
+      const value = await evalPage(send, expression);
+      if (value) return value;
+    } catch {
+      // Navigation can evaluate before document.body exists.
+    }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   throw new Error(`timed out waiting for ${label}`);
@@ -106,7 +110,7 @@ test("tasks can be grouped by status and project", { timeout: 180000, skip }, as
     for (const width of [390, 1280]) {
       await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
       await send("Page.navigate", { url: `${base()}/tasks` });
-      await waitFor(send, "document.body?.innerText.includes('Group the sample poster') ? 'yes' : ''", "list");
+      await waitFor(send, "document.body && document.body.innerText.includes('Group the sample poster') ? 'yes' : ''", "list");
       await evalPage(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Status').click(); 'yes'");
       await waitFor(send, "document.body.innerText.includes('Doing') && document.body.innerText.includes('To do') ? 'yes' : ''", "status groups");
       const shot = await send("Page.captureScreenshot", { format: "png" });
