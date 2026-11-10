@@ -140,6 +140,11 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       headers: { cookie: `joehub_session=${cookie}` },
     });
     assert.equal(completed.status, 200);
+    await send("Page.navigate", { url: `${baseOf(port)}/tasks` });
+    const listedBy = Date.now() + 20000;
+    while (Date.now() < listedBy && !(await evalPage("document.body.innerText.includes('Delete the finished sample') ? 'yes' : ''"))) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
     await evalPage(`(() => {
       const input = document.getElementById("task-search");
       const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
