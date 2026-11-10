@@ -1,13 +1,8 @@
 /** Frame example copy. Not a mapping from the API or the database. See docs/DESIGN_GAPS.md. */
 
 export const home = {
-  date: "Friday, Nov 6",
   greeting: "Evening, Joe",
   initial: "J",
-  net: "$18,472",
-  ytd: "+7.5% YTD",
-  spent: "$1,126 of $4,204 spent",
-  diningNote: "Dining $18 left this week",
   jobs: [
     { label: "Applied", value: "8", tone: "jobs" },
     { label: "Interviewing", value: "3", tone: "interview" },

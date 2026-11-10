@@ -229,7 +229,7 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
       assert.equal(await press(send, "Complete Hold the sample note"), "yes");
       await waitFor(
         send,
-        "document.body.innerText.includes('Pack the sample crate') && !document.body.innerText.includes('Hold the sample note') ? 'yes' : ''",
+        "document.querySelector(\"[aria-label='Completed']\") && document.querySelector(\"[aria-label='Reopen Hold the sample note']\") && !document.querySelector(\"[aria-label='Complete Hold the sample note']\") && document.body.innerText.includes('Pack the sample crate') ? 'yes' : ''",
         `completed ${width}`,
       );
       assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
@@ -238,7 +238,7 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
       await send("Page.reload", { ignoreCache: true });
       await waitFor(
         send,
-        "document.querySelector(\"[data-ready='true']\") && document.body.innerText.includes('Pack the sample crate') && !document.body.innerText.includes('Hold the sample note') ? 'yes' : ''",
+        "document.querySelector(\"[data-ready='true']\") && document.querySelector(\"[aria-label='Completed']\") && document.body.innerText.includes('Pack the sample crate') && document.body.innerText.includes('Hold the sample note') ? 'yes' : ''",
         `reloaded ${width}`,
       );
     }
@@ -262,15 +262,14 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
     }
 
     async function reopenHold(width, shotName) {
-      await search(send, "needle");
-      await waitFor(send, "document.querySelector(\"[data-reopen='true']\") ? 'yes' : ''", `reopen ready ${width}`);
+      assert.equal(await press(send, "Clear search"), "yes");
+      await waitFor(send, "document.querySelector(\"[aria-label='Completed'] [data-reopen='true']\") ? 'yes' : ''", `reopen ready ${width}`);
       assert.equal(await press(send, "Reopen Hold the sample note"), "yes");
       await waitFor(
         send,
         "document.body.innerText.includes('Hold the sample note') && !document.querySelector(\"[data-done='true']\") ? 'yes' : ''",
-        `reopened in search ${width}`,
+        `reopened ${width}`,
       );
-      assert.equal(await press(send, "Clear search"), "yes");
       await waitFor(
         send,
         "document.querySelector(\"[aria-label='Unfinished tasks']\") && document.body.innerText.includes('Hold the sample note') && document.body.innerText.includes('Pack the sample crate') && !document.querySelector(\"[data-done='true']\") ? 'yes' : ''",
