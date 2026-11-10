@@ -295,6 +295,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     );
     assert.equal(await evalPage(send, click("Save")), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "short error");
+    assert.equal(await evalPage(send, "document.activeElement?.id"), "task-title");
     assert.equal(await evalPage(send, buttonInView("Save")), "yes");
     assert.equal(await evalPage(send, buttonInView("Cancel")), "yes");
     await shot(send, "tasks_add_error_390.png");
@@ -363,6 +364,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       assert.equal(await evalPage(send, click("Save")), "yes");
       await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank title");
       assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
+      if (Number(await evalPage(send, "window.innerWidth")) < 800) await shot(send, "tasks_blank_title_390.png");
       assert.equal(
         await evalPage(
           send,
@@ -511,6 +513,19 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(await evalPage(send, "typeof window.__joehubIgnoredOnline === 'number' ? 'yes' : 'no'"), "yes");
     await backFromDevtoolsOffline(1280);
     assert.equal(await firstRowTop(), rowBefore1280);
+
+    await size(send, 390, 844);
+    await send("Page.navigate", { url: `${base()}/` });
+    await waitFor(send, "document.querySelector('a.tasks-type') ? 'yes' : ''", "home card");
+    assert.equal(
+      await evalPage(
+        send,
+        "String((document.querySelector('a.tasks-type').innerText.match(/Open tasks/g) || []).length)",
+      ),
+      "1",
+    );
+    await evalPage(send, "document.querySelector('a.tasks-type').scrollIntoView({ block: 'center' }); 'yes'");
+    await shot(send, "tasks_home_card_390.png");
   } finally {
     await page.close();
     await stopProcess(chrome);
