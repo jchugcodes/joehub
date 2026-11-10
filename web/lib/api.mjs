@@ -372,6 +372,80 @@ export function handleGroceryItemUncheck(id, headers, env, store, limiter, now, 
   return handleGroceryCheck(id, headers, env, store, limiter, now, ip, "uncheckGrocery");
 }
 
+function financeWhen(now, url) {
+  const params = url ? new URL(url).searchParams : new URLSearchParams();
+  const raw = params.get("asOf");
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return { now: Number.isFinite(parsed) ? parsed : now, week: params.get("week") || "", range: params.get("range") || "" };
+}
+
+export async function handleFinanceOverview(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeOverview !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    return await store.financeOverview(query.now, query.week, query.range);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCategory(headers, env, store, limiter, now, ip, url, week, category) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    return await store.financeCategory(query.now, week || query.week, category);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceAccounts(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeAccounts !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeAccounts() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceGoals(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeGoals !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeGoals() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceTransactions(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeTransactions !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeTransactions() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleGroceryItemGet(id, headers, env, store, limiter, now, ip) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

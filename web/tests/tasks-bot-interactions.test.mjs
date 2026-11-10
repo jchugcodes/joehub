@@ -108,7 +108,7 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
     for (const path of ["/", "/finance", "/jobs", "/journal", "/more"]) {
       await send("Page.navigate", { url: `${baseOf(port)}${path}` });
       const readyBy = Date.now() + 15000;
-      while (Date.now() < readyBy && (await evalPage("(() => { const heading = document.querySelector('h1'); if (!heading) return ''; const family = getComputedStyle(heading).fontFamily; return /DM Sans|dmSans|__DM_Sans/i.test(family) ? 'yes' : ''; })()")) !== "yes") {
+      while (Date.now() < readyBy && (await evalPage("(() => { const heading = document.querySelector('h1'); if (!heading) return ''; const family = getComputedStyle(heading).fontFamily; return /DM Sans|Outfit|dmSans|__DM_Sans|__Outfit/i.test(family) ? 'yes' : ''; })()")) !== "yes") {
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
       const face = await evalPage(`(() => {
@@ -123,9 +123,14 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
           nav: nav ? getComputedStyle(nav).fontFamily : "",
         };
       })()`);
-      assert.match(face.family, /DM Sans|__DM_Sans/i, `${path} ${JSON.stringify(face)}`);
-      assert.doesNotMatch(face.family, /Outfit/i, path);
-      assert.match(face.nav, /DM Sans|__DM_Sans/i, `${path} nav ${JSON.stringify(face)}`);
+      if (path === "/finance") {
+        assert.match(face.family, /Outfit|__Outfit/i, `${path} ${JSON.stringify(face)}`);
+        assert.match(face.nav, /Outfit|__Outfit/i, `${path} nav ${JSON.stringify(face)}`);
+      } else {
+        assert.match(face.family, /DM Sans|__DM_Sans/i, `${path} ${JSON.stringify(face)}`);
+        assert.doesNotMatch(face.family, /Outfit/i, path);
+        assert.match(face.nav, /DM Sans|__DM_Sans/i, `${path} nav ${JSON.stringify(face)}`);
+      }
       if (path === "/") {
         assert.match(face.card, /Outfit|__Outfit/i, JSON.stringify(face));
         const cardShot = await send("Page.captureScreenshot", { format: "png" });

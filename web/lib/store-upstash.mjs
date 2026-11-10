@@ -1,4 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
+import { categoryView, overview, publicTransactions, SEED_TRANSACTIONS, ACCOUNTS, GOALS } from "./finance.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -430,6 +431,30 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async clearGrocery() {
       await ensureGrocerySeeded();
       return performGroceryClear(grocery);
+    },
+    async financeRows() {
+      const key = k("joehub:finance:seeded");
+      const existing = await readJson(key);
+      if (existing && Array.isArray(existing.transactions)) return existing.transactions;
+      await command(["SET", key, JSON.stringify({ transactions: SEED_TRANSACTIONS }), "NX"]);
+      const stored = await readJson(key);
+      return stored && Array.isArray(stored.transactions) ? stored.transactions : SEED_TRANSACTIONS;
+    },
+    async financeOverview(now, week, range) {
+      return overview(await this.financeRows(), now, week, range);
+    },
+    async financeCategory(now, week, category) {
+      return categoryView(await this.financeRows(), now, week, category);
+    },
+    async financeAccounts() {
+      await this.financeRows();
+      return ACCOUNTS;
+    },
+    async financeGoals() {
+      return GOALS;
+    },
+    async financeTransactions() {
+      return publicTransactions(await this.financeRows());
     },
   };
 }

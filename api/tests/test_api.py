@@ -121,7 +121,8 @@ def test_login_cookie_session_logout_and_revoke() -> None:
     cookie = login(client)
     accounts = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert accounts.status_code == 200
-    assert accounts.json()[0]["name"] == "Sample Checking"
+    assert accounts.json()["netWorthCents"] == 1_847_236
+    assert accounts.json()["accounts"][0]["name"] == "Example checking"
     assert accounts.headers["cache-control"] == "no-store"
     devices = client.get("/api/session/devices", cookies={COOKIE_NAME: cookie})
     assert devices.status_code == 200
@@ -179,12 +180,12 @@ def test_logs_omit_row_data(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger="joehub_api.access")
     response = client.get("/api/finance/transactions", cookies={COOKIE_NAME: cookie})
     assert response.status_code == 200
-    assert "SYNTHETIC-ACORN-PAYEE" in response.text
+    assert "Joe's Pizza" in response.text
     messages = " ".join(
         record.getMessage() for record in caplog.records if record.name == "joehub_api.access"
     )
     assert "/api/finance/transactions" in messages
-    assert "SYNTHETIC-ACORN-PAYEE" not in messages
+    assert "Joe's Pizza" not in messages
     assert SECRET not in messages
 
 
@@ -283,8 +284,6 @@ def test_http_contract_is_json_and_matches_fixtures() -> None:
     cookie = login(client)
     fixtures = json.loads((REPO / "contract" / "fixtures.json").read_text(encoding="utf-8"))
     mapping = {
-        "/api/finance/accounts": "accounts",
-        "/api/finance/transactions": "transactions",
         "/api/jobs/applications": "applications",
         "/api/jobs/statuses": "statuses",
         "/api/journal/entries": "entries",
@@ -295,6 +294,11 @@ def test_http_contract_is_json_and_matches_fixtures() -> None:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")
         assert response.json() == fixtures[key]
+    snapshot = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
+    assert snapshot.json()["netWorthCents"] == 1_847_236
+    overview_body = client.get("/api/finance/overview", params={"asOf": "2026-11-10T15:00:00-05:00"}, cookies={COOKIE_NAME: cookie}).json()
+    assert overview_body["month"]["spentCents"] == 112_600
+    assert overview_body["label"] == "This week · Nov 9–15"
     unprefixed = client.get("/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert unprefixed.status_code == 404
     assert unprefixed.json() != fixtures["accounts"]

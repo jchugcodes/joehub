@@ -2,96 +2,93 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Icon } from "../../../components/Icon";
+import { useEffect, useState } from "react";
 import { FinanceTabs } from "../../../components/FinanceTabs";
 
-const accounts = [
-  { name: "Example checking", meta: "Cash · synthetic snapshot", amount: "$2,472.36", icon: "finance", tint: "bg-finance-primary/10 text-finance-primary" },
-  { name: "Example savings", meta: "Cash · synthetic snapshot", amount: "$10,000.00", icon: "income", tint: "bg-finance-primary/10 text-finance-primary" },
-  { name: "Example brokerage", meta: "Investments · synthetic snapshot", amount: "$14,000.00", icon: "trend", tint: "bg-jobs/10 text-jobs" },
-  { name: "Example loan", meta: "Liability · synthetic snapshot", amount: "$7,600.00", icon: "subscriptions", tint: "bg-finance-dining/10 text-finance-dining" },
-  { name: "Example card", meta: "Liability · synthetic snapshot", amount: "$400.00", icon: "finance", tint: "bg-finance-dining/10 text-finance-dining" },
-];
+type Account = { name: string; group: string; amountCents: number };
+type Snapshot = { netWorthCents: number; assetsCents: number; liabilitiesCents: number; updatedAt: string; accounts: Account[] };
+
+function money(cents: number, digits = true) {
+  const abs = Math.abs(cents);
+  const text = digits ? (abs / 100).toFixed(2) : String(Math.round(abs / 100));
+  const [whole, frac] = text.split(".");
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ? `.${frac}` : ""}`;
+}
+
+function stamp(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
 
 export default function AccountsPage() {
-  const params = useSearchParams();
-  const empty = params.get("view") === "empty";
-  const fromMore = params.get("from") === "more";
+  const fromMore = useSearchParams().get("from") === "more";
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/finance/accounts", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        setSnapshot((await response.json()) as Snapshot);
+      })
+      .catch(() => setSnapshot(null));
+  }, []);
+
   return (
-    <div className="min-w-0" data-from={fromMore ? "more" : "finance"}>
-      <header className="px-5">
+    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined}>
+      <header className="px-5 pt-2">
         {fromMore ? (
-          <Link href="/more#accounts" className="inline-flex min-h-11 items-center pr-2 text-ui-14 font-semibold">
+          <Link href="/more#accounts" className="inline-flex min-h-11 items-center pr-2 text-body">
             ‹ More
           </Link>
         ) : null}
-        <p className="text-ui-13 text-muted">Finance</p>
-        <h1 className="text-ui-22 font-bold">Accounts</h1>
+        <p className="text-meta text-muted">joehub</p>
+        <h1 className="text-title font-medium">Accounts</h1>
       </header>
-      <div className="mt-4">
+      <div className="mt-3">
         <FinanceTabs />
       </div>
-      {empty ? (
+      {snapshot ? (
         <>
-          <p className="mx-4 mt-4 rounded-xl border border-line bg-white p-3 text-ui-12 text-ink">SYNTHETIC EMPTY STATE · No data is connected. Demo only. Nothing was saved.</p>
-          <section className="card mx-4 mt-5 p-4">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-finance-primary/10 text-finance-primary">
-              <Icon name="finance" size={24} />
-            </span>
-            <h2 className="mt-4 text-ui-22 font-bold">No accounts to show</h2>
-            <p className="mt-2 text-ui-14 text-muted">Balances appear after an account snapshot is available. An empty list does not mean your net worth is $0.</p>
-            <Link
-              href={fromMore ? "/more#accounts" : "/finance"}
-              className="mt-4 flex min-h-12 items-center justify-center rounded-xl border border-finance-primary px-4 text-ui-19 font-bold text-finance-primary"
-            >
-              {fromMore ? "Back to More" : "Back to overview"}
-            </Link>
-          </section>
-        </>
-      ) : (
-        <>
-          <p className="mx-4 mt-4 rounded-xl border border-line bg-white p-3 text-ui-12 text-ink">
-            SYNTHETIC · No live connection or account actions. Demo only. Nothing was saved.
-          </p>
-          <section className="card mx-4 mt-4 p-4">
-            <p className="text-ui-13 text-muted">Net worth · example</p>
-            <p className="mt-1 text-[2rem] font-extrabold tabular-nums">
-              $18,472<span className="text-ui-20">.36</span>
+          <p className="mx-4 mt-3 text-meta text-muted">Updated {stamp(snapshot.updatedAt)}</p>
+          <section className="mx-4 mt-3 rounded-[20px] border border-line p-4">
+            <p className="text-meta text-muted">Net worth</p>
+            <p className="mt-1 font-medium">
+              <span className="text-title">{money(snapshot.netWorthCents, false).replace(/\.\d+$/, "")}</span>
+              <span className="text-section">.{String(snapshot.netWorthCents % 100).padStart(2, "0")}</span>
             </p>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-ui-12 text-muted">
-              <p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <p className="text-meta text-muted">
                 Assets
-                <span className="mt-1 block text-ui-16 font-bold text-ink">$26,472.36</span>
+                <span className="mt-1 block text-section font-medium text-ink">{money(snapshot.assetsCents)}</span>
               </p>
-              <p>
+              <p className="text-meta text-muted">
                 Liabilities
-                <span className="mt-1 block text-ui-16 font-bold text-ink">$8,000.00</span>
+                <span className="mt-1 block text-section font-medium text-ink">{money(snapshot.liabilitiesCents)}</span>
               </p>
             </div>
           </section>
-          <h2 className="mt-5 px-5 text-ui-17 font-bold">Included accounts</h2>
+          <h2 className="mt-5 px-5 text-section font-medium">Included accounts</h2>
           <ul className="mt-2 space-y-2.5 px-4">
-            {accounts.map((account) => (
-              <li key={account.name} className="card p-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${account.tint}`}>
-                    <Icon name={account.icon} size={18} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-ui-15 font-semibold">{account.name}</span>
-                    <span className="block text-ui-12 text-muted">{account.meta}</span>
-                  </span>
-                  <span className="text-ui-15 font-semibold tabular-nums">{account.amount}</span>
-                </div>
+            {snapshot.accounts.map((account) => (
+              <li key={account.name} className="flex items-center justify-between gap-3 rounded-[20px] border border-line p-4">
+                <span>
+                  <span className="block text-body font-medium">{account.name}</span>
+                  <span className="block text-meta text-muted">{account.group}</span>
+                </span>
+                <span className="text-body font-medium">{money(account.amountCents)}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 px-5 text-ui-12 text-ink">
-            Goal allocations are part of these balances, not additional assets. No account numbers, linking or payment actions are included.
-          </p>
         </>
+      ) : (
+        <p className="px-5 py-8 text-body text-muted">Loading accounts…</p>
       )}
-      <p className="mb-4 mt-6 text-center text-ui-10 text-muted">SYNTHETIC DATA · design reference</p>
-    </div>
+    </main>
   );
 }

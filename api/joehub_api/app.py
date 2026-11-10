@@ -10,19 +10,18 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from joehub_api.models import (
-    AccountBalance,
     ApplicationRow,
     Device,
     EventRow,
     JournalEntry,
     LoginResult,
     StatusCount,
-    TransactionRow,
 )
 from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
 from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionRecord, SessionStore
 from joehub_api.settings import ApiSettings
+from joehub_api.finance import ACCOUNTS, GOALS, SEED_TRANSACTIONS, category_view, overview, public_transactions
 from joehub_api.grocery import GroceryStore
 from joehub_api.tasks import TaskStore
 
@@ -95,13 +94,48 @@ def create_app(
         except ReadDenied:
             raise HTTPException(status_code=503, detail="read credential rejected") from None
 
-    @app.get("/api/finance/accounts", response_model=list[AccountBalance])
-    def finance_accounts(request: Request) -> list[dict]:
-        return rows(request, "accounts")
+    def finance_gate(request: Request) -> None:
+        require_session(request)
+        try:
+            request.app.state.source.accounts(request.app.state.settings.read_credential)
+        except ReadDenied:
+            raise HTTPException(status_code=503, detail="read credential rejected") from None
 
-    @app.get("/api/finance/transactions", response_model=list[TransactionRow])
-    def finance_transactions(request: Request) -> list[dict]:
-        return rows(request, "transactions")
+    def finance_now(request: Request) -> int:
+        raw = request.query_params.get("asOf")
+        if raw:
+            try:
+                return int(datetime.fromisoformat(raw).timestamp() * 1000)
+            except ValueError:
+                pass
+        return int(_utcnow().timestamp() * 1000)
+
+    @app.get("/api/finance/overview")
+    def finance_overview(request: Request) -> JSONResponse:
+        finance_gate(request)
+        result = overview(SEED_TRANSACTIONS, finance_now(request), request.query_params.get("week") or "", request.query_params.get("range") or "")
+        return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.get("/api/finance/weeks/{start}/categories/{category}")
+    def finance_category(request: Request, start: str, category: str) -> JSONResponse:
+        finance_gate(request)
+        result = category_view(SEED_TRANSACTIONS, finance_now(request), start, category)
+        return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.get("/api/finance/accounts")
+    def finance_accounts(request: Request) -> JSONResponse:
+        finance_gate(request)
+        return JSONResponse(ACCOUNTS)
+
+    @app.get("/api/finance/goals")
+    def finance_goals(request: Request) -> JSONResponse:
+        finance_gate(request)
+        return JSONResponse(GOALS)
+
+    @app.get("/api/finance/transactions")
+    def finance_transactions(request: Request) -> JSONResponse:
+        finance_gate(request)
+        return JSONResponse(public_transactions(SEED_TRANSACTIONS))
 
     @app.get("/api/jobs/applications", response_model=list[ApplicationRow])
     def job_applications(request: Request) -> list[dict]:

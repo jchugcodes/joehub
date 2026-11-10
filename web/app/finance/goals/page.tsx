@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { FinanceTabs } from "../../../components/FinanceTabs";
 import { Icon } from "../../../components/Icon";
 import { goals } from "../../../lib/design-fixtures";
@@ -14,12 +13,11 @@ const noteClass: Record<string, string> = {
 };
 
 export default function GoalsPage() {
-  const [demo, setDemo] = useState("");
   return (
-    <div>
-      <p className="px-5 text-ui-13 mut">Finance</p>
-      <h1 className="mb-3 px-5 text-ui-22 font-bold">Goals</h1>
-      <FinanceTabs hint />
+    <div className="finance-type">
+      <p className="px-5 text-meta text-muted">joehub</p>
+      <h1 className="mb-3 px-5 text-title font-medium">Goals</h1>
+      <FinanceTabs />
       <section className="mx-4 mt-4">
         <div className="card flex items-center gap-5 p-5">
           <div className="relative h-[120px] w-[120px]" aria-hidden>
@@ -86,22 +84,6 @@ export default function GoalsPage() {
           </li>
         ))}
       </ul>
-      <div className="mx-4 mt-3">
-        <button
-          type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-[20px] border-2 border-dashed border-subtle-border p-4 font-semibold text-finance-primary"
-          onClick={() => setDemo("Demo only. Nothing was saved.")}
-        >
-          <Icon name="plus" size={18} />
-          New goal
-        </button>
-      </div>
-      {demo ? (
-        <p role="status" className="mt-2 text-center text-ui-12 mut">
-          {demo}
-        </p>
-      ) : null}
-      <p className="mb-28 mt-3 text-center text-ui-9.5 text-inactive">EXAMPLE DATA · design mockup · not real accounts</p>
     </div>
   );
 }

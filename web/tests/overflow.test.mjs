@@ -173,15 +173,15 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
       assert.ok(value.tabOverflow <= 1, `primary nav overflows by ${value.tabOverflow}px`);
       if (path === "/finance/goals") {
         assert.equal(value.contained, "contained", `served an old tab row ${JSON.stringify(value)}`);
-        assert.equal(value.hintOutside, true);
+        assert.notEqual(value.hintOutside, false);
         assert.equal(value.hintWidth, 0, "swipe hint still reserves width inside the 390 column");
         if (enlarge) {
-          assert.ok(Math.abs(value.title - 44) < 0.6, `Goals title computed ${value.title}px, root ${value.root}`);
+          assert.ok(Math.abs(value.title - 48) < 0.6, `Goals title computed ${value.title}px, root ${value.root}`);
           assert.ok(Math.abs(value.goal - 32) < 0.6, `goal title computed ${value.goal}px`);
           assert.ok(Math.abs(value.tabLabel - 21) < 0.6, `tab label computed ${value.tabLabel}px`);
         } else if (width === 390) {
           assert.equal(value.accountsFit, true, "Accounts is cut off at 390px");
-          assert.ok(Math.abs(value.title - 22) < 0.6, `Goals title computed ${value.title}px at normal size`);
+          assert.ok(Math.abs(value.title - 24) < 0.6, `Goals title computed ${value.title}px at normal size`);
           const fontReport = await send("Runtime.evaluate", {
             expression: `(() => {
               const heading = document.querySelector("h1");
@@ -193,23 +193,23 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
                 optical: style.fontOpticalSizing,
                 size: style.fontSize,
                 loaded: document.fonts.check(style.fontWeight + " " + style.fontSize + " \\"" + family + "\\""),
-                faces: [...document.fonts].filter((face) => /dm/i.test(face.family)).map((face) => face.family + " " + face.weight + " " + face.status),
+                faces: [...document.fonts].filter((face) => /outfit/i.test(face.family)).map((face) => face.family + " " + face.weight + " " + face.status),
               }));
             })()`,
             awaitPromise: true,
             returnByValue: true,
           });
           const font = fontReport.result?.result?.value;
-          assert.equal(font.loaded, true, `DM Sans did not load ${JSON.stringify(font)}`);
-          assert.match(font.family, /DM Sans|__DM_Sans/i, JSON.stringify(font));
-          assert.equal(font.optical, "auto", JSON.stringify(font));
+          assert.equal(font.loaded, true, `Outfit did not load ${JSON.stringify(font)}`);
+          assert.match(font.family, /Outfit|__Outfit/i, JSON.stringify(font));
+          assert.equal(font.optical, "none", JSON.stringify(font));
           await send("DOM.enable");
           await send("CSS.enable");
           const documentNode = await send("DOM.getDocument", { depth: 0 });
           const heading = await send("DOM.querySelector", { nodeId: documentNode.result.root.nodeId, selector: "h1" });
           const platform = await send("CSS.getPlatformFontsForNode", { nodeId: heading.result.nodeId });
           const names = (platform.result?.fonts || []).map((item) => item.familyName);
-          assert.ok(names.some((name) => /DM Sans/i.test(name)), `platform fonts ${JSON.stringify(platform.result?.fonts)}`);
+          assert.ok(names.some((name) => /Outfit/i.test(name)), `platform fonts ${JSON.stringify(platform.result?.fonts)}`);
           console.log("FONT", JSON.stringify({ ...font, platform: names }));
         }
         await send("Emulation.setFocusEmulationEnabled", { enabled: true });

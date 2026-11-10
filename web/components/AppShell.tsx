@@ -45,7 +45,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const composing = pathname.startsWith("/journal/compose");
   const tasksScreen = pathname.startsWith("/tasks");
   const groceryScreen = pathname.startsWith("/grocery");
-  const outfitScreen = tasksScreen || groceryScreen;
+  const financeScreen = pathname.startsWith("/finance");
+  const outfitScreen = tasksScreen || groceryScreen || financeScreen;
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -69,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* The frames are 390px. Wider viewports keep that column centered. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
       >
         {children}
       </main>
@@ -84,7 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={tab.href}
                   aria-current={current ? "page" : undefined}
-                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center leading-tight ${outfitScreen ? `${groceryScreen ? "grocery-type" : "tasks-type"} text-meta font-normal` : `text-ui-10.5 ${current ? "font-semibold" : "font-medium"}`} ${tone}`}
+                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center leading-tight ${financeScreen ? `finance-type text-ui-10.5 ${current ? "font-semibold" : "font-medium"}` : outfitScreen ? `${groceryScreen ? "grocery-type" : "tasks-type"} text-meta font-normal` : `text-ui-10.5 ${current ? "font-semibold" : "font-medium"}`} ${tone}`}
                 >
                   <span className={`rounded-full px-3 py-1 ${current ? `${activePill[tab.label]} ${tone}` : ""}`}>
                     <Icon name={tab.icon} size={22} strokeWidth={current ? 2.2 : 1.8} />

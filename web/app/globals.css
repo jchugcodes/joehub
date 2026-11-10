@@ -45,7 +45,8 @@ body {
 
 /* Outfit is scoped. Body stays DM Sans via font-sans. */
 .tasks-type,
-.grocery-type {
+.grocery-type,
+.finance-type {
   font-family: var(--font-outfit), "Outfit", system-ui, sans-serif;
   font-optical-sizing: none;
   font-variation-settings: normal;
