@@ -5,7 +5,7 @@ import { handleGet, handleTasksGet, handleTasksPost } from "../lib/api.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
-import { detroitCalendarDate } from "../lib/detroit-date.mjs";
+import { detroitCalendarDate, detroitHeading } from "../lib/detroit-date.mjs";
 import {
   createMemoryBackend,
   IDEMPOTENCY_TTL_MS,
@@ -192,6 +192,8 @@ test("a patch validates fields and today is the Detroit calendar day", () => {
   assert.equal(detroitCalendarDate(afterUtcMidnight), "2026-11-09");
   assert.equal(detroitCalendarDate(beforeDetroitMidnight), "2026-11-09");
   assert.equal(detroitCalendarDate(afterDetroitMidnight), "2026-11-10");
+  assert.equal(detroitHeading(afterUtcMidnight), "Monday, Nov 9");
+  assert.equal(detroitHeading(afterDetroitMidnight), "Tuesday, Nov 10");
   const today = validateTaskPatch({ dueDate: "today" }, afterUtcMidnight);
   assert.equal(today.ok, true);
   assert.equal(today.patch.dueDate, "2026-11-09");
