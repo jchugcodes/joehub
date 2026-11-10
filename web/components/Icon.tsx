@@ -74,6 +74,14 @@ export function Icon({
       </svg>
     );
   }
+  if (name === "bot") {
+    return (
+      <svg {...common}>
+        <rect x="6" y="8" width="12" height="10" rx="3" />
+        <path d="M12 8V4M9 13h.01M15 13h.01M9 18v2M15 18v2" />
+      </svg>
+    );
+  }
   if (name === "more") {
     return (
       <svg {...common}>
