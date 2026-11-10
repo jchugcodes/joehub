@@ -437,3 +437,209 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     child = null;
   }
 });
+
+test("grocery edit, cancel, delete, and a failed save leave the item", { timeout: 240000, skip }, async () => {
+  const cookie = await boot();
+  const page = await openPage(cookie);
+  const { send } = page;
+  const auth = { cookie: `joehub_session=${cookie}`, "content-type": "application/json" };
+  const milk = { name: "Oat milk", quantity: "1 carton", section: "Dairy", notes: "Barista style if they have it" };
+  try {
+    const created = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(milk) });
+    assert.equal(created.status, 201);
+    const bananas = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify({ name: "Bananas", quantity: "6", section: "Produce" }) });
+    assert.equal(bananas.status, 201);
+    const id = (await created.json()).id;
+
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.body.innerText.includes('Oat milk') ? 'yes' : ''", "list");
+    assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
+    await waitFor(send, "document.querySelector('[role=dialog] h2')?.textContent === 'Edit item' ? 'yes' : ''", "edit sheet");
+    const prefilled = await evalPage(
+      send,
+      `(() => ({
+        name: document.getElementById("grocery-name")?.value,
+        quantity: document.getElementById("grocery-quantity")?.value,
+        section: document.getElementById("grocery-section")?.value,
+        notes: document.getElementById("grocery-notes")?.value,
+        hint: document.getElementById("grocery-duplicate") ? "yes" : "no",
+        suggestions: [...document.querySelectorAll("#grocery-sections option")].map((el) => el.value).join("|"),
+      }))()`,
+    );
+    assert.deepEqual(
+      { name: prefilled.name, quantity: prefilled.quantity, section: prefilled.section, notes: prefilled.notes, hint: prefilled.hint },
+      { name: "Oat milk", quantity: "1 carton", section: "Dairy", notes: "Barista style if they have it", hint: "no" },
+    );
+    assert.equal(prefilled.suggestions, "Dairy|Produce");
+    await shot(send, "grocery_g04_390.png");
+
+    assert.equal(await evalPage(send, fill("grocery-name", "Whole milk")), "yes");
+    assert.equal(await evalPage(send, fill("grocery-quantity", "")), "yes");
+    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    await waitFor(send, "!document.querySelector('[role=dialog]') ? 'yes' : ''", "cancelled");
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('1 carton · Dairy') && document.body.innerText.includes('Barista style if they have it') ? 'yes' : ''", "cancel restored");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('Whole milk') ? 'yes' : 'no'"), "no");
+
+    assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
+    await waitFor(send, "document.getElementById('grocery-name')?.value === 'Oat milk' ? 'yes' : ''", "reopened");
+    assert.equal(await evalPage(send, fill("grocery-quantity", "-2 bags")), "yes");
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "document.getElementById('grocery-quantity-error')?.textContent === 'Enter a valid quantity.' ? 'yes' : ''", "edit quantity");
+    assert.equal(await evalPage(send, fill("grocery-name", "")), "yes");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, fill("grocery-name", "Oat milk")), "yes");
+    assert.equal(await evalPage(send, fill("grocery-quantity", "")), "yes");
+    assert.equal(await evalPage(send, fill("grocery-notes", "")), "yes");
+    assert.equal(await evalPage(send, fill("grocery-section", "Produce")), "yes");
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "!document.querySelector('[role=dialog]') && !document.body.innerText.includes('1 carton') && !document.body.innerText.includes('Barista') ? 'yes' : ''", "cleared fields", 20000);
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('Oat milk') && !document.body.innerText.includes('Barista') ? 'yes' : ''", "edits held");
+    const stored = await fetch(`${base()}/api/grocery/${id}`, { headers: { cookie: auth.cookie } });
+    const saved = await stored.json();
+    assert.equal(saved.name, "Oat milk");
+    assert.equal(saved.section, "Produce");
+    assert.equal(saved.quantity, undefined);
+    assert.equal(saved.notes, undefined);
+
+    assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
+    await waitFor(send, "document.querySelector('[role=dialog] h2')?.textContent === 'Edit item' ? 'yes' : ''", "edit again");
+    assert.equal(await evalPage(send, fill("grocery-name", "Lost milk")), "yes");
+    await evalPage(
+      send,
+      `(() => {
+        const orig = window.fetch;
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+          if (method === "PATCH" && url.includes("/api/grocery/")) {
+            window.fetch = orig;
+            return Promise.resolve(new Response(JSON.stringify({ detail: "unavailable" }), { status: 500, headers: { "content-type": "application/json" } }));
+          }
+          return orig(input, init);
+        };
+        return "yes";
+      })()`,
+    );
+    assert.equal(await evalPage(send, click("Save")), "yes");
+    await waitFor(send, "document.body.innerText.includes('Couldn\\'t save these edits.') ? 'yes' : ''", "save failed");
+    assert.equal(await evalPage(send, "document.getElementById('grocery-name')?.value"), "Lost milk");
+    const unchanged = await fetch(`${base()}/api/grocery/${id}`, { headers: { cookie: auth.cookie } });
+    assert.equal((await unchanged.json()).name, "Oat milk");
+    assert.equal(await evalPage(send, click("Cancel")), "yes");
+
+    assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('Delete this item?') ? 'yes' : 'no'"), "no");
+    assert.equal(await evalPage(send, click("Delete")), "yes");
+    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Delete this item?') && document.getElementById('grocery-delete-dialog')?.innerText.includes('Oat milk') ? 'yes' : ''", "confirm");
+    await shot(send, "grocery_g04_delete_390.png");
+    await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
+    await waitFor(send, "!document.getElementById('grocery-delete-dialog') && document.querySelector('[role=dialog] h2')?.textContent === 'Edit item' ? 'yes' : ''", "escape confirm");
+    assert.equal(await evalPage(send, click("Delete")), "yes");
+    await waitFor(send, "document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "confirm again");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Cancel");
+          if (!button) return "";
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "!document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "cancel confirm");
+    assert.equal(await evalPage(send, click("Delete")), "yes");
+    await waitFor(send, "document.getElementById('grocery-delete-dialog') ? 'yes' : ''", "confirm delete");
+    await evalPage(
+      send,
+      `(() => {
+        const orig = window.fetch;
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+          if (method === "DELETE" && url.includes("/api/grocery/")) {
+            window.fetch = orig;
+            return Promise.resolve(new Response(JSON.stringify({ detail: "unavailable" }), { status: 500, headers: { "content-type": "application/json" } }));
+          }
+          return orig(input, init);
+        };
+        return "yes";
+      })()`,
+    );
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Delete");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Couldn\\'t delete this item.') ? 'yes' : ''", "delete failed");
+    assert.equal((await (await fetch(`${base()}/api/grocery/${id}`, { headers: { cookie: auth.cookie } })).json()).name, "Oat milk");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const button = [...document.querySelectorAll("#grocery-delete-dialog button")].find((el) => (el.innerText || "").trim() === "Delete");
+          button.click();
+          return "yes";
+        })()`,
+      ),
+      "yes",
+    );
+    await waitFor(send, "!document.querySelector('[role=dialog]') && !document.body.innerText.includes('Oat milk') && document.body.innerText.includes('Bananas') ? 'yes' : ''", "deleted", 20000);
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('Bananas') && !document.body.innerText.includes('Oat milk') ? 'yes' : ''", "delete held");
+
+    const again = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(milk) });
+    assert.equal(again.status, 201);
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.body.innerText.includes('Oat milk') ? 'yes' : ''", "restored item");
+    await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    await waitFor(send, "document.querySelector(\"[data-link='offline']\") ? 'yes' : ''", "offline edit");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const node = [...document.querySelectorAll("button")].find((el) => el.getAttribute("aria-label") === "Edit Oat milk");
+          return node && node.disabled ? "yes" : "no";
+        })()`,
+      ),
+      "yes",
+    );
+    await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    await waitFor(send, "!document.querySelector('[data-link]') && document.body.innerText.includes('Oat milk') ? 'yes' : ''", "back for desktop", 20000);
+
+    await gotoGrocery(send, 1280);
+    assert.equal(await evalPage(send, click("Edit Oat milk")), "yes");
+    await waitFor(send, "document.querySelector(\"[data-layout='panel'] [role='dialog'] h2\")?.textContent === 'Edit item' ? 'yes' : ''", "desktop edit");
+    const header = await evalPage(
+      send,
+      `(() => {
+        const dialog = document.querySelector("[role='dialog']");
+        const labels = [...dialog.querySelectorAll("button")].map((el) => (el.innerText || "").trim()).filter(Boolean);
+        return labels.join("|");
+      })()`,
+    );
+    assert.match(header, /Delete/);
+    assert.match(header, /Cancel/);
+    assert.match(header, /Save/);
+    await shot(send, "grocery_g04_1280.png");
+    assert.equal(await evalPage(send, click("Cancel")), "yes");
+  } finally {
+    await page.close();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+    chrome = null;
+    child = null;
+  }
+});

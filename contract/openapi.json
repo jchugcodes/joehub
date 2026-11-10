@@ -284,6 +284,58 @@
           "429": { "description": "Rate limit" },
           "503": { "description": "Store unavailable" }
         }
+      },
+      "patch": {
+        "operationId": "patchGroceryItem",
+        "description": "Rename an item or change its quantity, notes, and section. An empty quantity, notes, or section clears that field. Name cannot be cleared. checked is not accepted.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "400": { "description": "Invalid item" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteGroceryItem",
+        "description": "Permanently delete one item.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["deleted", "id"],
+                  "properties": {
+                    "deleted": { "type": "boolean" },
+                    "id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
       }
     },
     "/api/session/login": {
@@ -338,6 +390,17 @@
           "createdAt": { "type": "integer" },
           "updatedAt": { "type": "integer" },
           "checkedAt": { "type": "integer" }
+        }
+      },
+      "GroceryPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "notes": { "type": "string" },
+          "section": { "type": "string" }
         }
       },
       "GroceryCreate": {

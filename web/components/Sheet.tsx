@@ -12,6 +12,7 @@ export function Sheet({
   dock = "sheet",
   actions = null,
   titleClassName,
+  corner = null,
 }: {
   title: string;
   onClose: () => void;
@@ -23,6 +24,8 @@ export function Sheet({
   actions?: React.ReactNode;
   /** Tasks passes the Outfit section style. The default stays the Finance sheet. */
   titleClassName?: string;
+  /** Replaces the phone close control. Desktop panels keep `actions`. */
+  corner?: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -103,14 +106,16 @@ export function Sheet({
             <h2 id={titleId} className={titleClassName || (frame ? "min-w-0 text-ui-18 font-bold" : "text-xl font-semibold")}>
               {title}
             </h2>
-            <button
-              type="button"
-              className={frame ? "grid h-11 w-11 shrink-0 place-items-center border-0 bg-transparent p-0 text-muted" : "shrink-0 rounded-full px-2 py-1 text-xl leading-none"}
-              onClick={onClose}
-              aria-label="Close"
-            >
-              {frame ? <Icon name="close" size={22} /> : "×"}
-            </button>
+            {corner ?? (
+              <button
+                type="button"
+                className={frame ? "grid h-11 w-11 shrink-0 place-items-center border-0 bg-transparent p-0 text-muted" : "shrink-0 rounded-full px-2 py-1 text-xl leading-none"}
+                onClick={onClose}
+                aria-label="Close"
+              >
+                {frame ? <Icon name="close" size={22} /> : "×"}
+              </button>
+            )}
           </div>
         </div>
         {frame ? <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">{children}</div> : children}

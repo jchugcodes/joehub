@@ -186,13 +186,97 @@ export function groupGrocery(items) {
   return groups;
 }
 
-export function existingName(items, name) {
+export function existingName(items, name, exceptId = "") {
   const needle = String(name || "").trim().toLowerCase();
   if (!needle) return "";
   const found = (Array.isArray(items) ? items : [])
-    .filter((item) => item && String(item.name || "").trim().toLowerCase() === needle)
+    .filter((item) => item && item.id !== exceptId && String(item.name || "").trim().toLowerCase() === needle)
     .sort(byCreated);
   return found[0] ? found[0].name : "";
+}
+
+export function sectionSuggestions(items) {
+  const seen = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const section = item && typeof item.section === "string" ? item.section.trim() : "";
+    if (!section) continue;
+    const at = seen.get(section);
+    if (at == null || item.createdAt < at) seen.set(section, item.createdAt);
+  }
+  return [...seen.entries()]
+    .sort((left, right) => left[1] - right[1] || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+    .map(([label]) => label);
+}
+
+const PATCH_FIELDS = CREATE_FIELDS;
+
+export function validateGroceryPatch(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return reject("", "Item must be an object");
+  }
+  const keys = Object.keys(body);
+  if (!keys.length) return reject("", "Item must include a field");
+  for (const key of keys) {
+    if (!PATCH_FIELDS.has(key)) return reject(key, `${key} isn't accepted.`);
+  }
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(body, "name")) {
+    if (typeof body.name !== "string") return reject("name", "Enter a name.");
+    const name = body.name.trim();
+    if (!name) return reject("name", "Enter a name.");
+    if (name.length > 200) return reject("name", "Name is too long.");
+    patch.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "quantity")) {
+    const quantity = parseQuantity(body.quantity);
+    if (!quantity.ok) return reject("quantity", quantity.detail);
+    patch.quantity = quantity.quantity;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "notes")) {
+    const notes = optionalText(body.notes, "notes", "Notes must be text.", 4000, "Notes are too long.");
+    if (!notes.ok) return notes;
+    patch.notes = notes.text;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "section")) {
+    const section = optionalText(body.section, "section", "Section must be text.", 120, "Section is too long.");
+    if (!section.ok) return section;
+    patch.section = section.text;
+  }
+  return { ok: true, patch };
+}
+
+function applyPatch(existing, patch, now) {
+  const next = { ...existing, updatedAt: now };
+  if (Object.prototype.hasOwnProperty.call(patch, "name")) next.name = patch.name;
+  for (const field of ["quantity", "notes", "section"]) {
+    if (!Object.prototype.hasOwnProperty.call(patch, field)) continue;
+    if (patch[field]) next[field] = patch[field];
+    else delete next[field];
+  }
+  return next;
+}
+
+export async function performPatch(backend, id, raw, now) {
+  if (!isItemId(id)) return { status: 404, body: { detail: "This item is no longer here." } };
+  const parsed = validateGroceryPatch(raw);
+  if (!parsed.ok) {
+    const body = { detail: parsed.detail };
+    if (parsed.field) body.field = parsed.field;
+    return { status: 400, body };
+  }
+  const existing = await backend.getItem(id);
+  if (!existing) return { status: 404, body: { detail: "This item is no longer here." } };
+  const next = applyPatch(existing, parsed.patch, now);
+  const replaced = await backend.replaceItem(next);
+  if (replaced === false) return { status: 404, body: { detail: "This item is no longer here." } };
+  return { status: 200, body: next };
+}
+
+export async function performDelete(backend, id) {
+  if (!isItemId(id)) return { status: 404, body: { detail: "This item is no longer here." } };
+  const removed = await backend.deleteItem(id);
+  if (!removed) return { status: 404, body: { detail: "This item is no longer here." } };
+  return { status: 200, body: { deleted: true, id } };
 }
 
 export async function performCreate(backend, raw, idemKey, now, newId = newItemId, scope = "") {
@@ -279,6 +363,16 @@ export function createMemoryBackend() {
       items.set(item.id, structuredClone(item));
       return true;
     },
+    async replaceItem(item) {
+      if (!items.has(item.id)) return false;
+      items.set(item.id, structuredClone(item));
+      return true;
+    },
+    async deleteItem(id) {
+      if (!isItemId(id) || !items.has(id)) return false;
+      items.delete(id);
+      return true;
+    },
     async getItem(id) {
       if (!isItemId(id)) return null;
       const item = items.get(id);
@@ -332,5 +426,7 @@ export function installMemoryGrocery(store, options = {}) {
   store.listGrocery = () => backend.list();
   store.createGrocery = (raw, idemKey, now, scope) => performCreate(backend, raw, idemKey, now, newItemId, scope || "");
   store.getGrocery = (id) => backend.getItem(id);
+  store.patchGrocery = (id, raw, now) => performPatch(backend, id, raw, now);
+  store.deleteGrocery = (id) => performDelete(backend, id);
   return store;
 }
