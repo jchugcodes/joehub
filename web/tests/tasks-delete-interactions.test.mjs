@@ -85,6 +85,20 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     }
     const shot = await send("Page.captureScreenshot", { format: "png" });
     writeFileSync(`${ARTIFACTS}/tasks_delete_confirm_390.png`, Buffer.from(shot.result.data, "base64"));
+    assert.equal(
+      await evalPage(`(() => {
+        const el = [...document.querySelectorAll("#delete-dialog button")].find((button) => (button.innerText || "").trim() === "Cancel");
+        if (!el) return "missing";
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const top = document.elementFromPoint(x, y);
+        const nav = document.querySelector("nav[aria-label='Primary']");
+        const navTop = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+        return top === el && rect.bottom <= navTop + 1 ? "yes" : (top ? (top.getAttribute("aria-label") || (top.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 80) || top.tagName) : "none");
+      })()`),
+      "yes",
+    );
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await new Promise((resolve) => setTimeout(resolve, 400));
     const wide = await send("Page.captureScreenshot", { format: "png" });

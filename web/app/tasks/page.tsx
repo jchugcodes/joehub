@@ -475,6 +475,16 @@ export default function TasksPage() {
     void load();
   }
 
+  useEffect(() => {
+    if (offline || mode === "loading") return undefined;
+    const handle = window.setTimeout(() => {
+      if (query.trim() === queryRef.current.trim()) return;
+      queryRef.current = query;
+      void load();
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [query, offline, mode, load]);
+
   function clearSearch() {
     if (offline) return;
     queryRef.current = "";
@@ -592,6 +602,9 @@ export default function TasksPage() {
           {gone}
         </p>
       ) : null}
+      {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
+      {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
+      <>
       <form className="mt-4 px-4" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="task-search">
           Search tasks
@@ -633,12 +646,17 @@ export default function TasksPage() {
             {label}
           </button>
         ))}
-        {group !== "all" ? (
+      </div>
+      {group !== "all" ? (
+        <div className="mt-1 flex items-center gap-2 px-4">
+          <span className="rounded-full bg-[#E6E8E4] px-3 py-1 text-meta font-medium text-[#5C6560]">{group === "status" ? "Status" : "Project"}</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setGroup("all")}>
             Clear
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
+      </>
+      )}
       {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
@@ -677,8 +695,13 @@ export default function TasksPage() {
       ) : null}
       {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
         <div className="px-4" data-empty="true">
-          <div className="card mt-4 p-4">
-            <h2 className="text-section font-medium">No unfinished tasks</h2>
+          <div className="mt-10 flex flex-col items-center">
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-[#E4E6E2] text-ink">
+              <span className="grid h-7 w-7 place-items-center rounded-md border-2 border-current">
+                <Icon name="check" size={16} />
+              </span>
+            </span>
+            <h2 className="mt-4 text-section font-medium">No unfinished tasks</h2>
           </div>
         </div>
       ) : null}
@@ -885,7 +908,7 @@ export default function TasksPage() {
         </Sheet>
       ) : null}
       {confirmDelete ? (
-        <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-28" role="alertdialog" aria-labelledby="delete-title">
+        <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+28px)]" role="alertdialog" aria-labelledby="delete-title">
           <div className="card w-full max-w-phone p-5 shadow-2xl">
             <h2 id="delete-title" className="text-section font-medium">Delete this task?</h2>
             {formError ? <p role="alert" className="mt-2 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
