@@ -414,13 +414,10 @@ export default function TasksPage() {
       const nextTask = body as Task;
       const at = Date.now();
       const snap = readCache();
-      if (snap) writeCache(snap.tasks.filter((item) => item.id !== nextTask.id), at);
-      if (queryRef.current.trim()) {
-        setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
-      } else {
-        setTasks((current) => current.filter((item) => item.id !== nextTask.id));
-        setSavedAt(at);
-      }
+      if (snap) writeCache(snap.tasks.map((item) => (item.id === nextTask.id ? nextTask : item)), at);
+      setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
+      setSavedAt(at);
+      if (!queryRef.current.trim()) void load();
     } catch {
       // The list stays as it was. Complete stays available once the network returns.
     } finally {
@@ -471,18 +468,100 @@ export default function TasksPage() {
   }
 
   const addDisabled = offline || mode !== "ready";
+  const controlsDisabled = offline || mode !== "ready";
+  const openTasks = tasks.filter((task) => task.status !== "Done");
+  const completedTasks = activeQuery ? [] : tasks.filter((task) => task.status === "Done");
   const groups = useMemo(() => {
-    if (group === "all") return [{ key: "all", label: "", items: tasks }];
+    const source = activeQuery ? tasks : openTasks;
+    if (activeQuery || group === "all") return [{ key: "all", label: "", items: source }];
     const labelFor = (task: Task) => (group === "status" ? task.status : task.project || "No project");
-    const statusOrder = ["Doing", "To do", "Blocked", "Done"];
-    const seen = [...new Set(tasks.map(labelFor))];
+    const statusOrder = ["Doing", "To do", "Blocked"];
+    const seen = [...new Set(source.map(labelFor))];
     const labels =
       group === "status"
         ? [...statusOrder.filter((status) => seen.includes(status as Task["status"])), ...seen.filter((status) => !statusOrder.includes(status))]
         : [...seen.filter((label) => label !== "No project").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No project")];
-    return labels.map((label) => ({ key: label, label, items: tasks.filter((task) => labelFor(task) === label) }));
-  }, [group, tasks]);
-  const controlsDisabled = offline || mode !== "ready";
+    return labels.map((label) => ({ key: label, label, items: source.filter((task) => labelFor(task) === label) }));
+  }, [activeQuery, group, openTasks, tasks]);
+  function renderTask(task: Task) {
+    const done = task.status === "Done";
+    return (
+      <li key={task.id} className="card min-w-0 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
+          {done ? (
+            <span data-done="true" className="shrink-0 rounded-full bg-ink px-2 py-1 text-meta font-medium text-white">
+              Done
+            </span>
+          ) : (
+            <span className="shrink-0 text-meta font-medium">{task.status}</span>
+          )}
+        </div>
+        {task.project ? <p className="mt-1 break-words text-meta text-muted">{task.project}</p> : null}
+        <p className="mt-2 text-meta text-muted">
+          {task.priority ? <span>{task.priority}</span> : null}
+          {task.priority && task.dueDate ? <span> · </span> : null}
+          {task.dueDate ? <span>Due {task.dueDate}</span> : null}
+          {!task.priority && !task.dueDate ? <span>No due date</span> : null}
+        </p>
+        {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
+        {task.bot ? <BotLine bot={task.bot} /> : null}
+        <div className="mt-3 flex gap-2">
+          {done ? (
+            <>
+              <button
+                type="button"
+                data-reopen="true"
+                className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
+                aria-label={`Reopen ${task.title}`}
+                disabled={controlsDisabled}
+                onClick={() => void reopenTask(task)}
+              >
+                Reopen
+              </button>
+              <button
+                type="button"
+                data-delete="true"
+                className="flex min-h-11 items-center justify-center rounded-xl border border-[#E07A5F] px-3 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                aria-label={`Delete ${task.title}`}
+                disabled={controlsDisabled}
+                onClick={() => {
+                  setEditingId(task.id);
+                  setDraft({ ...emptyDraft(), title: task.title });
+                  setFormError("");
+                  setConfirmDelete(true);
+                }}
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
+                aria-label={`Edit ${task.title}`}
+                disabled={offline}
+                onClick={() => openEdit(task)}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                data-complete="true"
+                className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
+                aria-label={`Complete ${task.title}`}
+                disabled={controlsDisabled}
+                onClick={() => void completeTask(task)}
+              >
+                Complete
+              </button>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  }
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
@@ -621,14 +700,14 @@ export default function TasksPage() {
           </div>
         </div>
       ) : null}
-      {mode === "ready" && !activeQuery && tasks.length === 0 ? (
+      {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="card mt-4 p-4">
             <h2 className="text-section font-medium">No unfinished tasks</h2>
           </div>
         </div>
       ) : null}
-      {mode === "ready" && tasks.length > 0 ? (
+      {mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
         <div className="mt-4 space-y-4">
           {groups.map((section) => (
             <section key={section.key} aria-label={section.label || undefined}>
@@ -638,90 +717,21 @@ export default function TasksPage() {
                   <span className="font-medium text-muted">{section.items.length}</span>
                 </h2>
               ) : null}
-        <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className={`${section.label ? "mt-2" : ""} space-y-3 px-4`}>
-          {section.items.map((task) => {
-            const done = task.status === "Done";
-            return (
-              <li key={task.id} className="card min-w-0 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <h2 className="min-w-0 break-words text-body font-medium">{task.title}</h2>
-                  {done ? (
-                    <span data-done="true" className="shrink-0 rounded-full bg-ink px-2 py-1 text-meta font-medium text-white">
-                      Done
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-meta font-medium">{task.status}</span>
-                  )}
-                </div>
-                {task.project ? <p className="mt-1 break-words text-meta text-muted">{task.project}</p> : null}
-                <p className="mt-2 text-meta text-muted">
-                  {task.priority ? <span>{task.priority}</span> : null}
-                  {task.priority && task.dueDate ? <span> · </span> : null}
-                  {task.dueDate ? <span>Due {task.dueDate}</span> : null}
-                  {!task.priority && !task.dueDate ? <span>No due date</span> : null}
-                </p>
-                {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
-                {task.bot ? <BotLine bot={task.bot} /> : null}
-                <div className="mt-3 flex gap-2">
-                  {done ? (
-                    <>
-                      <button
-                        type="button"
-                        data-reopen="true"
-                        className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                        aria-label={`Reopen ${task.title}`}
-                        disabled={controlsDisabled}
-                        onClick={() => void reopenTask(task)}
-                      >
-                        Reopen
-                      </button>
-                      <button
-                        type="button"
-                        data-delete="true"
-                        className="flex min-h-11 items-center justify-center rounded-xl border border-[#E07A5F] px-3 text-body font-medium text-[#E07A5F] disabled:opacity-50"
-                        aria-label={`Delete ${task.title}`}
-                        disabled={controlsDisabled}
-                        onClick={() => {
-                          setEditingId(task.id);
-                          setDraft({ ...emptyDraft(), title: task.title });
-                          setFormError("");
-                          setConfirmDelete(true);
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="flex min-h-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium disabled:opacity-50"
-                        aria-label={`Edit ${task.title}`}
-                        disabled={offline}
-                        onClick={() => openEdit(task)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        data-complete="true"
-                        className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
-                        aria-label={`Complete ${task.title}`}
-                        disabled={controlsDisabled}
-                        onClick={() => void completeTask(task)}
-                      >
-                        Complete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+              <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className={`${section.label ? "mt-2" : ""} space-y-3 px-4`}>
+                {section.items.map((task) => renderTask(task))}
+              </ul>
             </section>
           ))}
         </div>
+      ) : null}
+      {mode === "ready" && !activeQuery && group !== "project" && completedTasks.length > 0 ? (
+        <section aria-label="Completed" className="mt-6" data-completed="true">
+          <h2 className="flex items-center justify-between px-5 text-meta font-medium">
+            <span>Completed</span>
+            <span className="font-medium text-muted">{completedTasks.length}</span>
+          </h2>
+          <ul className="mt-2 space-y-3 px-4">{completedTasks.map((task) => renderTask(task))}</ul>
+        </section>
       ) : null}
       </div>
       {sheet ? (

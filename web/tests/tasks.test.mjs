@@ -308,7 +308,8 @@ test("done tasks stay searchable for 7 days and are then purged", async () => {
   assert.equal(completed.body.status, "Done");
   assert.equal(completed.body.completedAt, now + 1000);
   const hidden = await backend.list(now + 6 * day);
-  assert.deepEqual(hidden.map((task) => task.id), ["keep"]);
+  assert.equal(hidden.some((task) => task.id === "keep" && task.status !== "Done"), true);
+  assert.equal(hidden.some((task) => task.id === "done-me" && task.status === "Done"), true);
   const found = await backend.search("ALPHA", now + 6 * day);
   assert.equal(found.length, 1);
   assert.equal(found[0].id, "done-me");
@@ -321,10 +322,14 @@ test("done tasks stay searchable for 7 days and are then purged", async () => {
   assert.equal(reopened.body.completedAt, undefined);
   assert.equal((await backend.list(now + 2000)).some((task) => task.id === "done-me"), true);
   await backend.complete("done-me", now + 3000);
-  const expired = await backend.search("alpha", now + 3000 + 7 * day + 1);
-  assert.equal(expired.length, 0);
-  assert.equal(await backend.getTask("done-me"), null);
-  assert.equal((await backend.list(now + 3000 + 7 * day + 1)).some((task) => task.id === "keep"), true);
+  const later = now + 3000 + 8 * day;
+  const expired = await backend.search("alpha", later);
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0].status, "Done");
+  assert.equal((await backend.getTask("done-me")).status, "Done");
+  const aged = await backend.list(later);
+  assert.equal(aged.some((task) => task.id === "done-me"), false);
+  assert.equal(aged.some((task) => task.id === "keep"), true);
   assert.equal((await backend.complete("missing-task", now)).status, 404);
   assert.equal((await backend.reopen("missing-task", now)).status, 404);
 });
@@ -378,11 +383,14 @@ test("upstash deletes done tasks after 7 days on search", async () => {
     const inside = await store.searchTasks("alpha", now + 6 * day);
     assert.equal(inside.length, 1);
     assert.equal(inside[0].status, "Done");
-    const outside = await store.searchTasks("alpha", now + 1000 + 7 * day + 1);
-    assert.equal(outside.length, 0);
-    assert.equal(await store.getTask(created.body.id), null);
+    const later = now + 1000 + 8 * day;
+    const outside = await store.searchTasks("alpha", later);
+    assert.equal(outside.length, 1);
+    assert.equal(outside[0].status, "Done");
+    assert.equal((await store.getTask(created.body.id)).status, "Done");
+    assert.equal((await store.listUnfinishedTasks(later)).some((task) => task.id === created.body.id), false);
     assert.equal(fake.commands.some((args) => args[0] === "ZADD" && args[1] === "joehub:tasks:done"), true);
-    assert.equal(fake.commands.some((args) => args[0] === "DEL" && args[1] === `joehub:task:${created.body.id}`), true);
+    assert.equal(fake.commands.some((args) => args[0] === "DEL" && args[1] === `joehub:task:${created.body.id}`), false);
   } finally {
     fake.stop();
   }
