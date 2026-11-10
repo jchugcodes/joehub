@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { categoryView, defaultCaps, overview, parseCaps, publicTransactions, seedSnapshots, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
+import { categoryView, createTransaction, defaultCaps, overview, parseCaps, patchTransaction, presentTransaction, seedSnapshots, transactionsForWeek, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -525,8 +525,44 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async financeGoals() {
       return (await this.financeBundle()).goals;
     },
-    async financeTransactions() {
-      return publicTransactions(await this.financeRows());
+    async financeTransactions(now = Date.now(), week = "") {
+      return transactionsForWeek(await this.financeRows(), now, week);
+    },
+    async financeTransaction(id) {
+      await ensureFinance();
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const row = await readJson(k(`joehub:finance:txn:${id}`));
+      return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+    },
+    async financeCreateTransaction(body, now = Date.now(), key = "") {
+      await ensureFinance();
+      if (key) {
+        const prior = await readJson(k(`joehub:finance:txn:idem:create:${key}`));
+        if (prior) return prior;
+      }
+      const existing = await this.financeRows();
+      const seq = existing.filter((row) => String(row.id).startsWith("fin-manual-")).length + 1;
+      const result = createTransaction(existing, body, now, seq);
+      if (result.status === 201) {
+        const created = result.rows[0];
+        await command(["SET", k(`joehub:finance:txn:${created.id}`), JSON.stringify(created)]);
+        await command(["ZADD", k("joehub:finance:txns"), financeScore(created), created.id]);
+      }
+      const stored = { status: result.status, body: result.body };
+      if (key && result.status === 201) await command(["SET", k(`joehub:finance:txn:idem:create:${key}`), JSON.stringify(stored), "EX", "86400"]);
+      return stored;
+    },
+    async financePatchTransaction(id, body, now = Date.now()) {
+      await ensureFinance();
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const existing = await this.financeRows();
+      const result = patchTransaction(existing, id, body, now);
+      if (result.status === 200) {
+        const next = result.rows.find((row) => row.id === id);
+        await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
+        await command(["ZADD", k("joehub:finance:txns"), financeScore(next), id]);
+      }
+      return { status: result.status, body: result.body };
     },
   };
 }

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+import re
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 
@@ -21,7 +23,7 @@ from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
 from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionRecord, SessionStore
 from joehub_api.settings import ApiSettings
-from joehub_api.finance import ACCOUNTS, ENVELOPE_CENTS, GOALS, SEED_TRANSACTIONS, category_view, default_caps, overview, parse_caps, public_transactions
+from joehub_api.finance import ACCOUNTS, ENVELOPE_CENTS, GOALS, SEED_TRANSACTIONS, category_view, create_transaction, default_caps, overview, parse_caps, patch_transaction, present_transaction, transactions_for_week
 from joehub_api.grocery import GroceryStore
 from joehub_api.tasks import TaskStore
 
@@ -59,6 +61,9 @@ def create_app(
     app.state.tasks = TaskStore()
     app.state.grocery = GroceryStore()
     app.state.finance_caps = default_caps()
+    app.state.finance_rows = copy.deepcopy(SEED_TRANSACTIONS)
+    app.state.finance_seq = 0
+    app.state.finance_idem = {}
     app.state.login_limiter = RateLimiter(login_limit)
     app.state.api_limiter = RateLimiter(api_limit)
 
@@ -114,13 +119,13 @@ def create_app(
     @app.get("/api/finance/overview")
     def finance_overview(request: Request) -> JSONResponse:
         finance_gate(request)
-        result = overview(SEED_TRANSACTIONS, finance_now(request), request.query_params.get("week") or "", request.query_params.get("range") or "", request.app.state.finance_caps)
+        result = overview(request.app.state.finance_rows, finance_now(request), request.query_params.get("week") or "", request.query_params.get("range") or "", request.app.state.finance_caps)
         return JSONResponse(result["body"], status_code=result["status"])
 
     @app.get("/api/finance/weeks/{start}/categories/{category}")
     def finance_category(request: Request, start: str, category: str) -> JSONResponse:
         finance_gate(request)
-        result = category_view(SEED_TRANSACTIONS, finance_now(request), start, category, request.app.state.finance_caps)
+        result = category_view(request.app.state.finance_rows, finance_now(request), start, category, request.app.state.finance_caps)
         return JSONResponse(result["body"], status_code=result["status"])
 
     @app.patch("/api/finance/caps")
@@ -149,7 +154,51 @@ def create_app(
     @app.get("/api/finance/transactions")
     def finance_transactions(request: Request) -> JSONResponse:
         finance_gate(request)
-        return JSONResponse(public_transactions(SEED_TRANSACTIONS))
+        result = transactions_for_week(request.app.state.finance_rows, finance_now(request), request.query_params.get("week") or "")
+        return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.post("/api/finance/transactions")
+    async def finance_create_transaction(request: Request) -> JSONResponse:
+        finance_gate(request)
+        key = (request.headers.get("idempotency-key") or "").strip()
+        if key and not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", key):
+            return JSONResponse({"detail": "Invalid Idempotency-Key"}, status_code=400)
+        if key and key in request.app.state.finance_idem:
+            cached = request.app.state.finance_idem[key]
+            return JSONResponse(cached["body"], status_code=cached["status"])
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Enter a name.", "field": "payee"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"detail": "Enter a name.", "field": "payee"}, status_code=400)
+        request.app.state.finance_seq += 1
+        result = create_transaction(request.app.state.finance_rows, body, finance_now(request), request.app.state.finance_seq)
+        request.app.state.finance_rows = result["rows"]
+        if key and result["status"] == 201:
+            request.app.state.finance_idem[key] = {"status": result["status"], "body": result["body"]}
+        return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.get("/api/finance/transactions/{id}")
+    def finance_transaction(request: Request, id: str) -> JSONResponse:
+        finance_gate(request)
+        row = next((item for item in request.app.state.finance_rows if item["id"] == id), None)
+        if not row:
+            return JSONResponse({"detail": "That transaction is not here."}, status_code=404)
+        return JSONResponse(present_transaction(row))
+
+    @app.patch("/api/finance/transactions/{id}")
+    async def finance_patch_transaction(request: Request, id: str) -> JSONResponse:
+        finance_gate(request)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Enter a name.", "field": "payee"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"detail": "Enter a name.", "field": "payee"}, status_code=400)
+        result = patch_transaction(request.app.state.finance_rows, id, body, finance_now(request))
+        request.app.state.finance_rows = result["rows"]
+        return JSONResponse(result["body"], status_code=result["status"])
 
     @app.get("/api/jobs/applications", response_model=list[ApplicationRow])
     def job_applications(request: Request) -> list[dict]:

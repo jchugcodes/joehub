@@ -161,6 +161,7 @@ export function effective(row) {
     amountCents: correction.amountCents ?? row.amountCents,
     category: Object.prototype.hasOwnProperty.call(correction, "category") ? correction.category : row.category,
     type: correction.type || row.type,
+    date: correction.date || row.date,
     corrected: Boolean(row.correction),
   };
 }
@@ -408,6 +409,105 @@ export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(
   };
 }
 
+const TXN_TYPES = new Set(["expense", "income", "transfer", "refund"]);
+
+function cleanPayee(value) {
+  const payee = String(value || "").trim().replace(/\s+/g, " ");
+  return payee.length >= 1 && payee.length <= 80 ? payee : "";
+}
+
+function cleanDate(value) {
+  const date = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  const parsed = new Date(`${date}T12:00:00-05:00`);
+  return Number.isNaN(parsed.getTime()) || detroitYmd(parsed.getTime()) !== date ? "" : date;
+}
+
+function signedAmount(type, cents) {
+  if (!Number.isInteger(cents) || cents === 0 || Math.abs(cents) > 100_000_000) return null;
+  return type === "income" || type === "refund" ? Math.abs(cents) : -Math.abs(cents);
+}
+
+export function presentTransaction(row) {
+  const shown = effective(row);
+  return {
+    id: shown.id,
+    payee: shown.payee,
+    amountCents: shown.amountCents,
+    date: shown.date,
+    category: shown.category,
+    type: shown.type,
+    source: row.source || "manual",
+    meta: recentMeta(shown),
+    corrected: shown.corrected,
+    uncategorized: shown.type === "expense" && !shown.category,
+    original: row.ledger && row.ledger.original ? row.ledger.original : null,
+    latest: row.ledger && row.ledger.latest ? row.ledger.latest : null,
+  };
+}
+
+export function transactionsForWeek(rows, now = Date.now(), week = "") {
+  const today = detroitYmd(now);
+  const start = week && week.length === 10 ? weekStart(week) : weekStart(today);
+  if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
+  return {
+    status: 200,
+    body: {
+      weekStart: start,
+      label: weekLabel(start, today),
+      daysLeft: daysLeft(today, start),
+      today,
+      previousWeek: addDays(start, -7),
+      nextWeek: addDays(start, 7) <= weekStart(today) ? addDays(start, 7) : null,
+      rows: rowsInWeek(rows, start).map((row) => presentTransaction(rows.find((item) => item.id === row.id) || row)),
+    },
+  };
+}
+
+function readDraft(body, shown = {}) {
+  const type = String((body && body.type) || shown.type || "");
+  if (!TXN_TYPES.has(type)) return { ok: false, detail: "Choose a type.", field: "type" };
+  const payee = cleanPayee(body && "payee" in body ? body.payee : shown.payee);
+  if (!payee) return { ok: false, detail: "Enter a name.", field: "payee" };
+  const date = cleanDate(body && "date" in body ? body.date : shown.date);
+  if (!date) return { ok: false, detail: "Enter a date.", field: "date" };
+  const rawAmount = body && "amountCents" in body ? body.amountCents : shown.amountCents;
+  const amountCents = signedAmount(type, rawAmount);
+  if (amountCents == null) return { ok: false, detail: "Enter an amount.", field: "amount" };
+  let category = type === "transfer" || type === "income" ? null : body && "category" in body ? body.category : shown.category;
+  if (category === "" || category == null) category = null;
+  else {
+    const resolved = resolveCategory(category);
+    if (!resolved) return { ok: false, detail: "Choose a category.", field: "category" };
+    category = resolved.slug;
+  }
+  return { ok: true, draft: { payee, date, type, amountCents, category } };
+}
+
+export function createTransaction(rows, body, now = Date.now(), seq = 1) {
+  const parsed = readDraft(body, { type: "expense", category: null, amountCents: 0 });
+  if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
+  const row = {
+    id: `fin-manual-${now}-${seq}`,
+    source: "manual",
+    createdAt: now,
+    ...parsed.draft,
+  };
+  return { status: 201, body: presentTransaction(row), rows: [row, ...rows] };
+}
+
+export function patchTransaction(rows, id, body, now = Date.now()) {
+  const index = rows.findIndex((row) => row.id === id);
+  if (index < 0) return { status: 404, body: { detail: "That transaction is not here." }, rows };
+  const current = rows[index];
+  const parsed = readDraft(body, effective(current));
+  if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
+  const next = current.source === "ledger" ? { ...current, correction: { ...parsed.draft, updatedAt: now } } : { ...current, ...parsed.draft, updatedAt: now };
+  const copy = rows.slice();
+  copy[index] = next;
+  return { status: 200, body: presentTransaction(next), rows: copy };
+}
+
 export function publicTransactions(txns) {
   return txns.map((row) => {
     const shown = effective(row);
@@ -424,7 +524,8 @@ export function publicTransactions(txns) {
 }
 
 export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
-  const rows = txns.map((row) => structuredClone(row));
+  let rows = txns.map((row) => structuredClone(row));
+  let seq = 0;
   let caps = defaultCaps();
   const idem = new Map();
   const planCents = PLAN_CENTS;
@@ -436,7 +537,25 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   store.financeCategory = (now, week, category) => categoryView(rows, now, week, category, caps);
   store.financeAccounts = async () => structuredClone(accounts);
   store.financeGoals = async () => structuredClone(goals);
-  store.financeTransactions = async () => publicTransactions(rows);
+  store.financeTransactions = async (now = Date.now(), week = "") => transactionsForWeek(rows, now, week);
+  store.financeTransaction = async (id) => {
+    const row = rows.find((item) => item.id === id);
+    return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+  };
+  store.financeCreateTransaction = async (body, now = Date.now(), key = "") => {
+    if (key && idem.has(`create:${key}`)) return idem.get(`create:${key}`);
+    seq += 1;
+    const result = createTransaction(rows, body, now, seq);
+    if (result.status === 201) rows = result.rows;
+    const stored = { status: result.status, body: result.body };
+    if (key && result.status === 201) idem.set(`create:${key}`, stored);
+    return stored;
+  };
+  store.financePatchTransaction = async (id, body, now = Date.now()) => {
+    const result = patchTransaction(rows, id, body, now);
+    if (result.status === 200) rows = result.rows;
+    return { status: result.status, body: result.body };
+  };
   store.financeCaps = async () => ({ caps: { ...caps }, envelopeCents: ENVELOPE_CENTS });
   store.financeSaveCaps = async (body, key) => {
     if (key && idem.has(key)) return idem.get(key);

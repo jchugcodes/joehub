@@ -69,7 +69,28 @@
       "get": {
         "operationId": "financeTransactions",
         "security": [{ "sessionCookie": [] }],
-        "responses": { "200": { "description": "Synthetic transactions" } }
+        "responses": { "200": { "description": "Synthetic transactions for one week" } }
+      },
+      "post": {
+        "operationId": "financeCreateTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string" } }],
+        "responses": {
+          "201": { "description": "Created transaction" },
+          "400": { "description": "Invalid draft" }
+        }
+      }
+    },
+    "/api/finance/transactions/{id}": {
+      "get": {
+        "operationId": "financeTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "One synthetic transaction" }, "404": { "description": "Missing transaction" } }
+      },
+      "patch": {
+        "operationId": "financePatchTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Updated transaction" }, "400": { "description": "Invalid draft" }, "404": { "description": "Missing transaction" } }
       }
     },
     "/api/jobs/applications": {

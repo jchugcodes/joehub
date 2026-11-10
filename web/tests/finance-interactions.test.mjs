@@ -215,3 +215,104 @@ test("finance week, chart, goals, caps, and offline reconnect at 390 and 1280", 
     await release();
   }
 });
+
+test("finance add, recategorize, transfer, income, and refund at 390 and 1280", { skip }, async () => {
+  const cookie = await boot();
+  try {
+    const created = await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    const ws = new WebSocket(created.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve);
+      ws.addEventListener("error", reject);
+    });
+    let seq = 0;
+    const pending = new Map();
+    ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id && pending.has(message.id)) pending.get(message.id)(message);
+    });
+    const send = (method, params = {}) =>
+      new Promise((resolve) => {
+        const id = ++seq;
+        pending.set(id, resolve);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    await send("Page.enable");
+    await send("Network.enable");
+    await send("Runtime.enable");
+    const cooked = await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${base()}/`, httpOnly: true });
+    assert.equal(cooked.result?.success, true);
+
+    for (const width of [390, 1280]) {
+      const layout = width === 390 ? "sheet" : "panel";
+      const name = width === 390 ? "Corner cafe" : "Desk lunch";
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
+      await send("Page.navigate", { url: `${base()}/finance?week=2026-10-19&asOf=${encodeURIComponent(AS_OF)}` });
+      await waitFor(send, "document.body && document.body.innerText.includes('No transactions this week') && document.body.innerText.includes('Add expense or income') ? 'yes' : ''", `empty ${width}`);
+      await pressLabel(send, evalPage, "See all");
+      await waitFor(send, `document.body.innerText.includes('No transactions this week') && document.querySelector('[data-layout]')?.getAttribute('data-layout') === '${layout}' ? 'yes' : ''`, `empty list ${width}`);
+      await send("Page.navigate", { url: `${base()}/finance/transactions?week=2026-11-09&asOf=${encodeURIComponent(AS_OF)}` });
+      await waitFor(send, `document.body.innerText.includes("Joe's Pizza") && document.querySelector('[data-layout]')?.getAttribute('data-layout') === '${layout}' ? 'yes' : ''`, `list ${width}`);
+      await pressLabel(send, evalPage, "Add expense or income");
+      await waitFor(send, "document.getElementById('txn-payee') ? 'yes' : ''", `add ${width}`);
+      assert.equal(await evalPage(send, "document.querySelector('[role=dialog]')?.tagName"), width === 1280 ? "ASIDE" : "DIV");
+      await pressLabel(send, evalPage, "Save");
+      await waitFor(send, "document.body.innerText.includes('Enter a name.') ? 'yes' : ''", `invalid ${width}`);
+      await replaceCap(send, "txn-payee", "Nope");
+      await replaceCap(send, "txn-amount", "4.00");
+      await pressLabel(send, evalPage, "Cancel");
+      await waitFor(send, "document.getElementById('txn-payee') ? '' : 'closed'", `cancel ${width}`);
+      assert.equal(await evalPage(send, "document.body.innerText.includes('Nope') ? 'yes' : 'no'"), "no");
+      await pressLabel(send, evalPage, "Add expense or income");
+      await waitFor(send, "document.getElementById('txn-payee') ? 'yes' : ''", `add again ${width}`);
+      await replaceCap(send, "txn-payee", name);
+      await replaceCap(send, "txn-amount", "12.50");
+      await pressLabel(send, evalPage, "Uncategorized");
+      await pressLabel(send, evalPage, "Save");
+      await waitFor(send, `document.body.innerText.includes(${JSON.stringify(name)}) && document.body.innerText.includes('Uncategorized') && !document.querySelector('[role=dialog]') ? 'yes' : ''`, `saved ${width}`);
+      await send("Page.reload", { ignoreCache: true });
+      await waitFor(send, `document.body.innerText.includes(${JSON.stringify(name)}) ? 'yes' : ''`, `reloaded ${width}`);
+      await pressLabel(send, evalPage, name);
+      await waitFor(send, `document.getElementById('txn-payee')?.value === ${JSON.stringify(name)} ? 'yes' : ''`, `edit ${width}`);
+      await pressLabel(send, evalPage, "Groceries");
+      await pressLabel(send, evalPage, "Save");
+      await waitFor(send, `document.body.innerText.includes(${JSON.stringify(name)}) && document.body.innerText.includes('Groceries') && !document.querySelector('[role=dialog]') ? 'yes' : ''`, `groceries ${width}`);
+      if (width === 390) {
+        await pressLabel(send, evalPage, "SQ *DEMO VENDOR");
+        await waitFor(send, "document.getElementById('txn-payee') ? 'yes' : ''", "vendor");
+        await pressLabel(send, evalPage, "Transfer");
+        await pressLabel(send, evalPage, "Save");
+        await waitFor(send, "document.body.innerText.includes('SQ *DEMO VENDOR') && document.body.innerText.includes('Transfer') && !document.querySelector('[role=dialog]') ? 'yes' : ''", "transfer");
+        const before = await evalPage(send, `fetch('/api/finance/overview?asOf=${encodeURIComponent(AS_OF)}&week=2026-11-09').then((response) => response.json()).then((body) => body.month.spentCents)`);
+        await pressLabel(send, evalPage, "Add expense or income");
+        await waitFor(send, "document.getElementById('txn-payee') ? 'yes' : ''", "income form");
+        await replaceCap(send, "txn-payee", "Side gig");
+        await replaceCap(send, "txn-amount", "50.00");
+        await pressLabel(send, evalPage, "Income");
+        await pressLabel(send, evalPage, "Save");
+        await waitFor(send, "document.body.innerText.includes('Side gig') && document.body.innerText.includes('Income') && !document.querySelector('[role=dialog]') ? 'yes' : ''", "income");
+        const after = await evalPage(send, `fetch('/api/finance/overview?asOf=${encodeURIComponent(AS_OF)}&week=2026-11-09').then((response) => response.json()).then((body) => body.month.spentCents)`);
+        assert.equal(after, before);
+        await pressLabel(send, evalPage, "Add expense or income");
+        await waitFor(send, "document.getElementById('txn-payee') ? 'yes' : ''", "refund form");
+        await replaceCap(send, "txn-payee", "Mug return");
+        await replaceCap(send, "txn-amount", "4.00");
+        await pressLabel(send, evalPage, "Refund");
+        await pressLabel(send, evalPage, "Dining Out");
+        await pressLabel(send, evalPage, "Save");
+        await waitFor(send, "document.body.innerText.includes('Mug return') && !document.querySelector('[role=dialog]') ? 'yes' : ''", "refund");
+        await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+        await evalPage(send, "window.dispatchEvent(new Event('offline')); 'yes'");
+        await waitFor(send, "document.body.innerText.includes('Can’t edit offline') ? 'yes' : ''", "txn offline");
+        assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').includes('Add expense or income') && el.disabled) ? 'yes' : 'no'"), "yes");
+        await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+        await evalPage(send, "window.dispatchEvent(new Event('online')); 'yes'");
+      }
+    }
+    ws.close();
+  } finally {
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+  }
+});

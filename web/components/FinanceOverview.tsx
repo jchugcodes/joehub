@@ -383,10 +383,18 @@ export function FinanceOverview() {
               ))}
             </div>
             {offline ? <p className="mt-4 rounded-2xl border border-line px-4 py-3 text-center text-body">Can’t edit offline</p> : null}
-            <h3 className="mt-6 text-body font-medium">Recent</h3>
+            <div className="mt-6 flex items-baseline justify-between gap-3">
+              <h3 className="text-body font-medium">Recent</h3>
+              <Link href={`/finance/transactions${suffix}`} className="text-body font-medium text-finance-primary">
+                See all
+              </Link>
+            </div>
             {overview.empty ? (
               <div className="mt-6 text-center">
                 <p className="text-body">No transactions this week</p>
+                <Link href={`/finance/transactions${suffix ? `${suffix}&add=1` : "?add=1"}`} className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body text-page">
+                  Add expense or income
+                </Link>
               </div>
             ) : (
               <ul className="mt-2">

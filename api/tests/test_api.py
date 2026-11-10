@@ -99,6 +99,12 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/finance/caps":
             assert expected == {"patch"}
             continue
+        if path == "/api/finance/transactions":
+            assert expected == {"get", "post"}
+            continue
+        if path == "/api/finance/transactions/{id}":
+            assert expected == {"get", "patch"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -181,7 +187,7 @@ def test_logs_omit_row_data(caplog: pytest.LogCaptureFixture) -> None:
     client, _app = client_app()
     cookie = login(client)
     caplog.set_level(logging.INFO, logger="joehub_api.access")
-    response = client.get("/api/finance/transactions", cookies={COOKIE_NAME: cookie})
+    response = client.get("/api/finance/transactions?asOf=2026-11-10T15:00:00-05:00", cookies={COOKIE_NAME: cookie})
     assert response.status_code == 200
     assert "Joe's Pizza" in response.text
     messages = " ".join(
@@ -190,6 +196,60 @@ def test_logs_omit_row_data(caplog: pytest.LogCaptureFixture) -> None:
     assert "/api/finance/transactions" in messages
     assert "Joe's Pizza" not in messages
     assert SECRET not in messages
+
+
+def test_finance_transaction_writes() -> None:
+    client, app = client_app()
+    cookie = login(client)
+    query = {"asOf": "2026-11-10T15:00:00-05:00"}
+    created = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        headers={"Idempotency-Key": "demo-1"},
+        json={"payee": "Corner cafe", "amountCents": 1250, "date": "2026-11-10", "type": "expense"},
+    )
+    assert created.status_code == 201
+    assert created.json()["uncategorized"] is True
+    replay = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        headers={"Idempotency-Key": "demo-1"},
+        json={"payee": "Other", "amountCents": 900, "date": "2026-11-10", "type": "expense"},
+    )
+    assert replay.status_code == 201
+    assert replay.json()["id"] == created.json()["id"]
+    listed = client.get("/api/finance/transactions", params=query, cookies={COOKIE_NAME: cookie})
+    assert listed.status_code == 200
+    assert sum(1 for row in listed.json()["rows"] if row["payee"] == "Corner cafe") == 1
+    income = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Side gig", "amountCents": 5000, "date": "2026-11-10", "type": "income", "category": "dining-out"},
+    )
+    assert income.status_code == 201
+    assert income.json()["amountCents"] == 5000
+    assert income.json()["category"] is None
+    patched = client.patch(
+        "/api/finance/transactions/fin-shell",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Shell (example)", "amountCents": 2218, "date": "2026-11-09", "type": "expense", "category": "shopping"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["category"] == "shopping"
+    assert patched.json()["corrected"] is True
+    stored = next(row for row in app.state.finance_rows if row["id"] == "fin-shell")
+    assert stored["category"] == "transport"
+    assert stored["correction"]["category"] == "shopping"
+    missing = client.patch(
+        "/api/finance/transactions/missing",
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Nope", "amountCents": 100, "date": "2026-11-10", "type": "expense"},
+    )
+    assert missing.status_code == 404
 
 
 def test_dev_login_disabled_without_the_flag() -> None:

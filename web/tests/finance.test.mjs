@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoryView, chartFor, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, SEED_TRANSACTIONS, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, SEED_TRANSACTIONS, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -130,4 +130,55 @@ test("moving budget keeps the $390 total and rejects an over-move", async () => 
   assert.equal(rejected.status, 400);
   assert.equal(rejected.body.field, "dining-out");
   assert.equal(view.body.caps.find((cap) => cap.slug === "dining-out").capCents, 9000);
+});
+
+test("transactions add, recategorize, transfer, income, and refund through the store", async () => {
+  const dining = () => capsForWeek(SEED_TRANSACTIONS, "2026-11-09").find((cap) => cap.slug === "dining-out").spentCents;
+  const before = dining();
+  const blank = createTransaction([], { payee: "  ", amountCents: 100, date: "2026-11-10", type: "expense" }, NOW, 1);
+  assert.equal(blank.status, 400);
+  assert.equal(blank.body.field, "payee");
+  const uncategorized = createTransaction(SEED_TRANSACTIONS, { payee: "Corner cafe", amountCents: 1250, date: "2026-11-10", type: "expense", category: null }, NOW, 1);
+  assert.equal(uncategorized.status, 201);
+  assert.equal(uncategorized.body.uncategorized, true);
+  assert.equal(capsForWeek(uncategorized.rows, "2026-11-09").find((cap) => cap.slug === "dining-out").spentCents, before);
+  const listed = transactionsForWeek(uncategorized.rows, NOW, "2026-11-09");
+  assert.equal(listed.body.rows.some((row) => row.payee === "Corner cafe"), true);
+  assert.equal(transactionsForWeek(SEED_TRANSACTIONS, NOW, "2026-11-16").status, 400);
+
+  const income = createTransaction(SEED_TRANSACTIONS, { payee: "Side gig", amountCents: -5000, date: "2026-11-10", type: "income", category: "dining-out" }, NOW, 2);
+  assert.equal(income.body.amountCents, 5000);
+  assert.equal(income.body.category, null);
+  assert.equal(capsForWeek(income.rows, "2026-11-09").find((cap) => cap.slug === "dining-out").spentCents, before);
+
+  const refund = createTransaction(SEED_TRANSACTIONS, { payee: "Mug return", amountCents: 400, date: "2026-11-10", type: "refund", category: "dining-out" }, NOW, 3);
+  assert.equal(capsForWeek(refund.rows, "2026-11-09").find((cap) => cap.slug === "dining-out").spentCents, before - 400);
+
+  const moved = patchTransaction(SEED_TRANSACTIONS, "fin-pizza", { type: "expense", category: "groceries" }, NOW);
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.category, "groceries");
+  assert.equal(moved.rows.find((row) => row.id === "fin-pizza").category, "groceries");
+  const groceriesBefore = capsForWeek(SEED_TRANSACTIONS, "2026-11-09").find((cap) => cap.slug === "groceries").spentCents;
+  assert.equal(capsForWeek(moved.rows, "2026-11-09").find((cap) => cap.slug === "dining-out").spentCents, before - 3240);
+  assert.equal(capsForWeek(moved.rows, "2026-11-09").find((cap) => cap.slug === "groceries").spentCents, groceriesBefore + 3240);
+
+  const transfer = patchTransaction(SEED_TRANSACTIONS, "fin-vendor", { type: "transfer" }, NOW);
+  assert.equal(transfer.body.type, "transfer");
+  assert.equal(transfer.body.category, null);
+  const shell = patchTransaction(SEED_TRANSACTIONS, "fin-shell", { type: "expense", category: "shopping", amountCents: 2218 }, NOW);
+  assert.equal(shell.body.corrected, true);
+  assert.equal(shell.body.category, "shopping");
+  assert.equal(shell.rows.find((row) => row.id === "fin-shell").category, "transport");
+  assert.equal(shell.rows.find((row) => row.id === "fin-shell").correction.category, "shopping");
+
+  const store = installMemoryFinance(createStore());
+  const created = await store.financeCreateTransaction({ payee: "Corner cafe", amountCents: 1250, date: "2026-11-10", type: "expense" }, NOW, "create-1");
+  assert.equal(created.status, 201);
+  const replay = await store.financeCreateTransaction({ payee: "Other", amountCents: 900, date: "2026-11-10", type: "expense" }, NOW, "create-1");
+  assert.equal(replay.body.id, created.body.id);
+  const week = await store.financeTransactions(NOW, "2026-11-09");
+  assert.equal(week.body.rows.filter((row) => row.payee === "Corner cafe").length, 1);
+  const failed = await store.financeCreateTransaction({ payee: "", amountCents: 100, date: "2026-11-10", type: "expense" }, NOW, "create-bad");
+  assert.equal(failed.status, 400);
+  assert.equal((await store.financeTransactions(NOW, "2026-11-09")).body.rows.filter((row) => row.payee === "Corner cafe").length, 1);
 });

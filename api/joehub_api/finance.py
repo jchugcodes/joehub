@@ -144,6 +144,8 @@ def effective(row: dict) -> dict:
     shown["amountCents"] = correction.get("amountCents", row["amountCents"])
     shown["category"] = correction["category"] if "category" in correction else row["category"]
     shown["type"] = correction.get("type", row["type"])
+    shown["payee"] = correction.get("payee") or row["payee"]
+    shown["date"] = correction.get("date") or row["date"]
     shown["corrected"] = bool(row.get("correction"))
     return shown
 
@@ -258,7 +260,8 @@ def month_progress(txns, today: str) -> dict:
     start = f"{today[:7]}-01"
     year, month = int(today[:4]), int(today[5:7])
     end_day = (datetime(year + (month == 12), 1 if month == 12 else month + 1, 1) - timedelta(days=1)).day
-    spent = sum(spend_cents(effective(row)) for row in txns if start <= row["date"] <= today)
+    shown = [effective(row) for row in txns]
+    spent = sum(spend_cents(row) for row in shown if start <= row["date"] <= today)
     return {
         "label": f"{_format_day(start)}–{int(today[8:10])}",
         "spentCents": spent,
@@ -367,3 +370,145 @@ def public_transactions(txns):
             }
         )
     return shown
+
+
+TXN_TYPES = {"expense", "income", "transfer", "refund"}
+
+
+def _recent_meta(row: dict) -> str:
+    label = _date_label(row["date"])
+    if row["type"] == "income":
+        return f"{label} · Income"
+    if row["type"] == "transfer":
+        return f"{label} · Transfer"
+    if row["type"] == "refund":
+        return f"{label} · {_category_name(row.get('category')) if row.get('category') else 'Refund'}"
+    if not row.get("category"):
+        return f"{label} · Uncategorized"
+    return f"{label} · {_category_name(row.get('category'))}"
+
+
+def present_transaction(row: dict) -> dict:
+    shown = effective(row)
+    ledger = row.get("ledger") or {}
+    return {
+        "id": shown["id"],
+        "payee": shown["payee"],
+        "amountCents": shown["amountCents"],
+        "date": shown["date"],
+        "category": shown["category"],
+        "type": shown["type"],
+        "source": row.get("source") or "manual",
+        "meta": _recent_meta(shown),
+        "corrected": shown["corrected"],
+        "uncategorized": shown["type"] == "expense" and not shown.get("category"),
+        "original": ledger.get("original"),
+        "latest": ledger.get("latest"),
+    }
+
+
+def transactions_for_week(txns, now_ms: int, week: str = "") -> dict:
+    today = detroit_ymd(now_ms)
+    start = week_start(week) if week and len(week) == 10 else week_start(today)
+    if start > week_start(today):
+        return {"status": 400, "body": {"detail": "That week has not started.", "field": "week"}}
+    rows = []
+    for row in _rows_in_week(txns, start):
+        original = next((item for item in txns if item["id"] == row["id"]), row)
+        rows.append(present_transaction(original))
+    return {
+        "status": 200,
+        "body": {
+            "weekStart": start,
+            "label": week_label(start, today),
+            "daysLeft": days_left(today, start),
+            "today": today,
+            "previousWeek": add_days(start, -7),
+            "nextWeek": add_days(start, 7) if add_days(start, 7) <= week_start(today) else None,
+            "rows": rows,
+        },
+    }
+
+
+def _resolve_category(value):
+    if value in ("", None):
+        return None
+    text = str(value)
+    return next((item for item in CATEGORIES if item["slug"] == text or item["name"].lower() == text.lower()), None)
+
+
+def _clean_payee(value) -> str:
+    payee = " ".join(str(value or "").split())
+    return payee if 1 <= len(payee) <= 80 else ""
+
+
+def _clean_date(value) -> str:
+    date = str(value or "")
+    if len(date) != 10:
+        return ""
+    try:
+        parsed = _date(date)
+    except ValueError:
+        return ""
+    return date if parsed.date().isoformat() == date else ""
+
+
+def _signed_amount(kind: str, cents):
+    if isinstance(cents, bool) or not isinstance(cents, int) or cents == 0 or abs(cents) > 100_000_000:
+        return None
+    return abs(cents) if kind in {"income", "refund"} else -abs(cents)
+
+
+def _read_draft(body: dict, shown: dict) -> dict:
+    kind = str((body or {}).get("type") or shown.get("type") or "")
+    if kind not in TXN_TYPES:
+        return {"ok": False, "detail": "Choose a type.", "field": "type"}
+    payee = _clean_payee(body["payee"] if isinstance(body, dict) and "payee" in body else shown.get("payee"))
+    if not payee:
+        return {"ok": False, "detail": "Enter a name.", "field": "payee"}
+    date = _clean_date(body["date"] if isinstance(body, dict) and "date" in body else shown.get("date"))
+    if not date:
+        return {"ok": False, "detail": "Enter a date.", "field": "date"}
+    raw = body["amountCents"] if isinstance(body, dict) and "amountCents" in body else shown.get("amountCents")
+    amount = _signed_amount(kind, raw)
+    if amount is None:
+        return {"ok": False, "detail": "Enter an amount.", "field": "amount"}
+    if kind in {"transfer", "income"}:
+        category = None
+    elif isinstance(body, dict) and "category" in body:
+        category = body.get("category")
+    else:
+        category = shown.get("category")
+    if category in ("", None):
+        category = None
+    else:
+        resolved = _resolve_category(category)
+        if not resolved:
+            return {"ok": False, "detail": "Choose a category.", "field": "category"}
+        category = resolved["slug"]
+    return {"ok": True, "draft": {"payee": payee, "date": date, "type": kind, "amountCents": amount, "category": category}}
+
+
+def create_transaction(rows, body, now_ms: int, seq: int) -> dict:
+    parsed = _read_draft(body if isinstance(body, dict) else {}, {"type": "expense", "category": None, "amountCents": 0})
+    if not parsed["ok"]:
+        return {"status": 400, "body": {"detail": parsed["detail"], "field": parsed["field"]}, "rows": rows}
+    row = {"id": f"fin-manual-{now_ms}-{seq}", "source": "manual", "createdAt": now_ms, **parsed["draft"]}
+    return {"status": 201, "body": present_transaction(row), "rows": [row, *rows]}
+
+
+def patch_transaction(rows, row_id: str, body, now_ms: int) -> dict:
+    index = next((i for i, item in enumerate(rows) if item["id"] == row_id), -1)
+    if index < 0:
+        return {"status": 404, "body": {"detail": "That transaction is not here."}, "rows": rows}
+    current = rows[index]
+    parsed = _read_draft(body if isinstance(body, dict) else {}, effective(current))
+    if not parsed["ok"]:
+        return {"status": 400, "body": {"detail": parsed["detail"], "field": parsed["field"]}, "rows": rows}
+    if current.get("source") == "ledger":
+        nxt = {**current, "correction": {**parsed["draft"], "updatedAt": now_ms}}
+    else:
+        nxt = {**current, **parsed["draft"], "updatedAt": now_ms}
+    copy_rows = list(rows)
+    copy_rows[index] = nxt
+    return {"status": 200, "body": present_transaction(nxt), "rows": copy_rows}
