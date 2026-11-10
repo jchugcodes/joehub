@@ -584,7 +584,7 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
     assert.equal(await press(send, "Edit Oat milk"), "yes");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Delete this item?') ? 'yes' : 'no'"), "no");
     assert.equal(await press(send, "Delete"), "yes");
-    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Delete this item?') && document.getElementById('grocery-delete-dialog')?.innerText.includes('Oat milk') ? 'yes' : ''", "confirm");
+    await waitFor(send, "document.getElementById('grocery-delete-dialog')?.innerText.includes('Delete this item?') && document.getElementById('grocery-delete-dialog')?.innerText.includes('Oat milk') && document.getElementById('grocery-delete-dialog')?.innerText.includes(\"This can't be undone.\") ? 'yes' : ''", "confirm");
     await shot(send, "grocery_g04_delete_390.png");
     await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
     await waitFor(send, "!document.getElementById('grocery-delete-dialog') && document.querySelector('[role=dialog] h2')?.textContent === 'Edit item' ? 'yes' : ''", "escape confirm");
