@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 DETROIT = ZoneInfo("America/Detroit")
@@ -139,14 +139,16 @@ def money(cents: int) -> str:
 
 
 def effective(row: dict) -> dict:
-    correction = row.get("correction") or {}
+    correction = row.get("correction") or None
+    latest = None if correction else ((row.get("ledger") or {}).get("latest") or None)
+    overlay = correction or latest or {}
     shown = dict(row)
-    shown["amountCents"] = correction.get("amountCents", row["amountCents"])
-    shown["category"] = correction["category"] if "category" in correction else row["category"]
-    shown["type"] = correction.get("type", row["type"])
-    shown["payee"] = correction.get("payee") or row["payee"]
-    shown["date"] = correction.get("date") or row["date"]
-    shown["corrected"] = bool(row.get("correction"))
+    shown["amountCents"] = overlay.get("amountCents", row["amountCents"])
+    shown["category"] = overlay["category"] if "category" in overlay else row["category"]
+    shown["type"] = overlay.get("type", row["type"])
+    shown["payee"] = overlay.get("payee") or row["payee"]
+    shown["date"] = overlay.get("date") or row["date"]
+    shown["corrected"] = bool(correction)
     return shown
 
 
@@ -404,6 +406,11 @@ def present_transaction(row: dict) -> dict:
         "uncategorized": shown["type"] == "expense" and not shown.get("category"),
         "original": ledger.get("original"),
         "latest": ledger.get("latest"),
+        "correction": (
+            {"amountCents": row["correction"].get("amountCents"), "category": row["correction"].get("category"), "payee": row["correction"].get("payee") or row.get("payee")}
+            if row.get("correction")
+            else None
+        ),
     }
 
 
@@ -509,6 +516,38 @@ def patch_transaction(rows, row_id: str, body, now_ms: int) -> dict:
         nxt = {**current, "correction": {**parsed["draft"], "updatedAt": now_ms}}
     else:
         nxt = {**current, **parsed["draft"], "updatedAt": now_ms}
+    copy_rows = list(rows)
+    copy_rows[index] = nxt
+    return {"status": 200, "body": present_transaction(nxt), "rows": copy_rows}
+
+
+def simulate_ledger_refresh(rows, now_ms: int) -> list:
+    refreshed = []
+    for row in rows:
+        if row.get("id") != "fin-shell" or row.get("source") != "ledger":
+            refreshed.append(row)
+            continue
+        ledger = dict(row.get("ledger") or {})
+        ledger["latest"] = {
+            "payee": row.get("payee"),
+            "amountCents": -2418,
+            "category": "shopping",
+            "importedAt": datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(),
+        }
+        refreshed.append({**row, "ledger": ledger})
+    return refreshed
+
+
+def reset_ledger(rows, row_id: str) -> dict:
+    index = next((i for i, item in enumerate(rows) if item["id"] == row_id), -1)
+    if index < 0:
+        return {"status": 404, "body": {"detail": "That transaction is not here."}, "rows": rows}
+    current = rows[index]
+    if current.get("source") != "ledger":
+        return {"status": 400, "body": {"detail": "That row was entered here."}, "rows": rows}
+    if not current.get("correction"):
+        return {"status": 400, "body": {"detail": "There is no correction to reset."}, "rows": rows}
+    nxt = {key: value for key, value in current.items() if key != "correction"}
     copy_rows = list(rows)
     copy_rows[index] = nxt
     return {"status": 200, "body": present_transaction(nxt), "rows": copy_rows}

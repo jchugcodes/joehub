@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, SEED_TRANSACTIONS, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, resetLedger, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -181,4 +181,24 @@ test("transactions add, recategorize, transfer, income, and refund through the s
   const failed = await store.financeCreateTransaction({ payee: "", amountCents: 100, date: "2026-11-10", type: "expense" }, NOW, "create-bad");
   assert.equal(failed.status, 400);
   assert.equal((await store.financeTransactions(NOW, "2026-11-09")).body.rows.filter((row) => row.payee === "Corner cafe").length, 1);
+});
+
+test("a ledger refresh keeps the Shell correction until a confirmed reset", () => {
+  const refreshed = simulateLedgerRefresh(SEED_TRANSACTIONS, NOW);
+  const shell = refreshed.find((row) => row.id === "fin-shell");
+  assert.equal(shell.ledger.latest.amountCents, -2418);
+  assert.equal(shell.ledger.latest.category, "shopping");
+  assert.equal(shell.correction.category, "transport");
+  assert.equal(refreshed.find((row) => row.id === "fin-pizza").ledger, undefined);
+  const during = capsForWeek(refreshed, "2026-11-09");
+  assert.equal(during.find((cap) => cap.slug === "transport").spentCents, 4718);
+  assert.equal(during.find((cap) => cap.slug === "shopping").spentCents, 1800);
+  const reset = resetLedger(refreshed, "fin-shell");
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.corrected, false);
+  assert.equal(reset.body.category, "shopping");
+  assert.equal(reset.body.amountCents, -2418);
+  assert.equal(capsForWeek(reset.rows, "2026-11-09").find((cap) => cap.slug === "shopping").spentCents, 4218);
+  assert.equal(resetLedger(SEED_TRANSACTIONS, "fin-pizza").status, 400);
+  assert.equal(resetLedger(SEED_TRANSACTIONS, "missing").status, 404);
 });

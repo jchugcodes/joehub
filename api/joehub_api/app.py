@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import re
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -23,7 +24,7 @@ from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
 from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionRecord, SessionStore
 from joehub_api.settings import ApiSettings
-from joehub_api.finance import ACCOUNTS, ENVELOPE_CENTS, GOALS, SEED_TRANSACTIONS, category_view, create_transaction, default_caps, overview, parse_caps, patch_transaction, present_transaction, transactions_for_week
+from joehub_api.finance import ACCOUNTS, ENVELOPE_CENTS, GOALS, SEED_TRANSACTIONS, category_view, create_transaction, default_caps, overview, parse_caps, patch_transaction, present_transaction, reset_ledger, simulate_ledger_refresh, transactions_for_week
 from joehub_api.grocery import GroceryStore
 from joehub_api.tasks import TaskStore
 
@@ -197,6 +198,22 @@ def create_app(
         if not isinstance(body, dict):
             return JSONResponse({"detail": "Enter a name.", "field": "payee"}, status_code=400)
         result = patch_transaction(request.app.state.finance_rows, id, body, finance_now(request))
+        request.app.state.finance_rows = result["rows"]
+        return JSONResponse(result["body"], status_code=result["status"])
+
+    @app.post("/api/finance/ledger/simulate-refresh")
+    def finance_simulate_refresh(request: Request) -> JSONResponse:
+        finance_gate(request)
+        if os.environ.get("NODE_ENV") == "production" or os.environ.get("VERCEL_ENV") == "production":
+            return JSONResponse({"detail": "Not found."}, status_code=404)
+        request.app.state.finance_rows = simulate_ledger_refresh(request.app.state.finance_rows, finance_now(request))
+        shell = next((item for item in request.app.state.finance_rows if item["id"] == "fin-shell"), None)
+        return JSONResponse(present_transaction(shell) if shell else {"ok": True})
+
+    @app.post("/api/finance/transactions/{id}/reset-ledger")
+    def finance_reset_ledger(request: Request, id: str) -> JSONResponse:
+        finance_gate(request)
+        result = reset_ledger(request.app.state.finance_rows, id)
         request.app.state.finance_rows = result["rows"]
         return JSONResponse(result["body"], status_code=result["status"])
 

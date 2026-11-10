@@ -81,6 +81,13 @@
         }
       }
     },
+    "/api/finance/ledger/simulate-refresh": {
+      "post": {
+        "operationId": "financeSimulateRefresh",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic ledger refresh for the sample Shell row" }, "404": { "description": "Disabled in production" } }
+      }
+    },
     "/api/finance/transactions/{id}": {
       "get": {
         "operationId": "financeTransaction",
@@ -91,6 +98,13 @@
         "operationId": "financePatchTransaction",
         "security": [{ "sessionCookie": [] }],
         "responses": { "200": { "description": "Updated transaction" }, "400": { "description": "Invalid draft" }, "404": { "description": "Missing transaction" } }
+      }
+    },
+    "/api/finance/transactions/{id}/reset-ledger": {
+      "post": {
+        "operationId": "financeResetLedger",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Correction removed and the latest import kept" }, "400": { "description": "Nothing to reset" } }
       }
     },
     "/api/jobs/applications": {

@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { categoryView, createTransaction, defaultCaps, overview, parseCaps, patchTransaction, presentTransaction, seedSnapshots, transactionsForWeek, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
+import { categoryView, createTransaction, defaultCaps, overview, parseCaps, patchTransaction, presentTransaction, resetLedger, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -561,6 +561,23 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         const next = result.rows.find((row) => row.id === id);
         await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
         await command(["ZADD", k("joehub:finance:txns"), financeScore(next), id]);
+      }
+      return { status: result.status, body: result.body };
+    },
+    async financeSimulateRefresh(now = Date.now()) {
+      const existing = await this.financeRows();
+      const next = simulateLedgerRefresh(existing, now);
+      const shell = next.find((row) => row.id === "fin-shell");
+      if (shell) await command(["SET", k("joehub:finance:txn:fin-shell"), JSON.stringify(shell)]);
+      return { status: 200, body: shell ? presentTransaction(shell) : { ok: true } };
+    },
+    async financeResetLedger(id) {
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const existing = await this.financeRows();
+      const result = resetLedger(existing, id);
+      if (result.status === 200) {
+        const next = result.rows.find((row) => row.id === id);
+        await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
       }
       return { status: result.status, body: result.body };
     },

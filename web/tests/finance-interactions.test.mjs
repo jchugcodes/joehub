@@ -316,3 +316,69 @@ test("finance add, recategorize, transfer, income, and refund at 390 and 1280", 
     await release();
   }
 });
+
+test("finance corrections survive a ledger refresh until reset at 390 and 1280", { skip }, async () => {
+  const cookie = await boot();
+  try {
+    const created = await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    const ws = new WebSocket(created.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve);
+      ws.addEventListener("error", reject);
+    });
+    let seq = 0;
+    const pending = new Map();
+    ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id && pending.has(message.id)) pending.get(message.id)(message);
+    });
+    const send = (method, params = {}) =>
+      new Promise((resolve) => {
+        const id = ++seq;
+        pending.set(id, resolve);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    await send("Page.enable");
+    await send("Network.enable");
+    await send("Runtime.enable");
+    const cooked = await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${base()}/`, httpOnly: true });
+    assert.equal(cooked.result?.success, true);
+    const shellButton = "[...document.querySelectorAll('button')].find((el) => el.getAttribute('aria-label') === 'Shell (example)' || el.getAttribute('aria-label') === 'Edit Shell (example)')";
+
+    for (const width of [390, 1280]) {
+      const layout = width === 390 ? "sheet" : "panel";
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
+      await send("Page.navigate", { url: `${base()}/finance/transactions?week=2026-11-09&asOf=${encodeURIComponent(AS_OF)}` });
+      await waitFor(send, `document.body && document.body.innerText.includes("Joe's Pizza") && document.querySelector('[data-layout]')?.getAttribute('data-layout') === '${layout}' ? 'yes' : ''`, `list ${width}`);
+      await pointerClick(send, evalPage, shellButton);
+      await waitFor(send, "document.getElementById('txn-payee')?.value === 'Shell (example)' ? 'yes' : ''", `shell ${width}`);
+      assert.equal(await evalPage(send, "document.querySelector('[role=dialog]')?.tagName"), width === 1280 ? "ASIDE" : "DIV");
+      await replaceCap(send, "txn-amount", "22.18");
+      await pressLabel(send, evalPage, "Transport");
+      await pressLabel(send, evalPage, "Save correction");
+      await waitFor(send, "document.body.innerText.includes('Corrected') && !document.getElementById('txn-payee') ? 'yes' : ''", `kept ${width}`);
+      await pointerClick(send, evalPage, shellButton);
+      await waitFor(send, "document.body.innerText.includes('Original from Ledger') && document.body.innerText.includes('Shopping · −$22.18') ? 'yes' : ''", `original ${width}`);
+      await pressLabel(send, evalPage, "Cancel");
+      await waitFor(send, "document.getElementById('txn-payee') ? '' : 'closed'", `closed ${width}`);
+      const posted = await evalPage(send, "fetch('/api/finance/ledger/simulate-refresh', { method: 'POST' }).then((response) => response.status)");
+      assert.equal(posted, 200);
+      await send("Page.reload", { ignoreCache: true });
+      await waitFor(send, "document.body.innerText.includes('Ledger updated') && document.body.innerText.includes('Latest Ledger import') && document.body.innerText.includes('Shopping · −$24.18') && document.body.innerText.includes('Transport · −$22.18') ? 'yes' : ''", `conflict ${width}`);
+      await pressLabel(send, evalPage, "Reset to Ledger…");
+      await waitFor(send, "document.body.innerText.includes('Reset to Ledger?') ? 'yes' : ''", `confirm ${width}`);
+      await pressLabel(send, evalPage, "Cancel");
+      await waitFor(send, "document.body.innerText.includes('Ledger updated') && !document.body.innerText.includes('Reset to Ledger?') ? 'yes' : ''", `canceled ${width}`);
+      await pressLabel(send, evalPage, "Reset to Ledger…");
+      await pressLabel(send, evalPage, "Reset");
+      await waitFor(send, "document.body.innerText.includes('−$24.18') && !document.body.innerText.includes('Ledger updated') ? 'yes' : ''", `reset ${width}`);
+      await send("Page.reload", { ignoreCache: true });
+      await waitFor(send, "document.body.innerText.includes('Shell (example)') && document.body.innerText.includes('−$24.18') && !document.body.innerText.includes('Ledger updated') ? 'yes' : ''", `held ${width}`);
+    }
+    ws.close();
+  } finally {
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+  }
+});

@@ -154,15 +154,17 @@ export function money(cents, digits) {
 }
 
 export function effective(row) {
-  const correction = row.correction || {};
+  const correction = row.correction || null;
+  const latest = !correction && row.ledger && row.ledger.latest ? row.ledger.latest : null;
+  const overlay = correction || latest || {};
   return {
     ...row,
-    payee: correction.payee || row.payee,
-    amountCents: correction.amountCents ?? row.amountCents,
-    category: Object.prototype.hasOwnProperty.call(correction, "category") ? correction.category : row.category,
-    type: correction.type || row.type,
-    date: correction.date || row.date,
-    corrected: Boolean(row.correction),
+    payee: overlay.payee || row.payee,
+    amountCents: overlay.amountCents ?? row.amountCents,
+    category: Object.prototype.hasOwnProperty.call(overlay, "category") ? overlay.category : row.category,
+    type: overlay.type || row.type,
+    date: overlay.date || row.date,
+    corrected: Boolean(correction),
   };
 }
 
@@ -443,6 +445,7 @@ export function presentTransaction(row) {
     uncategorized: shown.type === "expense" && !shown.category,
     original: row.ledger && row.ledger.original ? row.ledger.original : null,
     latest: row.ledger && row.ledger.latest ? row.ledger.latest : null,
+    correction: row.correction ? { amountCents: row.correction.amountCents, category: row.correction.category ?? null, payee: row.correction.payee || row.payee } : null,
   };
 }
 
@@ -508,6 +511,32 @@ export function patchTransaction(rows, id, body, now = Date.now()) {
   return { status: 200, body: presentTransaction(next), rows: copy };
 }
 
+export function simulateLedgerRefresh(rows, now = Date.now()) {
+  return rows.map((row) => {
+    if (row.id !== "fin-shell" || row.source !== "ledger") return row;
+    return {
+      ...row,
+      ledger: {
+        ...(row.ledger || {}),
+        latest: { payee: row.payee, amountCents: -2418, category: "shopping", importedAt: new Date(now).toISOString() },
+      },
+    };
+  });
+}
+
+export function resetLedger(rows, id) {
+  const index = rows.findIndex((row) => row.id === id);
+  if (index < 0) return { status: 404, body: { detail: "That transaction is not here." }, rows };
+  const current = rows[index];
+  if (current.source !== "ledger") return { status: 400, body: { detail: "That row was entered here." }, rows };
+  if (!current.correction) return { status: 400, body: { detail: "There is no correction to reset." }, rows };
+  const next = { ...current };
+  delete next.correction;
+  const copy = rows.slice();
+  copy[index] = next;
+  return { status: 200, body: presentTransaction(next), rows: copy };
+}
+
 export function publicTransactions(txns) {
   return txns.map((row) => {
     const shown = effective(row);
@@ -553,6 +582,16 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   };
   store.financePatchTransaction = async (id, body, now = Date.now()) => {
     const result = patchTransaction(rows, id, body, now);
+    if (result.status === 200) rows = result.rows;
+    return { status: result.status, body: result.body };
+  };
+  store.financeSimulateRefresh = async (now = Date.now()) => {
+    rows = simulateLedgerRefresh(rows, now);
+    const shell = rows.find((row) => row.id === "fin-shell");
+    return { status: 200, body: shell ? presentTransaction(shell) : { ok: true } };
+  };
+  store.financeResetLedger = async (id) => {
+    const result = resetLedger(rows, id);
     if (result.status === 200) rows = result.rows;
     return { status: result.status, body: result.body };
   };

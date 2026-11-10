@@ -105,6 +105,12 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/finance/transactions/{id}":
             assert expected == {"get", "patch"}
             continue
+        if path == "/api/finance/ledger/simulate-refresh":
+            assert expected == {"post"}
+            continue
+        if path == "/api/finance/transactions/{id}/reset-ledger":
+            assert expected == {"post"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -250,6 +256,30 @@ def test_finance_transaction_writes() -> None:
         json={"payee": "Nope", "amountCents": 100, "date": "2026-11-10", "type": "expense"},
     )
     assert missing.status_code == 404
+
+
+def test_ledger_refresh_keeps_a_correction_until_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, app = client_app()
+    cookie = login(client)
+    refreshed = client.post("/api/finance/ledger/simulate-refresh", cookies={COOKIE_NAME: cookie})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["corrected"] is True
+    assert refreshed.json()["latest"]["amountCents"] == -2418
+    assert refreshed.json()["latest"]["category"] == "shopping"
+    assert refreshed.json()["category"] == "transport"
+    assert refreshed.json()["amountCents"] == -2218
+    pizza = next(row for row in app.state.finance_rows if row["id"] == "fin-pizza")
+    assert pizza.get("ledger") in (None, {})
+    kept = next(row for row in app.state.finance_rows if row["id"] == "fin-shell")
+    assert kept["correction"]["category"] == "transport"
+    reset = client.post("/api/finance/transactions/fin-shell/reset-ledger", cookies={COOKIE_NAME: cookie})
+    assert reset.status_code == 200
+    assert reset.json()["corrected"] is False
+    assert reset.json()["category"] == "shopping"
+    assert reset.json()["amountCents"] == -2418
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    hidden = client.post("/api/finance/ledger/simulate-refresh", cookies={COOKIE_NAME: cookie})
+    assert hidden.status_code == 404
 
 
 def test_dev_login_disabled_without_the_flag() -> None:

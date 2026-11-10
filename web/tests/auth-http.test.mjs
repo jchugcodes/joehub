@@ -27,6 +27,7 @@ const APIS = [
   ["/api/finance/accounts", "GET"],
   ["/api/finance/transactions", "GET"],
   ["/api/finance/transactions", "POST"],
+  ["/api/finance/ledger/simulate-refresh", "POST"],
   ["/api/jobs/applications", "GET"],
   ["/api/jobs/statuses", "GET"],
   ["/api/journal/entries", "GET"],

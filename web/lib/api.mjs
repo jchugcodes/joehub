@@ -507,6 +507,33 @@ export async function handleFinanceTransaction(id, headers, env, store, limiter,
   }
 }
 
+export async function handleFinanceSimulateRefresh(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") return { status: 404, body: { detail: "Not found." } };
+  try {
+    if (!store || typeof store.financeSimulateRefresh !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeSimulateRefresh(now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceResetLedger(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeResetLedger !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeResetLedger(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinancePatchTransaction(id, headers, env, store, limiter, now, ip, request) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

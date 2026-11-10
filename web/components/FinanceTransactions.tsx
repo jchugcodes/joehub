@@ -5,6 +5,8 @@ import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { Sheet } from "./Sheet";
 
+type LedgerValue = { amountCents: number; category: string | null; payee?: string };
+
 type Row = {
   id: string;
   payee: string;
@@ -12,9 +14,13 @@ type Row = {
   date: string;
   category: string | null;
   type: string;
+  source: string;
   meta: string;
   corrected: boolean;
   uncategorized: boolean;
+  original: LedgerValue | null;
+  latest: LedgerValue | null;
+  correction: LedgerValue | null;
 };
 
 type Week = {
@@ -45,6 +51,12 @@ function dollars(cents: number) {
   return (Math.abs(cents) / 100).toFixed(2);
 }
 
+function ledgerLine(value: LedgerValue | null) {
+  if (!value) return "";
+  const name = CATEGORIES.find(([slug]) => slug === value.category)?.[1] || "Uncategorized";
+  return `${name} · ${money(value.amountCents)}`;
+}
+
 export function FinanceTransactions() {
   const [week, setWeek] = useState<Week | null>(null);
   const [wide, setWide] = useState(false);
@@ -58,6 +70,7 @@ export function FinanceTransactions() {
   const [category, setCategory] = useState("dining-out");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState<Row | null>(null);
   const idem = useRef("");
   const weekRef = useRef("");
 
@@ -208,6 +221,12 @@ export function FinanceTransactions() {
             </button>
           </div>
         ) : null}
+        {editing?.original ? (
+          <div className="rounded-2xl bg-[#2E8B6A14] px-3 py-3">
+            <p className="text-meta font-medium text-[#246C53]">Original from Ledger</p>
+            <p className="text-body">{ledgerLine(editing.original)}</p>
+          </div>
+        ) : null}
         {error ? <p className="text-body text-[#E07A5F]">{error}</p> : null}
         {offline ? <p className="text-body">Can’t edit offline</p> : null}
       </div>
@@ -216,7 +235,7 @@ export function FinanceTransactions() {
           Cancel
         </button>
         <button type="submit" className="min-h-11 flex-1 rounded-xl bg-ink text-body text-page disabled:opacity-40" disabled={offline || saving}>
-          Save
+          {editing?.source === "ledger" ? "Save correction" : "Save"}
         </button>
       </div>
     </form>
@@ -252,24 +271,45 @@ export function FinanceTransactions() {
               </button>
             </div>
             {offline ? <p className="px-5 pt-3 text-body">Can’t edit offline</p> : null}
+            {week.rows.some((row) => row.corrected && row.latest) ? <p className="mx-5 mt-4 rounded-2xl border border-[#E9B94955] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">Ledger updated</p> : null}
             <h2 className="mt-4 px-5 text-section font-medium">This week</h2>
             {week.rows.length === 0 ? <p className="px-5 py-8 text-center text-body">No transactions this week</p> : null}
             <ul className="px-5">
-              {week.rows.map((row) => (
-                <li key={row.id}>
-                  <button type="button" aria-label={row.payee} className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-line py-2.5 text-left" onClick={() => show(row, week.today)}>
-                    <span>
-                      <span className="block text-body font-medium">{row.payee}</span>
-                      <span className="block text-meta text-muted">
-                        {row.meta}
-                        {row.corrected ? <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span> : null}
-                        {row.uncategorized ? <span className="ml-1 rounded bg-[#6B746E1F] px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
+              {week.rows.map((row) =>
+                row.corrected && row.latest && row.correction && row.original ? (
+                  <li key={row.id} className="my-3 rounded-2xl border border-line p-4" data-conflict={row.id}>
+                    <button type="button" aria-label={`Edit ${row.payee}`} className="w-full text-left" onClick={() => show(row, week.today)}>
+                      <span className="block text-body font-medium">
+                        {row.payee} <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span>
                       </span>
-                    </span>
-                    <span className={`text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{money(row.amountCents)}</span>
-                  </button>
-                </li>
-              ))}
+                      <span className="block text-meta text-muted">{row.meta}</span>
+                      <span className="mt-2 block text-title font-medium">{money(row.amountCents)}</span>
+                    </button>
+                    <dl className="mt-3 space-y-2 text-body">
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Original from Ledger</dt><dd>{ledgerLine(row.original)}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Your correction</dt><dd>{ledgerLine(row.correction)}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Latest Ledger import</dt><dd>{ledgerLine(row.latest)}</dd></div>
+                    </dl>
+                    <button type="button" className="mt-4 min-h-11 w-full rounded-xl border border-line text-body" onClick={() => setResetting(row)}>
+                      Reset to Ledger…
+                    </button>
+                  </li>
+                ) : (
+                  <li key={row.id}>
+                    <button type="button" aria-label={row.payee} className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-line py-2.5 text-left" onClick={() => show(row, week.today)}>
+                      <span>
+                        <span className="block text-body font-medium">{row.payee}</span>
+                        <span className="block text-meta text-muted">
+                          {row.meta}
+                          {row.corrected ? <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span> : null}
+                          {row.uncategorized ? <span className="ml-1 rounded bg-[#6B746E1F] px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
+                        </span>
+                      </span>
+                      <span className={`text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{money(row.amountCents)}</span>
+                    </button>
+                  </li>
+                ),
+              )}
             </ul>
           </>
         ) : (
@@ -285,6 +325,34 @@ export function FinanceTransactions() {
         <Sheet title={editing ? "Edit transaction" : "Add expense or income"} frame dock="sheet" onClose={close} titleClassName="finance-type text-section font-medium">
           {form}
         </Sheet>
+      ) : null}
+      {resetting ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div role="dialog" aria-modal="true" aria-label="Reset to Ledger?" className="w-full max-w-phone rounded-t-2xl bg-surface p-5 pb-8">
+            <h2 className="text-section font-medium">Reset to Ledger?</h2>
+            <div className="mt-4 flex gap-3">
+              <button type="button" className="min-h-11 flex-1 rounded-xl border border-line text-body" onClick={() => setResetting(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="min-h-11 flex-1 rounded-xl bg-ink text-body text-page"
+                onClick={() => {
+                  const id = resetting.id;
+                  void fetch(`/api/finance/transactions/${id}/reset-ledger`, { method: "POST" })
+                    .then((response) => {
+                      if (!response.ok) return;
+                      setResetting(null);
+                      return load(weekRef.current);
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </main>
   );
