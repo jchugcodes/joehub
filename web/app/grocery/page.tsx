@@ -413,7 +413,20 @@ export default function GroceryPage() {
   const groups = useMemo(() => groupGrocery(items) as { label: string; items: GroceryItem[] }[], [items]);
   const sections = useMemo(() => sectionSuggestions(items) as string[], [items]);
   const hint = existingName(items, draft.name, editingId || "");
-  const checkedCount = items.filter((item) => item.checked).length;
+  const checkedItems = items
+    .filter((item) => item.checked)
+    .slice()
+    .sort((left, right) => (left.checkedAt || left.updatedAt) - (right.checkedAt || right.updatedAt) || left.createdAt - right.createdAt || (left.id < right.id ? -1 : 1));
+  const checkedCount = checkedItems.length;
+  const checkedNames =
+    checkedItems.length <= 1
+      ? checkedItems.map((item) => item.name).join("")
+      : checkedItems.length === 2
+        ? `${checkedItems[0].name} and ${checkedItems[1].name}`
+        : `${checkedItems
+            .slice(0, -1)
+            .map((item) => item.name)
+            .join(", ")}, and ${checkedItems[checkedItems.length - 1].name}`;
   const addDisabled = offline || mode !== "ready";
   const saveDisabled = offline || saving;
 
@@ -429,36 +442,6 @@ export default function GroceryPage() {
       {link === "reconnecting" ? (
         <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
           Reconnecting…
-        </p>
-      ) : null}
-      {checkedCount > 0 ? (
-        <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
-          <p className="text-body">{checkedCount} checked</p>
-          <button
-            type="button"
-            className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
-            aria-disabled={offline || undefined}
-            onClick={() => {
-              if (offline) {
-                setCheckNotice(true);
-                return;
-              }
-              setFormError("");
-              setConfirmClear(true);
-            }}
-          >
-            Remove checked
-          </button>
-        </div>
-      ) : null}
-      {checkNotice ? (
-        <p role="status" data-check-notice="true" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body">
-          Can't check off offline
-        </p>
-      ) : null}
-      {listError ? (
-        <p role="alert" className="mx-4 mt-3 text-meta font-medium text-[#E07A5F]">
-          {listError}
         </p>
       ) : null}
       {link === "back" ? (
@@ -480,6 +463,36 @@ export default function GroceryPage() {
           <h1 className="text-title font-medium">Grocery</h1>
         </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
+        {checkedCount > 0 ? (
+          <div className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
+            <p className="text-body">{checkedCount} checked</p>
+            <button
+              type="button"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              aria-disabled={offline || undefined}
+              onClick={() => {
+                if (offline) {
+                  setCheckNotice(true);
+                  return;
+                }
+                setFormError("");
+                setConfirmClear(true);
+              }}
+            >
+              Remove checked
+            </button>
+          </div>
+        ) : null}
+        {checkNotice ? (
+          <p role="status" data-check-notice="true" className="relative z-30 mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body">
+            Can't check off offline
+          </p>
+        ) : null}
+        {listError ? (
+          <p role="alert" className="mx-4 mt-3 text-meta font-medium text-[#E07A5F]">
+            {listError}
+          </p>
+        ) : null}
         {mode === "ready" && items.length === 0 ? (
           <div className="mt-16 flex flex-col items-center px-5 text-center">
             <div className="grid h-16 w-16 place-items-center rounded-full bg-ink/[0.12]" aria-hidden="true">
@@ -710,6 +723,7 @@ export default function GroceryPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
           <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-clear-title" id="grocery-clear-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
             <h2 id="grocery-clear-title" className="text-section font-medium">Remove {checkedCount} checked {checkedCount === 1 ? "item" : "items"}?</h2>
+            <p className="mt-2 text-body text-muted">{checkedNames}. This can't be undone.</p>
             {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
             <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void clearChecked()} disabled={offline || saving}>
               Remove checked

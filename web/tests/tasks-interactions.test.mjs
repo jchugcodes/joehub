@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pressLabel } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -162,13 +163,8 @@ async function shot(send, name) {
   writeFileSync(`${ARTIFACTS}/${name}`, Buffer.from(image.result.data, "base64"));
 }
 
-function click(label) {
-  return `(() => {
-    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === ${JSON.stringify(label)});
-    if (!node) return "";
-    node.click();
-    return "yes";
-  })()`;
+function press(send, label, scope) {
+  return pressLabel(send, evalPage, label, scope);
 }
 
 async function gotoTasks(send, width, height = 900) {
@@ -219,25 +215,25 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await waitFor(send, "document.querySelector(\"[data-empty='true']\") ? 'yes' : ''", "empty 390");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_empty_390.png");
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "sheet 390");
     await shot(send, "tasks_add_sheet_390.png");
-    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel 390");
 
     await size(send, 1280);
     await waitFor(send, "document.querySelector(\"[data-empty='true']\") ? 'yes' : ''", "empty 1280");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_empty_1280.png");
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "sheet 1280");
     await shot(send, "tasks_add_sheet_1280.png");
-    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel 1280");
 
     async function titleThenEnter(width, title) {
       await size(send, width);
-      assert.equal(await evalPage(send, click("Add a task")), "yes");
+      assert.equal(await press(send, "Add a task"), "yes");
       await waitFor(send, "document.activeElement?.id === 'task-title' ? 'yes' : ''", `title focused ${width}`);
       const hit = await evalPage(
         send,
@@ -276,7 +272,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await titleThenEnter(1280, "Desk sample task");
 
     await size(send, 390, 685);
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "short sheet");
     assert.equal(await evalPage(send, buttonInView("Save")), "yes");
     assert.equal(await evalPage(send, buttonInView("Cancel")), "yes");
@@ -293,17 +289,17 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       ),
       "yes",
     );
-    assert.equal(await evalPage(send, click("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "short error");
     assert.equal(await evalPage(send, "document.activeElement?.id"), "task-title");
     assert.equal(await evalPage(send, buttonInView("Save")), "yes");
     assert.equal(await evalPage(send, buttonInView("Cancel")), "yes");
     await shot(send, "tasks_add_error_390.png");
-    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "short closed");
 
     await size(send, 390);
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "title field");
     assert.equal(
       await evalPage(
@@ -327,7 +323,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       ),
       "Buy synthetic oats",
     );
-    assert.equal(await evalPage(send, click("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
       "document.body.innerText.includes('Buy synthetic oats') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
@@ -359,9 +355,9 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     );
 
     async function guards() {
-      assert.equal(await evalPage(send, click("Add a task")), "yes");
+      assert.equal(await press(send, "Add a task"), "yes");
       await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "blank sheet");
-      assert.equal(await evalPage(send, click("Save")), "yes");
+      assert.equal(await press(send, "Save"), "yes");
       await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank title");
       assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
       if (Number(await evalPage(send, "window.innerWidth")) < 800) await shot(send, "tasks_blank_title_390.png");
@@ -381,11 +377,11 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
         ),
         "yes",
       );
-      assert.equal(await evalPage(send, click("Cancel")), "yes");
+      assert.equal(await press(send, "Cancel"), "yes");
       await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel closed");
       assert.equal(await evalPage(send, "document.body.innerText.includes('Do not keep this') ? 'yes' : 'no'"), "no");
 
-      assert.equal(await evalPage(send, click("Add a task")), "yes");
+      assert.equal(await press(send, "Add a task"), "yes");
       await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "escape sheet");
       await evalPage(
         send,
@@ -457,7 +453,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     }
 
     const rowBefore390 = await firstRowTop();
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog'] button\") ? 'yes' : ''", "offline sheet");
     await devtoolsOffline();
     await waitFor(
@@ -484,7 +480,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(offline.saveDisabled, true);
     assert.equal(offline.addDisabled, true);
     assert.equal(offline.kept, true);
-    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[data-offline='true']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline visible");
     assert.equal(await firstRowTop(), rowBefore390);
     await shot(send, "tasks_offline_390.png");
@@ -497,7 +493,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     await shot(send, "tasks_list_1280.png");
     await guards();
     const rowBefore1280 = await firstRowTop();
-    assert.equal(await evalPage(send, click("Add a task")), "yes");
+    assert.equal(await press(send, "Add a task"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline sheet 1280");
     await devtoolsOffline();
     await waitFor(
@@ -506,7 +502,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       "offline 1280",
     );
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
-    assert.equal(await evalPage(send, click("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "!document.querySelector(\"[role='dialog']\") && document.querySelector(\"[data-offline='true']\") ? 'yes' : ''", "offline banner 1280");
     assert.equal(await firstRowTop(), rowBefore1280);
     await shot(send, "tasks_offline_1280.png");

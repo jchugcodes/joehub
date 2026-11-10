@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pressLabel } from "./support/pointer.mjs";
 import { detroitCalendarDate } from "../lib/detroit-date.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -141,22 +142,8 @@ async function shot(send, name) {
   writeFileSync(`${ARTIFACTS}/${name}`, Buffer.from(image.result.data, "base64"));
 }
 
-function clickName(label) {
-  return `(() => {
-    const node = document.querySelector(${JSON.stringify(`button[aria-label="${label}"]`)});
-    if (!node || node.disabled) return "";
-    node.click();
-    return "yes";
-  })()`;
-}
-
-function clickText(label) {
-  return `(() => {
-    const node = [...document.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === ${JSON.stringify(label)});
-    if (!node || node.disabled) return "";
-    node.click();
-    return "yes";
-  })()`;
+function press(send, label) {
+  return pressLabel(send, evalPage, label);
 }
 
 const fill = (fields) => `(() => {
@@ -206,7 +193,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
   try {
     await gotoTasks(send, 390);
     await waitFor(send, "document.body.innerText.includes('Pack the sample box') ? 'yes' : ''", "seed 390");
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample box")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample box"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "edit sheet 390");
     const prefilled = await evalPage(
       send,
@@ -231,7 +218,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(prefilled.heading, "Edit task");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_edit_sheet_390.png");
-    assert.equal(await evalPage(send, clickText("Today")), "yes");
+    assert.equal(await press(send, "Today"), "yes");
     assert.equal(await evalPage(send, "document.getElementById('task-due').value"), detroitCalendarDate(Date.now()));
 
     assert.equal(
@@ -248,7 +235,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
       ),
       "Pack the sample crate",
     );
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
       "document.body.innerText.includes('Pack the sample crate') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
@@ -267,32 +254,32 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_edit_saved_390.png");
 
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "cancel sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "Do not keep edit" })), "Do not keep edit");
-    assert.equal(await evalPage(send, clickText("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel closed");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Do not keep edit') ? 'yes' : 'no'"), "no");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Pack the sample crate') ? 'yes' : 'no'"), "yes");
 
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "escape sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "Escape should not save" })), "Escape should not save");
     await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "escape closed");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Escape should not save') ? 'yes' : 'no'"), "no");
 
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "blank sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "   " })), "   ");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank title");
     assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
     await shot(send, "tasks_edit_error_390.png");
-    assert.equal(await evalPage(send, clickText("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "blank closed");
 
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "failed sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "Should not stick" })), "Should not stick");
     await evalPage(
@@ -307,16 +294,16 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
         return "armed";
       })()`,
     );
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
       "document.body.innerText.includes('Your changes are still here') && document.getElementById('task-title').value === 'Should not stick' ? 'yes' : ''",
       "failed save",
     );
-    assert.equal(await evalPage(send, clickText("Cancel")), "yes");
+    assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.body.innerText.includes('Pack the sample crate') && !document.body.innerText.includes('Should not stick') ? 'yes' : ''", "server copy");
 
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "missing sheet");
     await evalPage(
       send,
@@ -334,7 +321,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
       })()`,
     );
     assert.equal(await evalPage(send, fill({ "task-title": "Gone title" })), "Gone title");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.querySelector(\"[data-missing='true']\")?.textContent.includes('no longer here') ? 'yes' : ''", "missing");
     await waitFor(send, "document.body.innerText.includes('Pack the sample crate') ? 'yes' : ''", "list refreshed");
 
@@ -375,29 +362,29 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
 
     await gotoTasks(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Pack the sample crate') ? 'yes' : ''", "seed 1280");
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample crate")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title')?.value === 'Pack the sample crate' ? 'yes' : ''", "edit sheet 1280");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_edit_sheet_1280.png");
     assert.equal(await evalPage(send, fill({ "task-title": "Pack the sample trunk", "task-status": "To do" })), "Pack the sample trunk");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
       "document.body.innerText.includes('Pack the sample trunk') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
       "saved 1280",
     );
     await shot(send, "tasks_edit_saved_1280.png");
-    assert.equal(await evalPage(send, clickName("Edit Pack the sample trunk")), "yes");
+    assert.equal(await press(send, "Edit Pack the sample trunk"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "error sheet 1280");
     assert.equal(await evalPage(send, fill({ "task-title": "" })), "");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank 1280");
     assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
     await shot(send, "tasks_edit_error_1280.png");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Pack the sample trunk') ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('#task-status option')].map((option) => option.value).join('|')"), "To do|Doing|Blocked|Done");
     assert.equal(await evalPage(send, fill({ "task-title": "Pack the sample trunk", "task-status": "Done" })), "Pack the sample trunk");
-    assert.equal(await evalPage(send, clickText("Save")), "yes");
+    assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,
       "!document.body.innerText.includes('Pack the sample trunk') && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''",
