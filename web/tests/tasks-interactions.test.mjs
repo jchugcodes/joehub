@@ -349,6 +349,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "blank sheet");
       assert.equal(await evalPage(send, click("Save")), "yes");
       await waitFor(send, "document.getElementById('task-title-error')?.textContent.includes('Enter a title') ? 'yes' : ''", "blank title");
+      assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
       assert.equal(
         await evalPage(
           send,
@@ -387,6 +388,19 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     }
 
     await guards();
+
+    async function firstRowTop() {
+      const value = await evalPage(
+        send,
+        `(() => {
+          const row = document.querySelector("ul[aria-label='Unfinished tasks'] li");
+          if (!row) return "";
+          return String(Math.round(row.getBoundingClientRect().top));
+        })()`,
+      );
+      assert.match(String(value), /^\d+$/);
+      return Number(value);
+    }
 
     async function devtoolsOffline() {
       await send("Network.emulateNetworkConditions", {
@@ -427,6 +441,7 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
       await shot(send, `tasks_online_${width}.png`);
     }
 
+    const rowBefore390 = await firstRowTop();
     assert.equal(await evalPage(send, click("Add a task")), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog'] button\") ? 'yes' : ''", "offline sheet");
     await devtoolsOffline();
@@ -454,14 +469,17 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(offline.kept, true);
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "document.querySelector(\"[data-offline='true']\") && !document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline visible");
+    assert.equal(await firstRowTop(), rowBefore390);
     await shot(send, "tasks_offline_390.png");
     await backFromDevtoolsOffline(390);
+    assert.equal(await firstRowTop(), rowBefore390);
 
     await gotoTasks(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Buy synthetic oats') ? 'yes' : ''", "list 1280");
     assert.ok((await evalPage(send, "document.documentElement.scrollWidth - document.documentElement.clientWidth")) <= 1);
     await shot(send, "tasks_list_1280.png");
     await guards();
+    const rowBefore1280 = await firstRowTop();
     assert.equal(await evalPage(send, click("Add a task")), "yes");
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? 'yes' : ''", "offline sheet 1280");
     await devtoolsOffline();
@@ -473,9 +491,11 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.disabled === true ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, click("Cancel")), "yes");
     await waitFor(send, "!document.querySelector(\"[role='dialog']\") && document.querySelector(\"[data-offline='true']\") ? 'yes' : ''", "offline banner 1280");
+    assert.equal(await firstRowTop(), rowBefore1280);
     await shot(send, "tasks_offline_1280.png");
     assert.equal(await evalPage(send, "typeof window.__joehubIgnoredOnline === 'number' ? 'yes' : 'no'"), "yes");
     await backFromDevtoolsOffline(1280);
+    assert.equal(await firstRowTop(), rowBefore1280);
   } finally {
     await page.close();
     await stopProcess(chrome);
