@@ -282,3 +282,47 @@ export async function handleTasksPost(body, headers, env, store, limiter, now, i
     return { status: 503, body: { detail: "unavailable" } };
   }
 }
+
+export async function handleGroceryGet(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.listGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.listGrocery(now) };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleGroceryPost(body, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  try {
+    if (!store || typeof store.createGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const scope = gate.session && (gate.session.id || gate.session.owner) || "";
+    return await store.createGrocery(body, idem.key, now, scope);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleGroceryItemGet(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.getGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const item = await store.getGrocery(id);
+    if (!item) return { status: 404, body: { detail: "This item is no longer here." } };
+    return { status: 200, body: item };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}

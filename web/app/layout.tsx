@@ -13,7 +13,7 @@ const dmSans = localFont({
   adjustFontFallback: false,
 });
 
-/** Tasks and the Home tasks card only. Finance, Jobs, Journal, and More stay on DM Sans. */
+/** Tasks, the Home tasks card, and Grocery. Finance, Jobs, Journal, and More stay on DM Sans. */
 const outfit = localFont({
   src: "../fonts/Outfit-variable.ttf",
   variable: "--font-outfit",

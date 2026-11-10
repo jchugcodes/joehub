@@ -1,4 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
+import { performCreate as performGroceryCreate, SAMPLE_GROCERY } from "./grocery.mjs";
 import { combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, SAMPLE_TASKS, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
@@ -160,6 +161,74 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
   };
 
+  async function ensureGrocerySeeded() {
+    const flagKey = k("joehub:grocery:seeded");
+    const flag = await command(["GET", flagKey]);
+    if (flag != null) return;
+    for (const sample of SAMPLE_GROCERY) {
+      await command(["SET", k(`joehub:grocery:item:${sample.id}`), JSON.stringify(sample), "NX"]);
+      await command(["ZADD", k("joehub:grocery:items:unchecked"), String(sample.createdAt), sample.id]);
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
+  const grocery = {
+    async putItem(item) {
+      const result = await command(["SET", k(`joehub:grocery:item:${item.id}`), JSON.stringify(item), "NX"]);
+      if (result !== "OK") return false;
+      const score = item.checked ? item.checkedAt || item.updatedAt : item.createdAt;
+      const index = item.checked ? "joehub:grocery:items:checked" : "joehub:grocery:items:unchecked";
+      await command(["ZADD", k(index), String(score), item.id]);
+      return true;
+    },
+    async getItem(id) {
+      if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return null;
+      return readJson(k(`joehub:grocery:item:${id}`));
+    },
+    async list() {
+      const unchecked = (await command(["ZRANGEBYSCORE", k("joehub:grocery:items:unchecked"), "0", "9007199254740991"])) || [];
+      const checked = (await command(["ZRANGEBYSCORE", k("joehub:grocery:items:checked"), "0", "9007199254740991"])) || [];
+      const rows = [];
+      for (const id of [...unchecked, ...checked]) {
+        const item = await readJson(k(`joehub:grocery:item:${id}`));
+        if (item) rows.push(item);
+      }
+      return rows;
+    },
+    async readIdem(key) {
+      const parsed = await readJson(k(`joehub:grocery:item:idem:${key}`));
+      if (!parsed) return null;
+      if (parsed.status && parsed.body) return { status: parsed.status, body: parsed.body };
+      if (parsed.pending && parsed.itemId) {
+        const item = await readJson(k(`joehub:grocery:item:${parsed.itemId}`));
+        if (item) return { status: 201, body: item };
+      }
+      if (parsed.pending) return null;
+      throw new StoreError();
+    },
+    async writeIdem(key, response) {
+      await command(["SET", k(`joehub:grocery:item:idem:${key}`), JSON.stringify(response), "EX", "86400"]);
+    },
+    async noteCreated(key, response) {
+      const itemId = response && response.body ? response.body.id : "";
+      await command([
+        "SET",
+        k(`joehub:grocery:item:idem:${key}`),
+        JSON.stringify({ pending: true, itemId }),
+        "EX",
+        "86400",
+      ]);
+    },
+    async claimIdem(key) {
+      const result = await command(["SET", k(`joehub:grocery:item:idem:${key}`), JSON.stringify({ pending: true }), "NX", "EX", "30"]);
+      return result === "OK";
+    },
+    async releasePending(key) {
+      const parsed = await readJson(k(`joehub:grocery:item:idem:${key}`));
+      if (parsed && parsed.pending && !parsed.itemId) await command(["DEL", k(`joehub:grocery:item:idem:${key}`)]);
+    },
+  };
+
   return {
     async getSession(id, now) {
       const session = await readJson(k(`joehub:sess:${id}`));
@@ -299,6 +368,18 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async deleteTask(id) {
       await ensureSeeded();
       return performDelete(tasks, id);
+    },
+    async listGrocery() {
+      await ensureGrocerySeeded();
+      return grocery.list();
+    },
+    async createGrocery(raw, idemKey, now, scope) {
+      await ensureGrocerySeeded();
+      return performGroceryCreate(grocery, raw, idemKey, now, undefined, scope || "");
+    },
+    async getGrocery(id) {
+      await ensureGrocerySeeded();
+      return grocery.getItem(id);
     },
   };
 }

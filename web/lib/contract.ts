@@ -64,6 +64,18 @@ export interface LoginResult {
   device_id: string;
 }
 
+export interface GroceryItem {
+  id: string;
+  name: string;
+  quantity?: string;
+  section?: string;
+  notes?: string;
+  checked: boolean;
+  createdAt: number;
+  updatedAt: number;
+  checkedAt?: number;
+}
+
 export interface Task {
   id: string;
   title: string;
