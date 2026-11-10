@@ -89,6 +89,9 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/grocery/{id}":
             assert expected == {"get", "patch", "delete"}
             continue
+        if path in {"/api/grocery/{id}/check", "/api/grocery/{id}/uncheck"}:
+            assert expected == {"post"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -611,3 +614,19 @@ def test_grocery_create_rejects_invalid_fields_and_replays_one_item() -> None:
     assert removed.json() == {"deleted": True, "id": first.json()["id"]}
     assert client.delete(f"/api/grocery/{first.json()['id']}", cookies=cookies).status_code == 404
     assert client.patch(f"/api/grocery/{first.json()['id']}", json={"name": "Gone"}, cookies=cookies).status_code == 404
+    bread = client.post("/api/grocery", json={"name": "Sourdough", "quantity": "1 loaf", "section": "Bakery"}, cookies=cookies)
+    assert bread.status_code == 201
+    assert client.post(f"/api/grocery/{bread.json()['id']}/check").status_code == 401
+    checked = client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies)
+    assert checked.status_code == 200
+    assert checked.json()["checked"] is True
+    assert "checkedAt" in checked.json()
+    again = client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies)
+    assert again.status_code == 200
+    assert again.json()["checkedAt"] == checked.json()["checkedAt"]
+    back = client.post(f"/api/grocery/{bread.json()['id']}/uncheck", cookies=cookies)
+    assert back.status_code == 200
+    assert back.json()["checked"] is False
+    assert "checkedAt" not in back.json()
+    assert client.post("/api/grocery/missing-item/check", cookies=cookies).status_code == 404
+    assert client.post("/api/grocery/missing-item/uncheck", cookies=cookies).status_code == 404

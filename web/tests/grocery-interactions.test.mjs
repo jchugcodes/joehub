@@ -285,6 +285,18 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.match(await evalPage(send, "document.body.innerText"), /6 · Produce/);
     assert.match(await evalPage(send, "document.body.innerText"), /Barista style if they have it/);
     assert.equal(await evalPage(send, "document.body.innerText.includes('2') && !document.body.innerText.includes('2 ·') ? 'yes' : 'no'"), "yes");
+    const checks = await evalPage(
+      send,
+      `(() => {
+        const boxes = [...document.querySelectorAll("[role='checkbox']")];
+        const size = boxes.every((box) => {
+          const rect = box.getBoundingClientRect();
+          return rect.width >= 44 && rect.height >= 44;
+        });
+        return boxes.length === 5 && size && boxes.every((box) => box.getAttribute("aria-checked") === "false") && !document.body.innerText.includes("Remove checked") ? "yes" : "no";
+      })()`,
+    );
+    assert.equal(checks, "yes");
     await shot(send, "grocery_g01_390.png");
     await gotoGrocery(send, 1280);
     await waitFor(send, "document.body.innerText.includes('Select an item') && document.body.innerText.includes('Bananas') ? 'yes' : ''", "desktop list");
@@ -634,6 +646,107 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
     assert.match(header, /Save/);
     await shot(send, "grocery_g04_1280.png");
     assert.equal(await evalPage(send, click("Cancel")), "yes");
+  } finally {
+    await page.close();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+    chrome = null;
+    child = null;
+  }
+});
+
+test("grocery check and uncheck hold, and an offline attempt queues nothing", { timeout: 240000, skip }, async () => {
+  const cookie = await boot();
+  const page = await openPage(cookie);
+  const { send } = page;
+  const auth = { cookie: `joehub_session=${cookie}`, "content-type": "application/json" };
+  const samples = [
+    { name: "Bananas", quantity: "6", section: "Produce" },
+    { name: "Organic gluten-free rolled oats, family size", quantity: "1 bag", section: "Produce" },
+    { name: "Oat milk", quantity: "1 carton", section: "Dairy", notes: "Barista style if they have it" },
+    { name: "Eggs", quantity: "1 dozen", section: "Dairy" },
+    { name: "Paper towels", quantity: "2" },
+    { name: "Sourdough", quantity: "1 loaf", section: "Bakery" },
+    { name: "Sparkling water", quantity: "8 cans" },
+  ];
+  try {
+    const ids = {};
+    for (const sample of samples) {
+      const created = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(sample) });
+      assert.equal(created.status, 201);
+      ids[sample.name] = (await created.json()).id;
+    }
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.body.innerText.includes('Sparkling water') ? 'yes' : ''", "full list");
+    assert.equal(await evalPage(send, click("Check Sourdough")), "yes");
+    await waitFor(send, "document.querySelector(\"[aria-label='Uncheck Sourdough']\")?.getAttribute('aria-checked') === 'true' ? 'yes' : ''", "sourdough checked");
+    assert.equal(await evalPage(send, click("Check Sparkling water")), "yes");
+    await waitFor(send, "document.querySelector(\"[aria-label='Uncheck Sparkling water']\") ? 'yes' : ''", "water checked");
+    const grouped = await evalPage(send, "[...document.querySelectorAll('section h2 span:first-child')].map((el) => el.textContent).join('|')");
+    assert.equal(grouped, "Produce|Dairy|No section|Checked");
+    const struck = await evalPage(
+      send,
+      `(() => {
+        const name = [...document.querySelectorAll("p")].find((el) => el.textContent === "Sourdough");
+        return name && getComputedStyle(name).textDecorationLine.includes("line-through") ? "yes" : "no";
+      })()`,
+    );
+    assert.equal(struck, "yes");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "no");
+    await size(send, 390, 1180);
+    await evalPage(send, "document.querySelector(\"section[aria-label='Checked']\")?.scrollIntoView({ block: 'end' }); 'yes'");
+    await shot(send, "grocery_g05_390.png");
+    await size(send, 390, 844);
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.querySelector(\"[aria-label='Uncheck Sourdough']\")?.getAttribute('aria-checked') === 'true' ? 'yes' : ''", "check held");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('section h2 span:first-child')].map((el) => el.textContent).join('|')"), "Produce|Dairy|No section|Checked");
+    assert.equal(await evalPage(send, click("Uncheck Sourdough")), "yes");
+    await waitFor(send, "document.querySelector(\"[aria-label='Check Sourdough']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "sourdough back");
+    await send("Page.reload", { ignoreCache: true });
+    await waitFor(send, "document.body.innerText.includes('Bakery') && document.querySelector(\"[aria-label='Check Sourdough']\") ? 'yes' : ''", "uncheck held");
+    assert.equal(await evalPage(send, click("Check Sourdough")), "yes");
+    await waitFor(send, "document.querySelector(\"[aria-label='Uncheck Sourdough']\") ? 'yes' : ''", "rechecked");
+    await gotoGrocery(send, 1280);
+    await waitFor(send, "document.body.innerText.includes('Checked') && document.body.innerText.includes('Sourdough') ? 'yes' : ''", "desktop checked");
+    assert.equal(await evalPage(send, "document.body.innerText.includes('Remove checked') ? 'yes' : 'no'"), "no");
+    await size(send, 1280, 1100);
+    await shot(send, "grocery_g05_1280.png");
+    await size(send, 1280, 844);
+
+    await gotoGrocery(send, 390);
+    await waitFor(send, "document.querySelector(\"[aria-label='Check Bananas']\") ? 'yes' : ''", "bananas box");
+    await evalPage(
+      send,
+      `(() => {
+        const orig = window.fetch;
+        window.__checkPosts = 0;
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+          if (method === "POST" && (url.includes("/check") || url.includes("/uncheck"))) window.__checkPosts += 1;
+          return orig(input, init);
+        };
+        return "yes";
+      })()`,
+    );
+    await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    await waitFor(send, "document.querySelector(\"[data-link='offline']\") ? 'yes' : ''", "offline list");
+    const posts = await evalPage(send, "window.__checkPosts");
+    assert.equal(await evalPage(send, click("Check Bananas")), "yes");
+    await waitFor(send, "document.querySelector(\"[data-check-notice='true']\")?.textContent.trim() === \"Can't check off offline\" ? 'yes' : ''", "offline notice");
+    assert.equal(await evalPage(send, "document.querySelector(\"[aria-label='Check Bananas']\")?.getAttribute('aria-checked')"), "false");
+    assert.equal(await evalPage(send, "window.__checkPosts"), posts);
+    await shot(send, "grocery_g07_notice_390.png");
+    const stored = await fetch(`${base()}/api/grocery/${ids.Bananas}`, { headers: { cookie: auth.cookie } });
+    assert.equal((await stored.json()).checked, false);
+    await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await evalPage(send, "window.dispatchEvent(new Event('focus')); 'yes'");
+    await waitFor(send, "document.querySelector(\"[data-link='back'], [data-link='live']\") || !document.querySelector('[data-link]') ? 'yes' : ''", "online again", 20000);
+    await waitFor(send, "document.querySelector(\"[aria-label='Check Bananas']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "still unchecked");
+    assert.equal(await evalPage(send, "window.__checkPosts"), posts);
+    assert.equal((await (await fetch(`${base()}/api/grocery/${ids.Bananas}`, { headers: { cookie: auth.cookie } })).json()).checked, false);
   } finally {
     await page.close();
     await stopProcess(chrome);

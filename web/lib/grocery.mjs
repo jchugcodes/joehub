@@ -272,6 +272,19 @@ export async function performPatch(backend, id, raw, now) {
   return { status: 200, body: next };
 }
 
+export async function performCheck(backend, id, now, checked) {
+  if (!isItemId(id)) return { status: 404, body: { detail: "This item is no longer here." } };
+  const existing = await backend.getItem(id);
+  if (!existing) return { status: 404, body: { detail: "This item is no longer here." } };
+  if (Boolean(existing.checked) === Boolean(checked)) return { status: 200, body: existing };
+  const next = { ...existing, checked: Boolean(checked), updatedAt: now };
+  if (checked) next.checkedAt = now;
+  else delete next.checkedAt;
+  const moved = await backend.moveItem(next);
+  if (moved === false) return { status: 404, body: { detail: "This item is no longer here." } };
+  return { status: 200, body: next };
+}
+
 export async function performDelete(backend, id) {
   if (!isItemId(id)) return { status: 404, body: { detail: "This item is no longer here." } };
   const removed = await backend.deleteItem(id);
@@ -368,6 +381,9 @@ export function createMemoryBackend() {
       items.set(item.id, structuredClone(item));
       return true;
     },
+    async moveItem(item) {
+      return this.replaceItem(item);
+    },
     async deleteItem(id) {
       if (!isItemId(id) || !items.has(id)) return false;
       items.delete(id);
@@ -428,5 +444,7 @@ export function installMemoryGrocery(store, options = {}) {
   store.getGrocery = (id) => backend.getItem(id);
   store.patchGrocery = (id, raw, now) => performPatch(backend, id, raw, now);
   store.deleteGrocery = (id) => performDelete(backend, id);
+  store.checkGrocery = (id, now) => performCheck(backend, id, now, true);
+  store.uncheckGrocery = (id, now) => performCheck(backend, id, now, false);
   return store;
 }

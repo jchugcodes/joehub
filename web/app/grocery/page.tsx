@@ -95,6 +95,8 @@ export default function GroceryPage() {
   const [quantityError, setQuantityError] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [checkNotice, setCheckNotice] = useState(false);
+  const [listError, setListError] = useState("");
   const [wide, setWide] = useState(false);
   const downRef = useRef(false);
   const savingRef = useRef(false);
@@ -200,6 +202,11 @@ export default function GroceryPage() {
     query.addEventListener("change", apply);
     return () => query.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    if (offline) return;
+    setCheckNotice(false);
+  }, [offline]);
 
   useEffect(() => {
     if (link !== "back") return undefined;
@@ -319,6 +326,28 @@ export default function GroceryPage() {
     }
   }
 
+  async function toggle(item: GroceryItem) {
+    if (offline || mode !== "ready") {
+      setCheckNotice(true);
+      return;
+    }
+    setListError("");
+    const path = item.checked ? "uncheck" : "check";
+    try {
+      const response = await fetch(`/api/grocery/${item.id}/${path}`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as GroceryItem | null;
+      if (!response.ok || !body || typeof body.id !== "string") {
+        setListError("Couldn't update this item.");
+        return;
+      }
+      const next = items.map((row) => (row.id === body.id ? body : row));
+      setItems(next);
+      await writeCache(next, Date.now());
+    } catch {
+      setListError("Couldn't update this item.");
+    }
+  }
+
   async function removeItem() {
     if (savingRef.current || offline || !editingId) return;
     savingRef.current = true;
@@ -366,6 +395,16 @@ export default function GroceryPage() {
       {link === "reconnecting" ? (
         <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
           Reconnecting…
+        </p>
+      ) : null}
+      {checkNotice ? (
+        <p role="status" data-check-notice="true" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body">
+          Can't check off offline
+        </p>
+      ) : null}
+      {listError ? (
+        <p role="alert" className="mx-4 mt-3 text-meta font-medium text-[#E07A5F]">
+          {listError}
         </p>
       ) : null}
       {link === "back" ? (
@@ -420,16 +459,34 @@ export default function GroceryPage() {
                   {group.items.map((item: GroceryItem) => {
                     const meta = metaLine(item);
                     return (
-                      <li key={item.id} className="card min-w-0">
+                      <li key={item.id} className="card flex min-w-0 items-center">
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={item.checked ? "true" : "false"}
+                          aria-label={item.checked ? `Uncheck ${item.name}` : `Check ${item.name}`}
+                          className="grid h-11 w-11 shrink-0 place-items-center"
+                          onClick={() => void toggle(item)}
+                        >
+                          {item.checked ? (
+                            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#2E8B6A] text-white" aria-hidden="true">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                <path d="M5 12.5 10 17.5 19 7.5" />
+                              </svg>
+                            </span>
+                          ) : (
+                            <span className="h-6 w-6 rounded-full border border-[#C9CEC8]" aria-hidden="true" />
+                          )}
+                        </button>
                         <button
                           type="button"
                           data-item-id={item.id}
-                          className="w-full min-h-11 p-3.5 text-left disabled:opacity-60"
+                          className="min-h-11 min-w-0 flex-1 py-3.5 pr-3.5 text-left disabled:opacity-60"
                           aria-label={`Edit ${item.name}`}
                           disabled={offline}
                           onClick={() => openEdit(item)}
                         >
-                          <p className="break-words text-body font-medium">{item.name}</p>
+                          <p className={`break-words text-body font-medium ${item.checked ? "text-muted line-through" : ""}`}>{item.name}</p>
                           {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
                           {item.notes ? <p className="mt-1 break-words text-meta text-muted">{item.notes}</p> : null}
                         </button>

@@ -168,6 +168,27 @@ class GroceryStore:
         self.items[item_id] = item
         return 200, item
 
+    def _set_checked(self, item_id: str, checked: bool) -> tuple[int, dict]:
+        if not ITEM_ID.fullmatch(item_id) or item_id not in self.items:
+            return 404, dict(MISSING)
+        item = dict(self.items[item_id])
+        if bool(item.get("checked")) == checked:
+            return 200, item
+        item["checked"] = checked
+        item["updatedAt"] = self.clock()
+        if checked:
+            item["checkedAt"] = item["updatedAt"]
+        else:
+            item.pop("checkedAt", None)
+        self.items[item_id] = item
+        return 200, item
+
+    def check(self, item_id: str) -> tuple[int, dict]:
+        return self._set_checked(item_id, True)
+
+    def uncheck(self, item_id: str) -> tuple[int, dict]:
+        return self._set_checked(item_id, False)
+
     def delete(self, item_id: str) -> tuple[int, dict]:
         if not ITEM_ID.fullmatch(item_id) or item_id not in self.items:
             return 404, dict(MISSING)

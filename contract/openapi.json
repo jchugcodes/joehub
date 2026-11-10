@@ -338,6 +338,46 @@
         }
       }
     },
+    "/api/grocery/{id}/check": {
+      "post": {
+        "operationId": "checkGroceryItem",
+        "description": "Mark one item checked. Repeating it returns the same item. The item stays on the list in the Checked group.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The checked item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/grocery/{id}/uncheck": {
+      "post": {
+        "operationId": "uncheckGroceryItem",
+        "description": "Mark one item unchecked and return it to its section. Repeating it returns the same item.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The unchecked item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
     "/api/session/login": {
       "post": {
         "operationId": "sessionLogin",

@@ -209,6 +209,18 @@ def create_app(
         status, body = request.app.state.grocery.delete(id)
         return JSONResponse(body, status_code=status)
 
+    @app.post("/api/grocery/{id}/check")
+    def check_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.check(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.post("/api/grocery/{id}/uncheck")
+    def uncheck_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.uncheck(id)
+        return JSONResponse(body, status_code=status)
+
     @app.post("/api/session/login", response_model=LoginResult)
     async def session_login(request: Request, response: Response) -> LoginResult:
         try:

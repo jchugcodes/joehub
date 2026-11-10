@@ -11,6 +11,7 @@ import {
   groupGrocery,
   installMemoryGrocery,
   itemIdForKey,
+  performCheck,
   performCreate,
   performDelete,
   performPatch,
@@ -200,4 +201,55 @@ test("a patch changes name and clears optional fields, and a failed write leaves
   const other = await performCreate(backend, { name: "Oat milk" }, "edit-2", 10, () => "item-edit-2");
   assert.equal(existingName([other.body, { id: "item-edit-2", name: "Oat milk", createdAt: 10 }], "Oat milk", "item-edit-2"), "");
   assert.equal(sectionSuggestions([{ section: "Bakery", createdAt: 2, checked: true }, { section: "Produce", createdAt: 1 }])[0], "Produce");
+});
+
+test("check and uncheck persist, repeat, and a failed move leaves the item", async () => {
+  const store = installMemoryGrocery(createStore());
+  const now = 500;
+  const created = await store.createGrocery({ name: "Sourdough", quantity: "1 loaf", section: "Bakery" }, "check-1", now);
+  const id = created.body.id;
+  const checked = await store.checkGrocery(id, now + 10);
+  assert.equal(checked.status, 200);
+  assert.equal(checked.body.checked, true);
+  assert.equal(checked.body.checkedAt, now + 10);
+  const repeat = await store.checkGrocery(id, now + 20);
+  assert.equal(repeat.body.checkedAt, now + 10);
+  const groups = groupGrocery(await store.listGrocery());
+  assert.equal(groups.at(-1).label, "Checked");
+  assert.equal(groups.at(-1).items[0].name, "Sourdough");
+  const back = await store.uncheckGrocery(id, now + 30);
+  assert.equal(back.body.checked, false);
+  assert.equal(back.body.checkedAt, undefined);
+  assert.equal(groupGrocery(await store.listGrocery()).some((group) => group.label === "Bakery"), true);
+  assert.equal((await store.checkGrocery("missing-item", now)).status, 404);
+  assert.equal((await store.uncheckGrocery("missing-item", now)).status, 404);
+
+  const backend = createMemoryBackend();
+  const made = await performCreate(backend, { name: "Sparkling water", quantity: "8 cans" }, "check-2", now, () => "item-check-2");
+  const moveItem = backend.moveItem.bind(backend);
+  backend.moveItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performCheck(backend, made.body.id, now + 5, true));
+  assert.equal((await backend.getItem(made.body.id)).checked, false);
+  backend.moveItem = moveItem;
+
+  const fake = await startFakeUpstash();
+  try {
+    const remote = createUpstashStore({ url: fake.url, token: fake.token });
+    const item = await remote.createGrocery({ name: "Sourdough", section: "Bakery" }, "up-check", now, "owner");
+    const marked = await remote.checkGrocery(item.body.id, now + 8);
+    assert.equal(marked.body.checked, true);
+    const listed = await remote.listGrocery(now + 9);
+    assert.equal(listed.find((row) => row.id === item.body.id).checked, true);
+    const moved = fake.commands.filter((args) => args[0] === "ZADD" && String(args[1]).endsWith("grocery:items:checked") && args[3] === item.body.id);
+    const removed = fake.commands.filter((args) => args[0] === "ZREM" && String(args[1]).endsWith("grocery:items:unchecked") && args[2] === item.body.id);
+    assert.equal(moved.length, 1);
+    assert.equal(removed.length, 1);
+    await remote.uncheckGrocery(item.body.id, now + 12);
+    const restored = await remote.listGrocery(now + 13);
+    assert.equal(restored.find((row) => row.id === item.body.id).checked, false);
+  } finally {
+    fake.stop();
+  }
 });
