@@ -499,33 +499,38 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   const net = snapshot && snapshot.netWorthCents != null ? snapshot : null;
 
-  return (
-    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
+  const bannerInset = wide || selected ? "mt-3" : "mx-4 mt-3";
+  const statusBanners = (
+    <>
       {shownTone === "offline" && snapshot?.updatedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3">
-          <span className="block text-body font-medium">Offline</span>
-          <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
+        <p role="status" data-offline="true" data-link="offline" className={`${bannerInset} flex items-start gap-2.5 rounded-2xl bg-[#E6E8E4] px-3.5 py-3`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="mt-0.5 shrink-0" aria-hidden="true">
+            <path d="M2 8.82A15 15 0 0 1 12 5c2.5 0 4.85.6 6.94 1.66M5 12.5A10 10 0 0 1 12 10c1.6 0 3.1.37 4.45 1.03M8.5 16a5 5 0 0 1 7 0M12 20h.01M2 2l20 20" />
+          </svg>
+          <span>
+            <span className="block text-body font-medium">Offline</span>
+            <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
+          </span>
         </p>
       ) : null}
       {shownTone === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className={`${bannerInset} rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]`}>
           Reconnecting…
         </p>
       ) : null}
       {shownTone === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className={`${bannerInset} flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]`}>
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
             Dismiss
           </button>
         </p>
       ) : null}
-      {notice ? (
-        <p role="status" className="mx-4 mt-3 text-body">
-          {notice}
-        </p>
-      ) : null}
+    </>
+  );
 
+  return (
+    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
       {wide || !selected ? (
         <>
           <header className="flex items-center justify-between px-5 pt-2">
@@ -538,7 +543,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               <p className="text-meta text-muted">joehub</p>
               <h1 className="text-title font-medium">Accounts</h1>
             </div>
-            <button type="button" aria-label="Add a manual account" onClick={openAdd} className={`min-h-11 min-w-11 px-2 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+            <button type="button" aria-label="Add a manual account" aria-disabled={blocked || undefined} onClick={openAdd} className={`min-h-11 min-w-11 px-2 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
               Add
             </button>
           </header>
@@ -555,7 +560,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-title font-medium">{selected?.name || "Account"}</h1>
           {selected?.source === "manual" ? (
-            <button type="button" onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+            <button type="button" aria-disabled={blocked || undefined} onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
               Edit
             </button>
           ) : null}
@@ -565,6 +570,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       <div className={wide ? "mt-3 flex min-w-0 items-start gap-4 px-4" : ""}>
         {wide || !selected ? (
           <div className="min-w-0 flex-1">
+            {statusBanners}
             {!snapshot ? <p className="px-5 py-8 text-body text-muted">Loading accounts…</p> : null}
             {snapshot && empty ? (
               <div className="px-5 py-16 text-center">
@@ -575,7 +581,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               </div>
             ) : null}
             {snapshot && !empty && net ? (
-              <section className={`${wide ? "" : "mx-4"} rounded-[20px] border border-line bg-surface p-4`}>
+              <section className={`${wide ? "" : "mx-4"} ${shownTone ? "mt-3" : ""} rounded-[20px] border border-line bg-surface p-4`}>
                 <p className="text-meta text-muted">Net worth</p>
                 <p className="mt-1 font-medium tabular-nums" data-net-worth={net.netWorthCents}>
                   <span className="text-title">{wholeDollars(net.netWorthCents!)}</span>
@@ -594,6 +600,11 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                 {snapshot.updatedAt ? <p className="mt-3 text-meta text-muted">Updated {stamp(snapshot.updatedAt)}</p> : null}
               </section>
             ) : null}
+            {shownTone === "offline" && snapshot ? (
+              <p role="status" className={`${bannerInset} rounded-2xl border border-[#C9CEC8] bg-surface px-3.5 py-3 text-body font-medium`}>
+                Can’t edit offline
+              </p>
+            ) : null}
             {snapshot && !empty
               ? groups().map((group) => {
                   const longLoans = group.name === "Loans" && group.rows.length > COLLAPSE_AT;
@@ -603,17 +614,23 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                   return (
                   <section key={group.name}>
                     <div className={`mt-5 flex items-baseline justify-between ${wide ? "" : "px-5"}`}>
-                      <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : ""}`}>{group.name}</h2>
-                      <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : ""}`}>{money(group.total)}</p>
+                      <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{group.name}</h2>
+                      <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{money(group.total)}</p>
                     </div>
                     {longLoans && !expanded ? (
-                      <button
-                        type="button"
-                        className={`mt-2 flex min-h-11 items-center text-body font-medium text-muted ${wide ? "" : "mx-5"}`}
-                        onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
-                      >
-                        Show {group.rows.length} loans
-                      </button>
+                      <div className={`${wide ? "mt-2" : "mx-4 mt-2"} overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                        <button
+                          type="button"
+                          data-loans="show"
+                          className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
+                          onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
+                        >
+                          <span className="min-w-0 flex-1">Show {group.rows.length} loans</span>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                            <path d="M9 6l6 6-6 6" />
+                          </svg>
+                        </button>
+                      </div>
                     ) : (
                     <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
                       {visible.map((account) => {
@@ -623,7 +640,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
                               aria-current={current ? "true" : undefined}
-                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 ${current ? "bg-[#2E8B6A14]" : ""}`}
+                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-[#2E8B6A14]" : ""}`}
                             >
                               <AccountGlyph type={account.type} />
                               <span className="min-w-0 flex-1">
@@ -646,10 +663,14 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                         <li>
                           <button
                             type="button"
-                            className="flex min-h-11 w-full items-center px-4 text-left text-body font-medium text-muted"
+                            data-loans="hide"
+                            className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
                             onClick={() => setOpenGroups((current) => ({ ...current, Loans: false }))}
                           >
-                            Hide loans
+                            <span className="min-w-0 flex-1">Hide loans</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                              <path d="M6 15l6-6 6 6" />
+                            </svg>
                           </button>
                         </li>
                       ) : null}
@@ -661,7 +682,11 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               : null}
           </div>
         ) : (
-          <div className="px-5 pt-3">{detail}</div>
+          <div className="px-5 pt-3">
+            {statusBanners}
+            {notice ? <p role="status" className="mt-3 text-body">{notice}</p> : null}
+            {detail}
+          </div>
         )}
 
         {wide ? (
@@ -691,7 +716,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="min-w-0 truncate text-section font-medium">{selected.name}</h2>
                   {selected.source === "manual" ? (
-                    <button type="button" onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+                    <button type="button" aria-disabled={blocked || undefined} onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
                       Edit
                     </button>
                   ) : null}
