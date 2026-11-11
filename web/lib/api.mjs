@@ -177,15 +177,18 @@ export async function handleTasksGet(headers, env, store, limiter, now, ip, url 
   if (gate.blocked) return gate.blocked;
   if (gate.result) return gate.result;
   try {
-    const query = url ? new URL(url).searchParams.get("q") || "" : "";
+    const params = url ? new URL(url).searchParams : new URLSearchParams();
+    const parsed = Date.parse(params.get("asOf") || "");
+    const clock = Number.isFinite(parsed) ? parsed : now;
+    const query = params.get("q") || "";
     if (query.trim()) {
       if (!store || typeof store.searchTasks !== "function") return { status: 503, body: { detail: "unavailable" } };
-      return { status: 200, body: await store.searchTasks(query, now) };
+      return { status: 200, body: await store.searchTasks(query, clock) };
     }
     if (!store || typeof store.listUnfinishedTasks !== "function") {
       return { status: 503, body: { detail: "unavailable" } };
     }
-    return { status: 200, body: await store.listUnfinishedTasks(now) };
+    return { status: 200, body: await store.listUnfinishedTasks(clock) };
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };

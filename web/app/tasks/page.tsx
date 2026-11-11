@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
@@ -133,6 +134,7 @@ function newKey() {
 }
 
 export default function TasksPage() {
+  const asOf = useSearchParams().get("asOf") || "";
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -175,7 +177,10 @@ export default function TasksPage() {
     const gen = ++loadGen.current;
     const q = queryRef.current.trim();
     try {
-      const response = await fetch(q ? `/api/tasks?q=${encodeURIComponent(q)}` : "/api/tasks", { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (asOf) params.set("asOf", asOf);
+      const response = await fetch(params.size ? `/api/tasks?${params}` : "/api/tasks", { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as unknown;
       if (!Array.isArray(body)) throw new Error("tasks");
@@ -197,7 +202,7 @@ export default function TasksPage() {
       showCached(snap);
       if (!snap) setMode("error");
     }
-  }, [showCached]);
+  }, [asOf, showCached]);
 
   useEffect(() => {
     void load();

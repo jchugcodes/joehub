@@ -100,9 +100,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     await command(["SET", flagKey, "1", "NX"]);
   }
 
-  async function ensureSeeded() {
+  async function ensureSeeded(now = Date.now()) {
     const flagKey = k("joehub:tasks:seeded");
-    const samples = buildSampleTasks(Date.now());
+    const samples = buildSampleTasks(now);
     if ((await command(["GET", flagKey])) == null) {
       for (const sample of samples) await placeSample(sample);
       await command(["SET", flagKey, "1", "NX"]);
@@ -408,7 +408,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       return count <= limit;
     },
     async listUnfinishedTasks(now) {
-      await ensureSeeded();
+      await ensureSeeded(now);
       const ids = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
       const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
       const open = [];
@@ -424,7 +424,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       return [...unfinishedNewestFirst(open), ...recentCompletedNewestFirst(done, now)];
     },
     async searchTasks(query, now) {
-      await ensureSeeded();
+      await ensureSeeded(now);
       const activeIds = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
       const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
       const unfinished = [];
