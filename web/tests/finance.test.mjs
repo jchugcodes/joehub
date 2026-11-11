@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, resetLedger, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, resetLedger, seedSnapshots, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -183,6 +184,17 @@ test("transactions add, recategorize, transfer, income, and refund through the s
   const failed = await store.financeCreateTransaction({ payee: "", amountCents: 100, date: "2026-11-10", type: "expense" }, NOW, "create-bad");
   assert.equal(failed.status, 400);
   assert.equal((await store.financeTransactions(NOW, "2026-11-09")).body.rows.filter((row) => row.payee === "Corner cafe").length, 1);
+});
+
+test("production net worth history needs two different points that are not the seed curve", () => {
+  const seed = seedSnapshots().points;
+  assert.equal(hasNetWorthHistory(seed), false);
+  assert.equal(hasNetWorthHistory([-11_553_311]), false);
+  assert.equal(hasNetWorthHistory([-11_553_311, -11_553_311]), false);
+  assert.equal(hasNetWorthHistory([-11_600_000, -11_553_311]), true);
+  assert.equal(showNetWorthChart(true, false), false);
+  assert.equal(showNetWorthChart(true, true), true);
+  assert.equal(showNetWorthChart(false, false), true);
 });
 
 test("a ledger refresh keeps the Shell correction until a confirmed reset", () => {

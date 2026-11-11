@@ -45,6 +45,11 @@ export function financeTabs(env = process.env) {
   return FINANCE_TABS.filter((tab) => (production ? tab.live : tab.shipped));
 }
 
+/** Production Overview keeps the net-worth number unless the series is real history. */
+export function showNetWorthChart(production, hasHistory) {
+  return !production || hasHistory === true;
+}
+
 function under(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }

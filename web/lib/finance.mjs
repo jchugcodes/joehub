@@ -558,6 +558,18 @@ export function seedSnapshots() {
   };
 }
 
+/** A chart needs two different store points. The seeded YTD curve and a flat line are not history. */
+export function hasNetWorthHistory(points) {
+  const values = (Array.isArray(points) ? points : []).filter((value) => Number.isFinite(value));
+  if (new Set(values).size < 2) return false;
+  const seed = ytdPoints();
+  if (values.length === seed.length) {
+    const shift = values[values.length - 1] - seed[seed.length - 1];
+    if (values.every((value, index) => value - seed[index] === shift)) return false;
+  }
+  return true;
+}
+
 function weeklySeries(txns, from, to) {
   const weeks = new Map();
   for (const row of txns.map(effective)) {

@@ -34,10 +34,18 @@ async function boot(production) {
     log: started.log,
     accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
   });
-  return { port, base, child: started.child, log: started.log };
+  const logged = await fetch(`${base}/api/session/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "synthetic", password: "synthetic", device_label: "live-nav" }),
+  });
+  if (logged.status !== 200) throw new Error(`login ${logged.status}`);
+  const raw = (typeof logged.headers.getSetCookie === "function" ? logged.headers.getSetCookie() : []).find((row) => row.startsWith("joehub_session=")) || logged.headers.get("set-cookie") || "";
+  const cookie = raw.split(";", 1)[0].slice("joehub_session=".length);
+  return { port, base, child: started.child, log: started.log, cookie };
 }
 
-async function withPage(cdp, url, width, run) {
+async function withPage(cdp, url, width, cookie = "") {
   const created = await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
   const ws = new WebSocket(created.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
@@ -60,6 +68,11 @@ async function withPage(cdp, url, width, run) {
       ws.send(JSON.stringify({ id, method, params }));
     });
   await send("Page.enable");
+  await send("Network.enable");
+  if (cookie) {
+    const cooked = await send("Network.setCookie", { name: "joehub_session", value: cookie, url, httpOnly: true });
+    if (!cooked.result?.success) throw new Error("cookie was not set");
+  }
   await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
   await send("Page.navigate", { url });
   let value = null;
@@ -80,12 +93,23 @@ async function withPage(cdp, url, width, run) {
           example: document.body.innerText.includes("EXAMPLE DATA"),
           jobs: document.body.innerText.includes("JOBS"),
           journal: document.body.innerText.includes("JOURNAL"),
+          chart: Boolean(document.querySelector("[aria-label='Net worth chart']")),
+          net: (document.querySelector("[data-net-worth]") || {}).textContent || "",
+          ytd: document.body.innerText.includes("YTD") || document.body.innerText.includes("no history"),
+          active: (() => {
+            const link = nav.querySelector("a[aria-current='page']");
+            if (!link) return null;
+            const icon = link.querySelector("span");
+            return { color: getComputedStyle(link).color, bg: icon ? getComputedStyle(icon).backgroundColor : "" };
+          })(),
         };
       })()`,
       returnByValue: true,
     });
     value = ready.result?.result?.value;
-    if (value && value.labels.length > 0 && (url.endsWith("/finance") ? value.finance.length > 0 : true) && (url.endsWith("/grocery") ? value.title === "Grocery" : true)) break;
+    const productionFinance = value && value.labels.join("|") === "Tasks|Grocery|Finance" && url.endsWith("/finance");
+    const laidOut = value && value.labels.length > 0 && (url.endsWith("/finance") ? value.finance.length > 0 : true) && (url.endsWith("/grocery") ? value.title === "Grocery" : true);
+    if (laidOut && !(productionFinance && !value.net)) break;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   ws.close();
@@ -108,7 +132,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     await stopProcess(server.child);
     server = await boot(true);
 
-    const home = await withPage(cdp, `${server.base}/`, 390);
+    const home = await withPage(cdp, `${server.base}/`, 390, server.cookie);
     assert.deepEqual(home.labels, ["Tasks", "Grocery", "Finance"]);
     assert.ok(home.heights.every((height) => height >= 44), JSON.stringify(home.heights));
     assert.ok(home.icons.every((count) => count === 1));
@@ -116,13 +140,24 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.equal(home.example, false);
     assert.equal(home.jobs, false);
     assert.equal(home.journal, false);
-    const wide = await withPage(cdp, `${server.base}/`, 1280);
+    assert.equal(home.active.color, "rgb(46, 139, 106)");
+    assert.match(home.active.bg, /rgba\(46,\s*139,\s*106/);
+    const wide = await withPage(cdp, `${server.base}/`, 1280, server.cookie);
     assert.deepEqual(wide.labels, ["Tasks", "Grocery", "Finance"]);
-    const grocery = await withPage(cdp, `${server.base}/grocery`, 390);
+    assert.equal(wide.active.color, "rgb(46, 139, 106)");
+    assert.match(wide.active.bg, /rgba\(46,\s*139,\s*106/);
+    const grocery = await withPage(cdp, `${server.base}/grocery`, 390, server.cookie);
     assert.equal(grocery.title, "Grocery");
     assert.deepEqual(grocery.labels, ["Tasks", "Grocery", "Finance"]);
-    const finance = await withPage(cdp, `${server.base}/finance`, 390);
+    assert.equal(grocery.active.color, "rgb(46, 139, 106)");
+    assert.match(grocery.active.bg, /rgba\(46,\s*139,\s*106/);
+    const finance = await withPage(cdp, `${server.base}/finance`, 390, server.cookie);
     assert.deepEqual(finance.finance, ["Overview", "Categories", "Accounts", "Bills"]);
+    assert.equal(finance.chart, false);
+    assert.equal(finance.ytd, false);
+    assert.match(finance.net, /\d/);
+    assert.equal(finance.active.color, "rgb(46, 139, 106)");
+    assert.match(finance.active.bg, /rgba\(46,\s*139,\s*106/);
 
     for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
