@@ -225,7 +225,25 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Everyday checking') ? 'yes' : ''", "restored list");
     await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
     await evalPage(send, "window.dispatchEvent(new Event('offline')); 'yes'");
-    await waitFor(send, "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Nov 11, 2026') ? 'yes' : ''", "offline banner");
+    await waitFor(send, "document.querySelector(\"[data-link='offline']\")?.textContent.includes('Nov 11, 2026') && document.body.innerText.includes('Can’t edit offline') ? 'yes' : ''", "offline banner");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const banner = document.querySelector("[data-link='offline']");
+          const tabs = document.querySelector("[data-tabs]");
+          const heading = document.querySelector("h1");
+          const worth = [...document.querySelectorAll("p")].find((el) => (el.textContent || "").trim() === "Net worth");
+          const notice = [...document.querySelectorAll("p")].find((el) => (el.textContent || "").trim() === "Can’t edit offline");
+          const add = [...document.querySelectorAll("button")].find((el) => el.getAttribute("aria-label") === "Add a manual account");
+          if (!banner || !tabs || !heading || !worth || !notice || !add) return "missing";
+          const after = (earlier, later) => Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const faded = Number(getComputedStyle(add).opacity) < 1 && add.getAttribute("aria-disabled") === "true";
+          return after(heading, tabs) && after(tabs, banner) && after(banner, worth) && after(worth, notice) && faded ? "yes" : "no";
+        })()`,
+      ),
+      "yes",
+    );
     await shot(send, "A07-app.png");
     await pressLabel(send, evalPage, "Add a manual account");
     await waitFor(send, "document.body.innerText.includes('Can’t edit offline') ? 'yes' : ''", "offline edit");

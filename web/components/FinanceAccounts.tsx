@@ -15,6 +15,7 @@ type Account = {
   balanceCents: number;
   institution?: string;
   hiddenFromNetWorth: boolean;
+  estimate?: boolean;
   stale: boolean;
   group: string;
   balanceAsOf: string | null;
@@ -41,14 +42,25 @@ const TYPE_LABEL: Record<string, string> = {
   cash: "Savings",
   investment: "Brokerage",
 };
-const GROUP_ORDER = ["Checking", "Savings", "Credit cards", "Loans", "Brokerage", "Other", "Hidden"];
+const GROUP_ORDER = ["Banking", "Investments", "Cards", "Loans", "Other", "Hidden"];
+const LOAN_TYPES = new Set(["loan", "installment", "student"]);
 
 function money(cents: number) {
   const abs = Math.abs(cents);
   const text = (abs / 100).toFixed(2);
   const [whole, frac] = text.split(".");
-  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
+  return `${cents < 0 ? "−" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
 }
+
+function wholeDollars(cents: number) {
+  return `${cents < 0 ? "−" : ""}$${Math.trunc(Math.abs(cents) / 100).toLocaleString("en-US")}`;
+}
+
+function asOfDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Detroit", month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+const COLLAPSE_AT = 5;
 
 function signed(cents: number) {
   return `${cents < 0 ? "−" : "+"}${money(cents)}`;
@@ -80,15 +92,17 @@ function sourceLine(account: Account) {
 }
 
 function AccountGlyph({ type }: { type: string }) {
-  const tone = type === "credit card" ? "#E07A5F" : type === "loan" ? "#C2577A" : type === "brokerage" || type === "investment" ? "#3A86C8" : "#2E8B6A";
+  const loan = LOAN_TYPES.has(type);
+  const invested = type === "brokerage" || type === "investment" || type === "retirement" || type === "crypto";
+  const tone = type === "credit card" ? "#E07A5F" : loan ? "#C2577A" : invested ? "#3A86C8" : "#2E8B6A";
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: tone, strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
     <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `${tone}1F` }}>
       {type === "credit card" ? (
         <svg {...common}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20M6 15h4" /></svg>
-      ) : type === "loan" ? (
+      ) : loan ? (
         <svg {...common}><path d="M3 21V8l9-5 9 5v13M9 21v-8h6v8" /></svg>
-      ) : type === "brokerage" || type === "investment" ? (
+      ) : invested ? (
         <svg {...common}><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></svg>
       ) : type === "checking" ? (
         <svg {...common}><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M16 13h2M3 10h18M6 6V4h11v2" /></svg>
@@ -117,6 +131,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const previewEmpty = search.get("view") === "empty";
   const previewLink = search.get("link") || "";
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<Txn[]>([]);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -449,10 +464,13 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     <div className="min-w-0">
       <p className="text-title font-medium tabular-nums">{money(selected.balanceCents)}</p>
       <p className="mt-1 text-meta text-muted">{sourceLine(selected)}</p>
-      {selected.stale && selected.balanceAsOf ? (
+      {selected.estimate || selected.stale || (selected.type === "loan" && selected.balanceAsOf) ? (
         <p className="mt-2">
-          <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span>
-          <span className="ml-2 text-meta text-muted">{stamp(selected.balanceAsOf)}</span>
+          {selected.estimate ? <span className="mr-2 rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}
+          {selected.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
+          {selected.balanceAsOf && (selected.stale || LOAN_TYPES.has(selected.type)) ? (
+            <span className="ml-2 text-meta text-muted">{LOAN_TYPES.has(selected.type) && !selected.stale ? `As of ${asOfDate(selected.balanceAsOf)}` : stamp(selected.balanceAsOf)}</span>
+          ) : null}
         </p>
       ) : null}
       <div className="mt-4 flex min-h-14 items-center justify-between gap-3 rounded-[20px] border border-line bg-surface px-4">
@@ -481,33 +499,38 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   const net = snapshot && snapshot.netWorthCents != null ? snapshot : null;
 
-  return (
-    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
+  const bannerInset = wide || selected ? "mt-3" : "mx-4 mt-3";
+  const statusBanners = (
+    <>
       {shownTone === "offline" && snapshot?.updatedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3">
-          <span className="block text-body font-medium">Offline</span>
-          <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
+        <p role="status" data-offline="true" data-link="offline" className={`${bannerInset} flex items-start gap-2.5 rounded-2xl bg-[#E6E8E4] px-3.5 py-3`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="mt-0.5 shrink-0" aria-hidden="true">
+            <path d="M2 8.82A15 15 0 0 1 12 5c2.5 0 4.85.6 6.94 1.66M5 12.5A10 10 0 0 1 12 10c1.6 0 3.1.37 4.45 1.03M8.5 16a5 5 0 0 1 7 0M12 20h.01M2 2l20 20" />
+          </svg>
+          <span>
+            <span className="block text-body font-medium">Offline</span>
+            <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
+          </span>
         </p>
       ) : null}
       {shownTone === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className={`${bannerInset} rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]`}>
           Reconnecting…
         </p>
       ) : null}
       {shownTone === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className={`${bannerInset} flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]`}>
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
             Dismiss
           </button>
         </p>
       ) : null}
-      {notice ? (
-        <p role="status" className="mx-4 mt-3 text-body">
-          {notice}
-        </p>
-      ) : null}
+    </>
+  );
 
+  return (
+    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
       {wide || !selected ? (
         <>
           <header className="flex items-center justify-between px-5 pt-2">
@@ -520,7 +543,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               <p className="text-meta text-muted">joehub</p>
               <h1 className="text-title font-medium">Accounts</h1>
             </div>
-            <button type="button" aria-label="Add a manual account" onClick={openAdd} className={`min-h-11 min-w-11 px-2 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+            <button type="button" aria-label="Add a manual account" aria-disabled={blocked || undefined} onClick={openAdd} className={`min-h-11 min-w-11 px-2 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
               Add
             </button>
           </header>
@@ -537,7 +560,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-title font-medium">{selected?.name || "Account"}</h1>
           {selected?.source === "manual" ? (
-            <button type="button" onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+            <button type="button" aria-disabled={blocked || undefined} onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
               Edit
             </button>
           ) : null}
@@ -547,6 +570,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       <div className={wide ? "mt-3 flex min-w-0 items-start gap-4 px-4" : ""}>
         {wide || !selected ? (
           <div className="min-w-0 flex-1">
+            {statusBanners}
             {!snapshot ? <p className="px-5 py-8 text-body text-muted">Loading accounts…</p> : null}
             {snapshot && empty ? (
               <div className="px-5 py-16 text-center">
@@ -557,10 +581,10 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               </div>
             ) : null}
             {snapshot && !empty && net ? (
-              <section className={`${wide ? "" : "mx-4"} rounded-[20px] border border-line bg-surface p-4`}>
+              <section className={`${wide ? "" : "mx-4"} ${shownTone ? "mt-3" : ""} rounded-[20px] border border-line bg-surface p-4`}>
                 <p className="text-meta text-muted">Net worth</p>
-                <p className="mt-1 font-medium tabular-nums">
-                  <span className="text-title">${Math.floor(net.netWorthCents! / 100).toLocaleString("en-US")}</span>
+                <p className="mt-1 font-medium tabular-nums" data-net-worth={net.netWorthCents}>
+                  <span className="text-title">{wholeDollars(net.netWorthCents!)}</span>
                   <span className="text-section">.{String(Math.abs(net.netWorthCents!) % 100).padStart(2, "0")}</span>
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -576,43 +600,93 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                 {snapshot.updatedAt ? <p className="mt-3 text-meta text-muted">Updated {stamp(snapshot.updatedAt)}</p> : null}
               </section>
             ) : null}
+            {shownTone === "offline" && snapshot ? (
+              <p role="status" className={`${bannerInset} rounded-2xl border border-[#C9CEC8] bg-surface px-3.5 py-3 text-body font-medium`}>
+                Can’t edit offline
+              </p>
+            ) : null}
             {snapshot && !empty
-              ? groups().map((group) => (
+              ? groups().map((group) => {
+                  const longLoans = group.name === "Loans" && group.rows.length > COLLAPSE_AT;
+                  const holdsSelection = longLoans && group.rows.some((account) => account.id === selectedId);
+                  const expanded = !longLoans || Boolean(openGroups.Loans) || holdsSelection;
+                  const visible = expanded ? group.rows : [];
+                  return (
                   <section key={group.name}>
                     <div className={`mt-5 flex items-baseline justify-between ${wide ? "" : "px-5"}`}>
-                      <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : ""}`}>{group.name}</h2>
-                      <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : ""}`}>{money(group.total)}</p>
+                      <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{group.name}</h2>
+                      <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{money(group.total)}</p>
                     </div>
+                    {longLoans && !expanded ? (
+                      <div className={`${wide ? "mt-2" : "mx-4 mt-2"} overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                        <button
+                          type="button"
+                          data-loans="show"
+                          className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
+                          onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
+                        >
+                          <span className="min-w-0 flex-1">Show {group.rows.length} loans</span>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                            <path d="M9 6l6 6-6 6" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
                     <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                      {group.rows.map((account) => {
+                      {visible.map((account) => {
                         const current = account.id === selectedId;
                         return (
                           <li key={account.id} className={account.hiddenFromNetWorth ? "opacity-60" : ""}>
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
                               aria-current={current ? "true" : undefined}
-                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 ${current ? "bg-[#2E8B6A14]" : ""}`}
+                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-[#2E8B6A14]" : ""}`}
                             >
                               <AccountGlyph type={account.type} />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-body font-medium">
                                   {account.name}{" "}
+                                  {account.estimate ? <span className="rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}{" "}
                                   {account.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
                                 </span>
-                                <span className="mt-0.5 block text-meta text-muted">{sourceLine(account)}</span>
+                                <span className="mt-0.5 block text-meta text-muted">
+                                  {sourceLine(account)}
+                                  {LOAN_TYPES.has(account.type) && account.balanceAsOf ? ` · as of ${asOfDate(account.balanceAsOf)}` : ""}
+                                </span>
                               </span>
                               <span className="shrink-0 text-body font-medium tabular-nums">{money(account.balanceCents)}</span>
                             </Link>
                           </li>
                         );
                       })}
+                      {longLoans && expanded ? (
+                        <li>
+                          <button
+                            type="button"
+                            data-loans="hide"
+                            className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
+                            onClick={() => setOpenGroups((current) => ({ ...current, Loans: false }))}
+                          >
+                            <span className="min-w-0 flex-1">Hide loans</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                              <path d="M6 15l6-6 6 6" />
+                            </svg>
+                          </button>
+                        </li>
+                      ) : null}
                     </ul>
+                    )}
                   </section>
-                ))
+                  );
+                })
               : null}
           </div>
         ) : (
-          <div className="px-5 pt-3">{detail}</div>
+          <div className="px-5 pt-3">
+            {statusBanners}
+            {notice ? <p role="status" className="mt-3 text-body">{notice}</p> : null}
+            {detail}
+          </div>
         )}
 
         {wide ? (
@@ -642,7 +716,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="min-w-0 truncate text-section font-medium">{selected.name}</h2>
                   {selected.source === "manual" ? (
-                    <button type="button" onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium text-finance-primary ${blocked ? "opacity-40" : ""}`}>
+                    <button type="button" aria-disabled={blocked || undefined} onClick={() => openEdit(selected)} className={`min-h-11 px-3 text-body font-medium ${blocked ? "text-muted opacity-50" : "text-finance-primary"}`}>
                       Edit
                     </button>
                   ) : null}

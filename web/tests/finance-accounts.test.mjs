@@ -16,11 +16,20 @@ import {
 import {
   ACCOUNTS,
   accountsSnapshot,
+  chartAxis,
+  loanList,
+  createAccount,
   installMemoryFinance,
+  money,
+  netWorthText,
   NET_WORTH_CENTS,
+  overview,
   parseAccount,
+  accountGroup,
   rollUpAccounts,
   SEED_ACCOUNTS,
+  SEED_TRANSACTIONS,
+  seedSnapshots,
 } from "../lib/finance.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
@@ -41,7 +50,10 @@ function requestJson(body, url = "http://127.0.0.1/api/finance/accounts") {
 
 test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(parseAccount({ name: "  ", type: "cash", balanceCents: 1 }).detail, "Enter a name.");
-  assert.equal(parseAccount({ name: "Wallet", type: "crypto", balanceCents: 1 }).field, "type");
+  assert.equal(parseAccount({ name: "Wallet", type: "spaceship", balanceCents: 1 }).field, "type");
+  assert.equal(parseAccount({ name: "Wallet", type: "crypto", balanceCents: 1 }).ok, true);
+  assert.equal(parseAccount({ name: "Tuition", type: "student", balanceCents: 1 }).ok, true);
+  assert.equal(parseAccount({ name: "Car", type: "installment", balanceCents: 1 }).ok, true);
   assert.equal(parseAccount({ name: "Wallet", type: "cash", balanceCents: 1.5 }).field, "balance");
   assert.equal(parseAccount({ name: "Wallet", type: "cash", balanceCents: 0 }).ok, true);
   const rolled = rollUpAccounts(SEED_ACCOUNTS);
@@ -53,8 +65,19 @@ test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(accountsSnapshot([]).accounts.length, 0);
   const view = accountsSnapshot(SEED_ACCOUNTS, ACCOUNTS, Date.parse("2026-11-11T11:42:00.000Z"));
   assert.equal(view.netWorthCents, NET_WORTH_CENTS);
-  assert.equal(view.accounts.find((account) => account.id === "acct-card").group, "Credit cards");
-  assert.equal(view.accounts.find((account) => account.id === "acct-checking").group, "Checking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-card").group, "Cards");
+  assert.equal(view.accounts.find((account) => account.id === "acct-checking").group, "Banking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-cash").group, "Banking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-brokerage").group, "Investments");
+  assert.equal(view.accounts.find((account) => account.id === "acct-loan").group, "Loans");
+  assert.deepEqual(view.groups.map((group) => group.name), ["Banking", "Investments", "Cards", "Loans", "Hidden"]);
+  assert.equal(view.groups.find((group) => group.name === "Banking").totalCents, 1_247_236);
+  assert.equal(view.groups.find((group) => group.name === "Investments").totalCents, 1_400_000);
+  assert.equal(view.groups.find((group) => group.name === "Cards").totalCents, 40_000);
+  assert.equal(view.groups.find((group) => group.name === "Loans").totalCents, 760_000);
+  assert.equal(accountGroup("retirement"), "Investments");
+  assert.equal(accountGroup("student"), "Loans");
+  assert.equal(accountGroup("installment"), "Loans");
   assert.equal(view.accounts.find((account) => account.id === "acct-checking").stale, true);
   assert.equal(view.accounts.find((account) => account.id === "acct-savings").stale, false);
   assert.equal(view.accounts.find((account) => account.id === "acct-old").group, "Hidden");
@@ -295,9 +318,52 @@ test("production does not write the account seed", async () => {
     const store = createUpstashStore({ url: fake.url, token: fake.token, env: { VERCEL_ENV: "production" } });
     const view = await store.financeAccounts(NOW);
     assert.equal(view.empty, true);
-    assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:seeded:v2")), false);
+    assert.equal(view.netWorthCents, null);
+    assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:seeded")), false);
     assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:account:")), false);
   } finally {
     await fake.stop();
   }
+});
+
+test("a negative net worth keeps the minus in front of the dollar sign", () => {
+  const loans = [
+    { type: "loan", balanceCents: 12_900_536, hiddenFromNetWorth: false, closed: false },
+    ...Array.from({ length: 5 }, () => ({ type: "loan", balanceCents: 100_000, hiddenFromNetWorth: false, closed: false })),
+  ];
+  const rolled = rollUpAccounts([...SEED_ACCOUNTS, ...loans]);
+  assert.equal(rolled.netWorthCents, -11_553_300);
+  assert.equal(netWorthText(rolled.netWorthCents), "−$115,533.00");
+  assert.equal(money(rolled.netWorthCents, true).includes("$-"), false);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: rolled.netWorthCents, snapshot: seedSnapshots() });
+  assert.equal(view.body.netWorthCents, -11_553_300);
+  assert.equal(view.body.chart.points.at(-1), -11_553_300);
+  assert.ok(Math.min(...view.body.chart.points) < 0);
+  assert.equal(view.body.chart.axis.max < 0, true);
+  assert.equal(view.body.chart.axis.zero, null);
+  assert.equal(String(view.body.chart.caption).includes("$-"), false);
+  assert.equal(chartAxis([-100, 40]).zero, 0);
+  assert.equal(chartAxis([-500, -100]).max, 0);
+  const listed = loanList(loans);
+  assert.equal(listed.collapsed, true);
+  assert.equal(listed.rows.length, 0);
+  assert.equal(listed.more, 6);
+  assert.equal(loanList(loans, { expanded: true }).collapsed, false);
+  assert.equal(loanList(loans.slice(0, 5)).collapsed, false);
+});
+
+test("a loan can be marked as an estimate and keep an as-of date", () => {
+  const created = createAccount([], {
+    name: "Student loan",
+    type: "loan",
+    balanceCents: 12_900_536,
+    estimate: true,
+    balanceAsOf: "2026-11-01T16:00:00.000Z",
+  }, NOW, 1);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.estimate, true);
+  assert.equal(created.body.type, "loan");
+  assert.equal(created.body.balanceAsOf, "2026-11-01T16:00:00.000Z");
+  assert.equal(parseAccount({ name: "Student loan", type: "loan", balanceCents: 1, estimate: "yes" }).ok, false);
+  assert.equal(parseAccount({ name: "Student loan", type: "loan", balanceCents: 1, balanceAsOf: "nope" }).ok, false);
 });

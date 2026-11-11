@@ -35,6 +35,9 @@ test("production reads do not write task, grocery, or finance seeds", async () =
     const items = await store.listGrocery();
     assert.deepEqual(items.map((item) => item.name), ["Imported oats"]);
     await assert.rejects(() => store.financeOverview(now), StoreError);
+    const bills = await store.financeBills(now);
+    assert.equal(bills.empty, true);
+    assert.deepEqual(bills.bills, []);
     const seeded = fake.commands.map((args) => args[1]).filter((key) => String(key).includes("seeded"));
     assert.deepEqual(seeded, []);
     const sampleIds = ["a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "g1g1g1g1-g1g1-4g1g-8g1g-g1g1g1g1g1g1", "fin-pizza"];
@@ -57,6 +60,9 @@ test("preview and an unset VERCEL_ENV still seed every current version", async (
       const overview = await store.financeOverview(now);
       assert.equal(overview.status, 200);
       assert.equal(overview.body.netWorthCents, 1_847_236);
+      const bills = await store.financeBills(now);
+      assert.equal(bills.empty, false);
+      assert.ok(bills.bills.some((bill) => bill.name === "City Water (example)"));
       const flags = fake.commands.filter((args) => args[0] === "SET" && String(args[1]).includes(":seeded"));
       const names = flags.map((args) => args[1]).sort();
       assert.deepEqual(names, [
