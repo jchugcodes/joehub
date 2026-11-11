@@ -53,7 +53,7 @@ export function FinanceTabs() {
                 };
               }}
               className={`finance-type inline-flex min-h-11 min-[1024px]:min-w-11 shrink-0 scroll-mx-2 items-end justify-center border-b-[2.5px] pb-2 text-body leading-none ${
-                current ? "-mb-px border-finance-primary font-semibold text-ink" : "border-transparent font-medium text-muted"
+                current ? "-mb-px border-accent font-semibold text-ink" : "border-transparent font-medium text-muted"
               }`}
             >
               {link.label}
