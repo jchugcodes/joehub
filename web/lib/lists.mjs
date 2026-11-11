@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-export { LIST_PALETTE, nextPaletteColor, resolveTaskList } from "./list-display.mjs";
+export { LIST_PALETTE, nextPaletteColor, resolveTaskList, tasksMoveCopy } from "./list-display.mjs";
 export { attachMemoryLists, validateListCreate, validateListPatch } from "./list-store.mjs";
 
 /** Fixed namespace so a list name always maps to the same id. */

@@ -652,7 +652,7 @@ export default function TasksPage() {
     return labels.map((label) => ({ key: label, label, items: ordered.filter((task) => labelFor(task) === label) }));
   }, [activeQuery, group, lists, openTasks, sortOrder, tasks]);
   const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
-  const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
+  const showAddBar = !showFab && !offline && !activeQuery && wide && openTasks.length > 0;
   function renderTask(task: Task) {
     const done = task.status === "Done";
     const meta = taskMeta(task, lists);
@@ -801,14 +801,6 @@ export default function TasksPage() {
           </button>
         ))}
       </div>
-      {group !== "all" ? (
-        <div className="mt-1 flex items-center gap-2 px-4">
-          <span className="rounded-full bg-[#E6E8E4] px-3 py-1 text-meta font-medium text-muted">{group === "status" ? "Status" : "List"}</span>
-          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setGroup("all")}>
-            Clear
-          </button>
-        </div>
-      ) : null}
       <div className="relative mt-1 flex justify-end px-4">
         <button
           type="button"
@@ -879,8 +871,21 @@ export default function TasksPage() {
         </div>
       ) : null}
       {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
-        <div className="px-4" data-empty="true">
-          <h2 className="mt-16 text-center text-section font-medium">No unfinished tasks.</h2>
+        <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
+          <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
+            <Icon name="check-square" size={28} />
+          </span>
+          <h2 className="mt-4 text-section font-medium">No unfinished tasks</h2>
+          {!offline ? (
+            <button
+              type="button"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              onClick={openAdd}
+              disabled={addDisabled}
+            >
+              Add a task
+            </button>
+          ) : null}
         </div>
       ) : null}
       {mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
@@ -1008,9 +1013,10 @@ export default function TasksPage() {
               className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             />
             </div>
+            <div className="grid grid-cols-2 gap-3">
             <div>
             <label className="block text-meta font-medium" htmlFor="task-due">
-              Due date
+              Due
             </label>
             <input
               id="task-due"
@@ -1048,6 +1054,7 @@ export default function TasksPage() {
               <option>Medium</option>
               <option>Low</option>
             </select>
+            </div>
             </div>
             <div>
             <label className="block text-meta font-medium" htmlFor="task-status">

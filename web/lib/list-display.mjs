@@ -17,6 +17,12 @@ export function nextPaletteColor(lists) {
   return (slot || LIST_PALETTE[0]).light;
 }
 
+export function tasksMoveCopy(count) {
+  const moved = Math.max(0, Number(count) || 0);
+  if (moved === 1) return "1 task moves to No list.";
+  return `${moved} tasks move to No list.`;
+}
+
 export function resolveTaskList(project, lists) {
   if (project == null || String(project).trim() === "") return { label: "No list", color: null, id: null };
   const value = String(project);

@@ -494,11 +494,14 @@ export default function GroceryPage() {
           </p>
         ) : null}
         {mode === "ready" && items.length === 0 ? (
-          <div className="mt-16 flex flex-col items-center px-5 text-center">
-            <p className="text-section font-medium">No items.</p>
+          <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
+              <Icon name="check-square" size={28} />
+            </span>
+            <p className="mt-4 text-section font-medium">No items</p>
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full max-w-[280px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >

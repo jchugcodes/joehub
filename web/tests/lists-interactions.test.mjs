@@ -220,7 +220,7 @@ test("list create, rename, color, and delete keep the tasks", { timeout: 180000,
     assert.equal(await press(send, "Delete list"), "yes");
     await waitFor(send, "document.body.innerText.includes('2 tasks move to No list.') ? 'yes' : ''", "delete copy");
     assert.equal(await press(send, "Delete"), "yes");
-    await waitFor(send, "document.body.innerText.includes('No lists yet.') ? 'yes' : ''", "empty lists");
+    await waitFor(send, "document.body.innerText.includes('No lists yet') ? 'yes' : ''", "empty lists");
     assert.equal(await press(send, "Cancel"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "task still open");
     assert.equal(await press(send, "Cancel"), "yes");

@@ -116,6 +116,14 @@ export function Icon({
       </svg>
     );
   }
+  if (name === "check-square") {
+    return (
+      <svg {...common}>
+        <rect x="4" y="4" width="16" height="16" rx="3" />
+        <path d="M8 12.5l2.5 2.5L16 9.5" />
+      </svg>
+    );
+  }
   if (name === "sun") {
     return (
       <svg {...common}>

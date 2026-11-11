@@ -118,7 +118,7 @@ test("tasks can be grouped by status and project", { timeout: 180000, skip }, as
       writeFileSync(`${ARTIFACTS}/tasks_group_status_${width}.png`, Buffer.from(shot.result.data, "base64"));
       await pressLabel(send, evalPage, "List");
       await waitFor(send, "document.body.innerText.includes('Errands') && document.body.innerText.includes('Home') ? 'yes' : ''", "project groups");
-      await pressLabel(send, evalPage, "Clear");
+      await pressLabel(send, evalPage, "All");
       await waitFor(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'All')?.getAttribute('aria-pressed') === 'true' ? 'yes' : ''", "cleared");
     }
     ws.close();

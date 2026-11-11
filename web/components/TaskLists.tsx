@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LIST_PALETTE } from "../lib/list-display.mjs";
+import { LIST_PALETTE, tasksMoveCopy } from "../lib/list-display.mjs";
 import { Icon } from "./Icon";
 import { Sheet } from "./Sheet";
 
@@ -133,6 +133,7 @@ export function TaskListMenu({
           <button type="button" className="flex min-h-11 w-full items-center px-3 text-left text-body" onClick={() => onPick("")}>
             None
           </button>
+          {lists.length === 0 && legacy.length === 0 ? <p className="px-3 py-2 text-body text-muted">No lists yet</p> : null}
           {lists.map((list) => (
             <button key={list.id} type="button" className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-body" onClick={() => onPick(list.id)}>
               <Swatch color={list.color} />
@@ -289,9 +290,9 @@ export function ManageLists({
             ))}
           </ul>
         ) : (
-          <div className="py-8 text-center">
-            <p className="text-body text-muted">No lists yet.</p>
-            <button type="button" className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white" onClick={onNew}>
+          <div className="px-1 py-8 text-center">
+            <p className="text-section font-medium">No lists yet</p>
+            <button type="button" className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white" onClick={onNew}>
               New list
             </button>
           </div>
@@ -327,7 +328,7 @@ export function ManageLists({
       ) : null}
       {mode === "delete" ? (
         <form id="list-delete-form" onSubmit={(event) => { event.preventDefault(); onDelete(); }}>
-          <p className="text-body">{moved} tasks move to No list.</p>
+          <p className="text-body">{tasksMoveCopy(moved)}</p>
           {error ? <p className="mt-2 text-meta font-medium text-warn">{error}</p> : null}
         </form>
       ) : null}

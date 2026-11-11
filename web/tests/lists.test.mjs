@@ -17,6 +17,7 @@ import {
   planListMigration,
   resolveTaskList,
   sortByCreated,
+  tasksMoveCopy,
 } from "../lib/lists.mjs";
 
 test("a list name maps to one id and the next swatch skips used colors", () => {
@@ -32,6 +33,13 @@ test("a list name maps to one id and the next swatch skips used colors", () => {
   assert.equal(resolveTaskList("Errands", []).label, "Errands");
   assert.equal(resolveTaskList("Errands", []).color, null);
   assert.equal(resolveTaskList(errands, [{ id: errands, name: "Errands", color: null }]).label, "Errands");
+});
+
+test("delete confirm uses singular for one task and plural otherwise", () => {
+  assert.equal(tasksMoveCopy(1), "1 task moves to No list.");
+  assert.equal(tasksMoveCopy(3), "3 tasks move to No list.");
+  assert.equal(tasksMoveCopy(0), "0 tasks move to No list.");
+  assert.equal(tasksMoveCopy(2), "2 tasks move to No list.");
 });
 
 test("created line uses the stored timestamp and sort flips order", () => {
