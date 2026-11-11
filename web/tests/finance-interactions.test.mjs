@@ -86,17 +86,24 @@ async function waitFor(send, expression, label, budget = 45000) {
 
 async function replaceCap(send, id, value) {
   await pointerClick(send, evalPage, `document.getElementById(${JSON.stringify(id)})`);
-  const written = await evalPage(
-    send,
-    `(() => {
-      const el = document.getElementById(${JSON.stringify(id)});
-      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-      set.call(el, ${JSON.stringify(value)});
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      return el.value;
-    })()`,
-  );
-  assert.equal(written, value);
+  let stuck = "";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const written = await evalPage(
+      send,
+      `(() => {
+        const el = document.getElementById(${JSON.stringify(id)});
+        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        set.call(el, ${JSON.stringify(value)});
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        return el.value;
+      })()`,
+    );
+    assert.equal(written, value);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    stuck = String(await evalPage(send, `document.getElementById(${JSON.stringify(id)})?.value || ""`));
+    if (stuck === value) return;
+  }
+  throw new Error(`cap ${id} reset to ${stuck}`);
 }
 
 test("finance week, chart, goals, caps, and offline reconnect at 390 and 1280", { skip }, async () => {
