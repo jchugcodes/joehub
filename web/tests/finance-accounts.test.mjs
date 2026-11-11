@@ -17,7 +17,7 @@ import {
   ACCOUNTS,
   accountsSnapshot,
   chartAxis,
-  collapsedRows,
+  loanList,
   createAccount,
   installMemoryFinance,
   money,
@@ -25,6 +25,7 @@ import {
   NET_WORTH_CENTS,
   overview,
   parseAccount,
+  accountGroup,
   rollUpAccounts,
   SEED_ACCOUNTS,
   SEED_TRANSACTIONS,
@@ -49,7 +50,10 @@ function requestJson(body, url = "http://127.0.0.1/api/finance/accounts") {
 
 test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(parseAccount({ name: "  ", type: "cash", balanceCents: 1 }).detail, "Enter a name.");
-  assert.equal(parseAccount({ name: "Wallet", type: "crypto", balanceCents: 1 }).field, "type");
+  assert.equal(parseAccount({ name: "Wallet", type: "spaceship", balanceCents: 1 }).field, "type");
+  assert.equal(parseAccount({ name: "Wallet", type: "crypto", balanceCents: 1 }).ok, true);
+  assert.equal(parseAccount({ name: "Tuition", type: "student", balanceCents: 1 }).ok, true);
+  assert.equal(parseAccount({ name: "Car", type: "installment", balanceCents: 1 }).ok, true);
   assert.equal(parseAccount({ name: "Wallet", type: "cash", balanceCents: 1.5 }).field, "balance");
   assert.equal(parseAccount({ name: "Wallet", type: "cash", balanceCents: 0 }).ok, true);
   const rolled = rollUpAccounts(SEED_ACCOUNTS);
@@ -61,8 +65,19 @@ test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(accountsSnapshot([]).accounts.length, 0);
   const view = accountsSnapshot(SEED_ACCOUNTS, ACCOUNTS, Date.parse("2026-11-11T11:42:00.000Z"));
   assert.equal(view.netWorthCents, NET_WORTH_CENTS);
-  assert.equal(view.accounts.find((account) => account.id === "acct-card").group, "Credit cards");
-  assert.equal(view.accounts.find((account) => account.id === "acct-checking").group, "Checking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-card").group, "Cards");
+  assert.equal(view.accounts.find((account) => account.id === "acct-checking").group, "Banking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-cash").group, "Banking");
+  assert.equal(view.accounts.find((account) => account.id === "acct-brokerage").group, "Investments");
+  assert.equal(view.accounts.find((account) => account.id === "acct-loan").group, "Loans");
+  assert.deepEqual(view.groups.map((group) => group.name), ["Banking", "Investments", "Cards", "Loans", "Hidden"]);
+  assert.equal(view.groups.find((group) => group.name === "Banking").totalCents, 1_247_236);
+  assert.equal(view.groups.find((group) => group.name === "Investments").totalCents, 1_400_000);
+  assert.equal(view.groups.find((group) => group.name === "Cards").totalCents, 40_000);
+  assert.equal(view.groups.find((group) => group.name === "Loans").totalCents, 760_000);
+  assert.equal(accountGroup("retirement"), "Investments");
+  assert.equal(accountGroup("student"), "Loans");
+  assert.equal(accountGroup("installment"), "Loans");
   assert.equal(view.accounts.find((account) => account.id === "acct-checking").stale, true);
   assert.equal(view.accounts.find((account) => account.id === "acct-savings").stale, false);
   assert.equal(view.accounts.find((account) => account.id === "acct-old").group, "Hidden");
@@ -329,10 +344,12 @@ test("a negative net worth keeps the minus in front of the dollar sign", () => {
   assert.equal(String(view.body.chart.caption).includes("$-"), false);
   assert.equal(chartAxis([-100, 40]).zero, 0);
   assert.equal(chartAxis([-500, -100]).max, 0);
-  const listed = collapsedRows(loans);
-  assert.equal(listed.rows.length, 5);
-  assert.equal(listed.more, 1);
-  assert.equal(collapsedRows(loans, { expanded: true }).more, 0);
+  const listed = loanList(loans);
+  assert.equal(listed.collapsed, true);
+  assert.equal(listed.rows.length, 0);
+  assert.equal(listed.more, 6);
+  assert.equal(loanList(loans, { expanded: true }).collapsed, false);
+  assert.equal(loanList(loans.slice(0, 5)).collapsed, false);
 });
 
 test("a loan can be marked as an estimate and keep an as-of date", () => {

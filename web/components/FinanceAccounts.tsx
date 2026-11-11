@@ -42,7 +42,8 @@ const TYPE_LABEL: Record<string, string> = {
   cash: "Savings",
   investment: "Brokerage",
 };
-const GROUP_ORDER = ["Checking", "Savings", "Credit cards", "Loans", "Brokerage", "Other", "Hidden"];
+const GROUP_ORDER = ["Banking", "Investments", "Cards", "Loans", "Other", "Hidden"];
+const LOAN_TYPES = new Set(["loan", "installment", "student"]);
 
 function money(cents: number) {
   const abs = Math.abs(cents);
@@ -91,15 +92,17 @@ function sourceLine(account: Account) {
 }
 
 function AccountGlyph({ type }: { type: string }) {
-  const tone = type === "credit card" ? "#E07A5F" : type === "loan" ? "#C2577A" : type === "brokerage" || type === "investment" ? "#3A86C8" : "#2E8B6A";
+  const loan = LOAN_TYPES.has(type);
+  const invested = type === "brokerage" || type === "investment" || type === "retirement" || type === "crypto";
+  const tone = type === "credit card" ? "#E07A5F" : loan ? "#C2577A" : invested ? "#3A86C8" : "#2E8B6A";
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: tone, strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
     <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `${tone}1F` }}>
       {type === "credit card" ? (
         <svg {...common}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20M6 15h4" /></svg>
-      ) : type === "loan" ? (
+      ) : loan ? (
         <svg {...common}><path d="M3 21V8l9-5 9 5v13M9 21v-8h6v8" /></svg>
-      ) : type === "brokerage" || type === "investment" ? (
+      ) : invested ? (
         <svg {...common}><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></svg>
       ) : type === "checking" ? (
         <svg {...common}><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M16 13h2M3 10h18M6 6V4h11v2" /></svg>
@@ -465,8 +468,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         <p className="mt-2">
           {selected.estimate ? <span className="mr-2 rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}
           {selected.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
-          {selected.balanceAsOf && (selected.stale || selected.type === "loan") ? (
-            <span className="ml-2 text-meta text-muted">{selected.type === "loan" && !selected.stale ? `As of ${asOfDate(selected.balanceAsOf)}` : stamp(selected.balanceAsOf)}</span>
+          {selected.balanceAsOf && (selected.stale || LOAN_TYPES.has(selected.type)) ? (
+            <span className="ml-2 text-meta text-muted">{LOAN_TYPES.has(selected.type) && !selected.stale ? `As of ${asOfDate(selected.balanceAsOf)}` : stamp(selected.balanceAsOf)}</span>
           ) : null}
         </p>
       ) : null}
@@ -593,17 +596,25 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             ) : null}
             {snapshot && !empty
               ? groups().map((group) => {
-                  const holdsSelection = group.rows.some((account, index) => account.id === selectedId && index >= COLLAPSE_AT);
-                  const expanded = Boolean(openGroups[group.name]) || holdsSelection;
-                  const hidden = !expanded && group.rows.length > COLLAPSE_AT ? group.rows.length - COLLAPSE_AT : 0;
-                  const visible = hidden ? group.rows.slice(0, COLLAPSE_AT) : group.rows;
-                  const moreLabel = group.name === "Loans" ? "loans" : group.name === "Credit cards" ? "cards" : "accounts";
+                  const longLoans = group.name === "Loans" && group.rows.length > COLLAPSE_AT;
+                  const holdsSelection = longLoans && group.rows.some((account) => account.id === selectedId);
+                  const expanded = !longLoans || Boolean(openGroups.Loans) || holdsSelection;
+                  const visible = expanded ? group.rows : [];
                   return (
                   <section key={group.name}>
                     <div className={`mt-5 flex items-baseline justify-between ${wide ? "" : "px-5"}`}>
                       <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : ""}`}>{group.name}</h2>
                       <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : ""}`}>{money(group.total)}</p>
                     </div>
+                    {longLoans && !expanded ? (
+                      <button
+                        type="button"
+                        className={`mt-2 flex min-h-11 items-center text-body font-medium text-muted ${wide ? "" : "mx-5"}`}
+                        onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
+                      >
+                        Show {group.rows.length} loans
+                      </button>
+                    ) : (
                     <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
                       {visible.map((account) => {
                         const current = account.id === selectedId;
@@ -623,7 +634,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                                 </span>
                                 <span className="mt-0.5 block text-meta text-muted">
                                   {sourceLine(account)}
-                                  {account.type === "loan" && account.balanceAsOf ? ` · as of ${asOfDate(account.balanceAsOf)}` : ""}
+                                  {LOAN_TYPES.has(account.type) && account.balanceAsOf ? ` · as of ${asOfDate(account.balanceAsOf)}` : ""}
                                 </span>
                               </span>
                               <span className="shrink-0 text-body font-medium tabular-nums">{money(account.balanceCents)}</span>
@@ -631,18 +642,19 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                           </li>
                         );
                       })}
-                      {hidden ? (
+                      {longLoans && expanded ? (
                         <li>
                           <button
                             type="button"
                             className="flex min-h-11 w-full items-center px-4 text-left text-body font-medium text-muted"
-                            onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: true }))}
+                            onClick={() => setOpenGroups((current) => ({ ...current, Loans: false }))}
                           >
-                            {hidden} more {moreLabel}
+                            Hide loans
                           </button>
                         </li>
                       ) : null}
                     </ul>
+                    )}
                   </section>
                   );
                 })

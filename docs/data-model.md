@@ -145,7 +145,9 @@ Manual account records:
 
 Required: `id`, `name` (1–80), `type`, `balanceCents`, `createdAt` (epoch ms), `updatedAt` (epoch ms).
 
-`type` is `checking`, `savings`, `credit card`, `cash`, `investment`, `brokerage`, `loan`, or `other`. `balanceCents` is an integer with absolute value at most `100000000`. `0` is allowed. `credit card` and `loan` are liabilities. Every other type is an asset.
+`type` is `checking`, `savings`, `cash`, `credit card`, `investment`, `retirement`, `brokerage`, `crypto`, `loan`, `installment`, `student`, or `other`. `balanceCents` is an integer with absolute value at most `100000000`. `0` is allowed. `credit card`, `loan`, `installment`, and `student` are liabilities. Every other type is an asset.
+
+The list groups accounts, in order: Banking (`checking`, `savings`, `cash`), Investments (`investment`, `retirement`, `brokerage`, `crypto`), Cards (`credit card`), and Loans (`loan`, `installment`, `student`). Each group shows its subtotal. Hidden accounts stay in a Hidden group and stay out of the roll-up. When Loans has more than five rows, the list shows the subtotal and a control that expands the lines.
 
 When the index has at least one account, net worth is the sum of asset `balanceCents` minus the sum of liability `balanceCents`. That figure may be negative. The accounts page lists those records. An empty index does not fall back to the legacy snapshot's net worth. Write the legacy snapshot as well, with the same totals, so the overview's required-key check succeeds.
 

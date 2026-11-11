@@ -109,9 +109,9 @@ export const ACCOUNTS = {
   ],
 };
 
-export const ACCOUNT_TYPES = ["checking", "savings", "credit card", "cash", "investment", "brokerage", "loan", "other"];
-const LIABILITY_TYPES = new Set(["credit card", "loan"]);
-const ACCOUNT_GROUPS = ["Checking", "Savings", "Credit cards", "Loans", "Brokerage", "Other"];
+export const ACCOUNT_TYPES = ["checking", "savings", "cash", "credit card", "investment", "retirement", "brokerage", "crypto", "loan", "installment", "student", "other"];
+const LIABILITY_TYPES = new Set(["credit card", "loan", "installment", "student"]);
+const ACCOUNT_GROUPS = ["Banking", "Investments", "Cards", "Loans", "Other"];
 const SNAPSHOT_AT = Date.parse("2026-11-11T11:42:00.000Z");
 const STALE_AT = Date.parse("2026-11-08T14:14:00.000Z");
 const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
@@ -150,12 +150,16 @@ export const SEED_ACCOUNT_LINKS = [
   { id: "fin-bus", accountId: "acct-checking" },
 ];
 
+const BANKING_TYPES = new Set(["checking", "savings", "cash"]);
+const INVESTMENT_TYPES = new Set(["investment", "retirement", "brokerage", "crypto"]);
+const CARD_TYPES = new Set(["credit card"]);
+const LOAN_TYPES = new Set(["loan", "installment", "student"]);
+
 export function accountGroup(type) {
-  if (type === "checking") return "Checking";
-  if (type === "savings" || type === "cash") return "Savings";
-  if (type === "credit card") return "Credit cards";
-  if (type === "loan") return "Loans";
-  if (type === "investment" || type === "brokerage") return "Brokerage";
+  if (BANKING_TYPES.has(type)) return "Banking";
+  if (INVESTMENT_TYPES.has(type)) return "Investments";
+  if (CARD_TYPES.has(type)) return "Cards";
+  if (LOAN_TYPES.has(type)) return "Loans";
   return "Other";
 }
 
@@ -320,10 +324,11 @@ export function alignNetWorthSeries(points, netWorthCents) {
   return points.map((value) => value + delta);
 }
 
-export function collapsedRows(rows, { expanded = false, limit = 5 } = {}) {
+/** A long Loans list collapses to the group total. Five or fewer stay open. */
+export function loanList(rows, { expanded = false, limit = 5 } = {}) {
   const list = rows || [];
-  if (expanded || list.length <= limit) return { rows: list, more: 0 };
-  return { rows: list.slice(0, limit), more: list.length - limit };
+  if (expanded || list.length <= limit) return { rows: list, collapsed: false, more: 0 };
+  return { rows: [], collapsed: true, more: list.length };
 }
 
 export function effective(row) {
