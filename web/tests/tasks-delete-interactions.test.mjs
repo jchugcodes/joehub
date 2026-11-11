@@ -68,6 +68,29 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       const result = await send("Runtime.evaluate", { expression, returnByValue: true });
       return result.result?.result?.value;
     };
+    const sheetDeleteReady = `(() => {
+      const sheet = [...document.querySelectorAll("[role='dialog']")].find((node) => !node.closest("[role='alertdialog']"));
+      if (!sheet) return "";
+      const el = [...sheet.querySelectorAll("button")].find((button) => (button.innerText || "").replace(/\\s+/g, " ").trim() === "Delete");
+      if (!el || el.disabled) return "";
+      const style = getComputedStyle(el);
+      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return "";
+      const rect = el.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const onScreen = rect.width >= 1 && rect.height >= 1 && x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+      if (!onScreen) return "";
+      const top = document.elementFromPoint(x, y);
+      return top === el || (top && el.contains(top)) ? "yes" : "";
+    })()`;
+    const waitForSheetDelete = async () => {
+      const readyBy = Date.now() + 15000;
+      while (Date.now() < readyBy) {
+        if ((await evalPage(sheetDeleteReady)) === "yes") return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("edit sheet Delete was not visible, enabled, and on top");
+    };
     await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${baseOf(port)}/` });
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
     await send("Page.navigate", { url: `${baseOf(port)}/tasks` });
@@ -76,9 +99,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     await evalPage("document.querySelector(\"[aria-label='Edit Delete the sample bag']\").click()");
-    while (Date.now() < deadline && !(await evalPage("[...document.querySelectorAll('button')].some((el) => el.innerText.trim() === 'Delete') ? 'yes' : ''"))) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
+    await waitForSheetDelete();
     await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
     while (Date.now() < deadline && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -107,6 +128,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(await evalPage("document.getElementById('delete-title') ? 'yes' : 'no'"), "no");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
+    await waitForSheetDelete();
     await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
     const cancelBy = Date.now() + 5000;
     while (Date.now() < cancelBy && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
@@ -114,6 +136,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     }
     await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Cancel').click()");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
+    await waitForSheetDelete();
     await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
     const confirmBy = Date.now() + 5000;
     while (Date.now() < confirmBy && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
@@ -159,10 +182,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     }
     assert.equal(await evalPage("document.querySelector(\"[aria-label='Reopen Delete the finished sample']\") ? 'yes' : 'no'"), "yes");
     await evalPage("document.querySelector(\"[aria-label='Edit Delete the finished sample']\").click()");
-    const sheetBy = Date.now() + 5000;
-    while (Date.now() < sheetBy && !(await evalPage("[...document.querySelectorAll('button')].some((el) => el.innerText.trim() === 'Delete') ? 'yes' : ''"))) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
+    await waitForSheetDelete();
     await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
     const dialogBy = Date.now() + 5000;
     while (Date.now() < dialogBy && !(await evalPage("document.getElementById('delete-title')?.textContent === 'Delete this task?' ? 'yes' : ''"))) {
