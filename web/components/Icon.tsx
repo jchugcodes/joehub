@@ -108,6 +108,14 @@ export function Icon({
       </svg>
     );
   }
+  if (name === "clock") {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 8v5l3 2" />
+      </svg>
+    );
+  }
   if (name === "sun") {
     return (
       <svg {...common}>

@@ -125,7 +125,10 @@ export function FinanceTransactions() {
     window.addEventListener("online", onOnline);
     void load(weekRef.current)
       .then((body) => {
-        if (params.get("add") === "1" && navigator.onLine) show(null, body.today);
+        const edit = params.get("edit");
+        const row = edit ? body.rows.find((item) => item.id === edit) : undefined;
+        if (row && navigator.onLine) show(row, body.today);
+        else if (params.get("add") === "1" && navigator.onLine) show(null, body.today);
       })
       .catch(() => setError("Finance is unavailable."));
     return () => {

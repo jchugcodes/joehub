@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, resetLedger, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, patchTransaction, resetLedger, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -33,10 +33,11 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(utilities.status, "No cap set");
   assert.equal(current.reduce((sum, cap) => sum + cap.spentCents, 0), 37603);
 
-  const span = capsForWeek(SEED_TRANSACTIONS, "2026-10-26");
-  assert.equal(span.find((cap) => cap.slug === "dining-out").percent, 93);
-  assert.equal(span.find((cap) => cap.slug === "groceries").spentCents, 8840);
-  assert.equal(span.find((cap) => cap.slug === "utilities").spentCents, 0);
+  const earlier = capsForWeek(SEED_TRANSACTIONS, "2026-11-02");
+  assert.equal(earlier.find((cap) => cap.slug === "dining-out").spentCents, 15600);
+  assert.equal(earlier.find((cap) => cap.slug === "groceries").spentCents, 20400);
+  assert.equal(earlier.find((cap) => cap.slug === "utilities").spentCents, 4820);
+  assert.equal(capsForWeek(SEED_TRANSACTIONS, "2026-10-26").every((cap) => cap.spentCents === 0), true);
 
   const month = monthProgress(SEED_TRANSACTIONS, "2026-11-10");
   assert.equal(month.spentCents, 112600);
@@ -64,7 +65,48 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   const week = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1W");
   assert.deepEqual(week.points, [38543]);
   const oneMonth = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1M");
-  assert.deepEqual(oneMonth.points, [26115, 47942, 38543]);
+  assert.deepEqual(oneMonth.points, [74057, 38543]);
+  assert.equal(monthlyBudgetCents(8000), 34300);
+  assert.equal(monthlyBudgetCents(12000), 51400);
+  assert.equal(monthlyBudgetCents(6000), 25700);
+  assert.equal(monthlyBudgetCents(5500), 23600);
+  assert.equal(monthlyBudgetCents(7500), 32100);
+  assert.equal(monthlyBudgetCents(0), null);
+  const monthCategories = categoriesSnapshot(SEED_TRANSACTIONS, NOW, "month");
+  assert.equal(monthCategories.spentCents, 112600);
+  assert.equal(monthCategories.budgetCents, 167100);
+  assert.equal(monthCategories.aside, "Day 10 of 30");
+  const diningMonth = monthCategories.categories.find((cap) => cap.slug === "dining-out");
+  const groceriesMonth = monthCategories.categories.find((cap) => cap.slug === "groceries");
+  const transportMonth = monthCategories.categories.find((cap) => cap.slug === "transport");
+  const subsMonth = monthCategories.categories.find((cap) => cap.slug === "subscriptions");
+  const shoppingMonth = monthCategories.categories.find((cap) => cap.slug === "shopping");
+  const utilitiesMonth = monthCategories.categories.find((cap) => cap.slug === "utilities");
+  const uncategorized = monthCategories.categories.find((cap) => cap.slug === "uncategorized");
+  assert.equal(diningMonth.spentCents, 24800);
+  assert.equal(diningMonth.percent, 72);
+  assert.equal(diningMonth.status, "$95 left");
+  assert.equal(groceriesMonth.spentCents, 31200);
+  assert.equal(groceriesMonth.percent, 61);
+  assert.equal(transportMonth.spentCents, 14118);
+  assert.equal(transportMonth.percent, 55);
+  assert.equal(subsMonth.spentCents, 4675);
+  assert.equal(subsMonth.percent, 20);
+  assert.equal(shoppingMonth.spentCents, 7800);
+  assert.equal(shoppingMonth.percent, 24);
+  assert.equal(utilitiesMonth.capCents, null);
+  assert.equal(utilitiesMonth.spentCents, 11230);
+  assert.equal(uncategorized.spentCents, 18777);
+  const november = categoryView(SEED_TRANSACTIONS, NOW, "2026-11-09", "dining-out", undefined, undefined, "month");
+  assert.equal(november.body.rows.length, 10);
+  assert.equal(november.body.rows.reduce((sum, row) => sum - row.amountCents, 0), 24800);
+  assert.equal(november.body.rows[0].payee, "Joe's Pizza");
+  assert.equal(november.body.rows[4].payee, "Cafe Norte (example)");
+  assert.equal(november.body.rows.at(-1).payee, "Riverside Cafe");
+  const weekCategories = categoriesSnapshot(SEED_TRANSACTIONS, Date.parse("2026-11-11T13:30:00.000Z"), "week");
+  assert.equal(weekCategories.spentCents, 37603);
+  assert.equal(weekCategories.aside, "5 days left");
+  assert.equal(weekCategories.categories.some((cap) => cap.slug === "uncategorized"), false);
   const all = chartFor(SEED_TRANSACTIONS, "2026-11-10", "All");
   assert.equal(all.points[0], 1500);
   assert.equal(all.points.includes(0), false);

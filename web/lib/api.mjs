@@ -408,7 +408,8 @@ export async function handleFinanceCategory(headers, env, store, limiter, now, i
   try {
     if (!store || typeof store.financeCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
     const query = financeWhen(now, url);
-    return await store.financeCategory(query.now, week || query.week, category);
+    const period = url ? new URL(url, "http://localhost").searchParams.get("period") : "";
+    return await store.financeCategory(query.now, week || query.week, category, period === "month" ? "month" : "week");
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };
@@ -491,6 +492,20 @@ export async function handleFinanceDeleteAccount(id, headers, env, store, limite
   try {
     if (!store || typeof store.financeDeleteAccount !== "function") return { status: 503, body: { detail: "unavailable" } };
     return await store.financeDeleteAccount(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCategories(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeCategories !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const period = url ? new URL(url, "http://localhost").searchParams.get("period") : "";
+    return { status: 200, body: await store.financeCategories(financeWhen(now, url).now, period === "week" ? "week" : "month") };
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };
