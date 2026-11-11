@@ -644,10 +644,10 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                             >
                               <AccountGlyph type={account.type} />
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-body font-medium">
-                                  {account.name}{" "}
-                                  {account.estimate ? <span className="rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}{" "}
-                                  {account.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="min-w-0 truncate text-body font-medium">{account.name}</span>
+                                  {account.estimate ? <span className="shrink-0 rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}
+                                  {account.stale ? <span className="shrink-0 rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
                                 </span>
                                 <span className="mt-0.5 block text-meta text-muted">
                                   {sourceLine(account)}

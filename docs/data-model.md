@@ -131,7 +131,7 @@ The legacy snapshot is one JSON object:
 }
 ```
 
-`group` is `Cash`, `Investments`, `Liability`, or `Other`. `updatedAt` is an ISO timestamp. `amountCents` is an integer. This object has no per-account ids. When no manual accounts are stored, the accounts page and the net worth figure use this snapshot.
+`group` is `Cash`, `Investments`, `Liability`, or `Other`. `updatedAt` is an ISO timestamp. `amountCents` is an integer. This object has no per-account ids. An empty manual index does not fall back to this snapshot's net worth.
 
 Manual account records:
 
@@ -140,6 +140,7 @@ Manual account records:
 | `joehub:finance:account:{id}` | string | One account JSON object |
 | `joehub:finance:accounts:index` | zset | Member is the id. Score is `createdAt`. |
 | `joehub:finance:seeded:v2` | string | Synthetic flag `"1"` for the sample accounts only. An import does not set it. Production does not write it. |
+| `joehub:finance:seeded:v4` | string | Synthetic flag `"1"` that adds the sample student loans and the store installment when `v2` is already set. Production does not write it. |
 
 `id` matches `^acct-[A-Za-z0-9._:-]{1,70}$`.
 
@@ -151,10 +152,12 @@ The list groups accounts, in order: Banking (`checking`, `savings`, `cash`), Inv
 
 When the index has at least one account, net worth is the sum of asset `balanceCents` minus the sum of liability `balanceCents`. That figure may be negative. The accounts page lists those records. An empty index does not fall back to the legacy snapshot's net worth. Write the legacy snapshot as well, with the same totals, so the overview's required-key check succeeds.
 
-Optional: `sourceId`, `mask`, `estimate`, and `balanceAsOf`. `mask` is exactly four digits, the last four of an account number. There is no field for a full account number. Omit `mask` when it is unknown. `estimate` is a boolean. Set it when the balance is an estimate; the list shows `est.` and does not treat that as an alarm. `balanceAsOf` is epoch milliseconds. Loans show that date. Do not write any other number field.
+Optional: `sourceId`, `mask`, `estimate`, and `balanceAsOf`. `mask` is exactly four digits, the last four of an account number. There is no field for a full account number. Omit `mask` when it is unknown. `estimate` is a boolean. Set it when the balance is an estimate; the list shows `est.` and does not treat that as an alarm. `balanceAsOf` is epoch milliseconds. Loans show that date.
+
+Debts is a read-only view of the liability accounts. Student loans with more than one row collapse into one group. A debt may also carry `loanKind` (Undergraduate, Graduate, or Consolidation), `rateBps` (percent times 100, so 4.99% is 499), `minimumCents`, `nextDue` (`YYYY-MM-DD`), `paymentsLeft`, and `paymentsTotal`. Those fields are display-only. This slice does not add or edit them from Debts. The sample roll-up, with Hidden excluded, is assets $26,472.36 minus debts $155,664.00, which is −$129,191.64. The legacy snapshot series is still aligned to that figure when accounts exist.
 
 A transaction's optional `accountId` is one of these account ids. The app rejects a transaction write whose `accountId` is not in the index. Rows with no `accountId` stay valid.
 
 ## What production skips
 
-With `VERCEL_ENV=production`, the app does not write `joehub:tasks:seeded`, `joehub:tasks:seeded:v2`, `joehub:tasks:seeded:v3`, `joehub:tasks:seeded:v4`, `joehub:grocery:seeded`, or `joehub:finance:seeded`. The accounts flag `joehub:finance:seeded:v2` is gated the same way by the accounts change. Preview still writes the current flags and the sample rows.
+With `VERCEL_ENV=production`, the app does not write `joehub:tasks:seeded`, `joehub:tasks:seeded:v2`, `joehub:tasks:seeded:v3`, `joehub:tasks:seeded:v4`, `joehub:grocery:seeded`, or `joehub:finance:seeded`. The accounts flag `joehub:finance:seeded:v2` and the debts flag `joehub:finance:seeded:v4` are gated the same way. Preview still writes the current flags and the sample rows.

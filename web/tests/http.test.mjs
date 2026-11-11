@@ -79,7 +79,7 @@ test("next http login, session, logout, revoke, and contract json", { timeout: 1
     }
     const accounts = await fetch(`${base()}/api/finance/accounts`, { headers: auth });
     assert.equal(accounts.status, 200);
-    assert.equal((await accounts.json()).netWorthCents, 1847236);
+    assert.equal((await accounts.json()).netWorthCents, -12919164);
     const transactions = await fetch(`${base()}/api/finance/transactions?asOf=2026-11-10T15:00:00-05:00`, { headers: auth });
     assert.equal(transactions.status, 200);
     assert.equal((await transactions.json()).rows.some((row) => row.payee === "Joe's Pizza"), true);

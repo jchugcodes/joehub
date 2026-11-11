@@ -148,7 +148,51 @@ function seedAccount(fields) {
   };
 }
 
-/** Synthetic accounts. Hidden balances stay out of the roll-up, so net worth matches Finance. */
+const DEBT_AS_OF = Date.parse("2026-11-11T13:30:00.000Z");
+
+/** Synthetic federal loans. Balances sum to $147,184.00. Rates are basis points (4.99% is 499). */
+const STUDENT_LOAN_SEED = [
+  ["01", "Undergraduate", 499, 412_000],
+  ["02", "Undergraduate", 550, 535_000],
+  ["03", "Undergraduate", 373, 320_000],
+  ["04", "Undergraduate", 654, 418_000],
+  ["05", "Undergraduate", 705, 674_000],
+  ["06", "Undergraduate", 528, 296_520],
+  ["07", "Undergraduate", 499, 511_000],
+  ["08", "Undergraduate", 550, 388_000],
+  ["09", "Undergraduate", 373, 445_000],
+  ["10", "Undergraduate", 654, 562_500],
+  ["11", "Undergraduate", 705, 309_000],
+  ["12", "Undergraduate", 528, 477_500],
+  ["13", "Graduate", 499, 984_000],
+  ["14", "Graduate", 550, 821_500],
+  ["15", "Graduate", 373, 1_146_000],
+  ["16", "Graduate", 654, 733_000],
+  ["17", "Graduate", 705, 1_012_500],
+  ["18", "Graduate", 528, 899_000],
+  ["19", "Consolidation", 499, 1_264_000],
+  ["20", "Consolidation", 550, 941_000],
+  ["21", "Consolidation", 373, 284_000],
+  ["22", "Consolidation", 654, 1_284_880],
+];
+
+function studentLoan([number, loanKind, rateBps, balanceCents]) {
+  return seedAccount({
+    id: `acct-student-${number}`,
+    name: `Federal loan ${number}`,
+    type: "student",
+    source: "ledger",
+    institution: "Example Servicer",
+    balanceCents,
+    balanceAsOf: DEBT_AS_OF,
+    loanKind,
+    rateBps,
+    minimumCents: Math.round((balanceCents * 75) / 10_000),
+    nextDue: "2026-12-01",
+  });
+}
+
+/** Synthetic accounts. Hidden balances stay out of the roll-up. Liabilities include the debts book. */
 export const SEED_ACCOUNTS = [
   seedAccount({ id: "acct-checking", name: "Everyday checking", type: "checking", source: "ledger", institution: "Example CU", balanceCents: 247_236, balanceAsOf: STALE_AT, createdAt: STALE_AT, mask: "3816" }),
   seedAccount({ id: "acct-savings", name: "Emergency savings", type: "savings", source: "ledger", institution: "Example CU", balanceCents: 840_000 }),
@@ -157,6 +201,18 @@ export const SEED_ACCOUNTS = [
   seedAccount({ id: "acct-loan", name: "Auto loan", type: "loan", source: "ledger", institution: "Example Auto", balanceCents: 760_000 }),
   seedAccount({ id: "acct-brokerage", name: "Brokerage", type: "brokerage", source: "ledger", institution: "Example Brokerage", balanceCents: 1_400_000 }),
   seedAccount({ id: "acct-old", name: "Old checking", type: "checking", source: "manual", balanceCents: 25_000, hiddenFromNetWorth: true }),
+  ...STUDENT_LOAN_SEED.map(studentLoan),
+  seedAccount({
+    id: "acct-installment",
+    name: "Store installment",
+    type: "installment",
+    source: "ledger",
+    balanceCents: 48_000,
+    balanceAsOf: DEBT_AS_OF,
+    paymentsLeft: 3,
+    paymentsTotal: 4,
+    nextDue: "2026-11-18",
+  }),
 ];
 
 /** Seed transactions that gain an accountId. Applied once, and only when the field is missing. */
@@ -224,6 +280,12 @@ export function presentAccount(account, now = Date.now()) {
   if (account.institution) shown.institution = account.institution;
   if (typeof account.mask === "string" && /^\d{4}$/.test(account.mask)) shown.mask = account.mask;
   if (typeof account.sourceId === "string" && account.sourceId) shown.sourceId = account.sourceId;
+  if (typeof account.loanKind === "string" && account.loanKind) shown.loanKind = account.loanKind;
+  if (Number.isInteger(account.rateBps)) shown.rateBps = account.rateBps;
+  if (Number.isInteger(account.minimumCents)) shown.minimumCents = account.minimumCents;
+  if (typeof account.nextDue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(account.nextDue)) shown.nextDue = account.nextDue;
+  if (Number.isInteger(account.paymentsLeft)) shown.paymentsLeft = account.paymentsLeft;
+  if (Number.isInteger(account.paymentsTotal)) shown.paymentsTotal = account.paymentsTotal;
   return shown;
 }
 
@@ -252,6 +314,38 @@ export function accountsSnapshot(accounts, fallback = ACCOUNTS, now = Date.now()
     groups,
     accounts: visible.map((account) => presentAccount(account, now)),
   };
+}
+
+const DEBT_TYPE_ORDER = ["loan", "credit card", "installment", "student"];
+
+/** Read-only debts view. Student loans collapse into one group. Hidden and closed accounts stay out. */
+export function debtsSnapshot(accounts, now = Date.now()) {
+  const rows = (accounts || []).filter((account) => accountInRollup(account) && LIABILITY_TYPES.has(account.type));
+  const presented = rows
+    .map((account) => presentAccount(account, now))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!presented.length) return { empty: true, totalCents: 0, asOf: null, student: null, debts: [] };
+  const students = presented.filter((account) => account.type === "student");
+  const rest = presented
+    .filter((account) => account.type !== "student")
+    .sort((a, b) => DEBT_TYPE_ORDER.indexOf(a.type) - DEBT_TYPE_ORDER.indexOf(b.type) || a.name.localeCompare(b.name));
+  const newest = rows.reduce((max, account) => Math.max(max, account.balanceAsOf || account.updatedAt || 0), 0);
+  const student = students.length > 1
+    ? { name: "Student loans", count: students.length, totalCents: students.reduce((sum, account) => sum + account.balanceCents, 0), debts: students }
+    : null;
+  return {
+    empty: false,
+    totalCents: presented.reduce((sum, account) => sum + account.balanceCents, 0),
+    asOf: newest ? new Date(newest).toISOString() : null,
+    student,
+    debts: student ? rest : [...students, ...rest],
+  };
+}
+
+export function debtById(accounts, id, now = Date.now()) {
+  const view = debtsSnapshot(accounts, now);
+  const pool = [...(view.student ? view.student.debts : []), ...view.debts];
+  return pool.find((debt) => debt.id === id) || null;
 }
 
 export const GOALS = [
@@ -1119,6 +1213,11 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     const result = removeAccount(manualAccounts, id, rows);
     if (result.status === 200) manualAccounts = result.accounts;
     return { status: result.status, body: result.body };
+  };
+  store.financeDebts = async (now = Date.now()) => debtsSnapshot(manualAccounts, now);
+  store.financeDebt = async (id, now = Date.now()) => {
+    const debt = debtById(manualAccounts, id, now);
+    return debt ? { status: 200, body: debt } : { status: 404, body: { detail: "That debt is not here." } };
   };
   const billView = (now) => {
     const projected = projectBills(bills, now);

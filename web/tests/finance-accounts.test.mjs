@@ -58,13 +58,13 @@ test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(parseAccount({ name: "Wallet", type: "cash", balanceCents: 0 }).ok, true);
   const rolled = rollUpAccounts(SEED_ACCOUNTS);
   assert.equal(rolled.assetsCents, 2_647_236);
-  assert.equal(rolled.liabilitiesCents, 800_000);
-  assert.equal(rolled.netWorthCents, NET_WORTH_CENTS);
+  assert.equal(rolled.liabilitiesCents, 15_566_400);
+  assert.equal(rolled.netWorthCents, -12_919_164);
   assert.equal(accountsSnapshot([]).empty, true);
   assert.equal(accountsSnapshot([]).netWorthCents, null);
   assert.equal(accountsSnapshot([]).accounts.length, 0);
   const view = accountsSnapshot(SEED_ACCOUNTS, ACCOUNTS, Date.parse("2026-11-11T11:42:00.000Z"));
-  assert.equal(view.netWorthCents, NET_WORTH_CENTS);
+  assert.equal(view.netWorthCents, -12_919_164);
   assert.equal(view.accounts.find((account) => account.id === "acct-card").group, "Cards");
   assert.equal(view.accounts.find((account) => account.id === "acct-checking").group, "Banking");
   assert.equal(view.accounts.find((account) => account.id === "acct-cash").group, "Banking");
@@ -74,7 +74,7 @@ test("account roll-up treats credit cards and loans as liabilities", () => {
   assert.equal(view.groups.find((group) => group.name === "Banking").totalCents, 1_247_236);
   assert.equal(view.groups.find((group) => group.name === "Investments").totalCents, 1_400_000);
   assert.equal(view.groups.find((group) => group.name === "Cards").totalCents, 40_000);
-  assert.equal(view.groups.find((group) => group.name === "Loans").totalCents, 760_000);
+  assert.equal(view.groups.find((group) => group.name === "Loans").totalCents, 15_526_400);
   assert.equal(accountGroup("retirement"), "Investments");
   assert.equal(accountGroup("student"), "Loans");
   assert.equal(accountGroup("installment"), "Loans");
@@ -92,8 +92,8 @@ test("account API requires a session and validates create, update, and delete", 
   const headers = sessionHeaders(store);
   const listed = await handleFinanceAccounts(headers, env, store, limiter, NOW, "direct");
   assert.equal(listed.status, 200);
-  assert.equal(listed.body.netWorthCents, NET_WORTH_CENTS);
-  assert.equal(listed.body.accounts.length, 7);
+  assert.equal(listed.body.netWorthCents, -12_919_164);
+  assert.equal(listed.body.accounts.length, 30);
   assert.equal(listed.body.accounts.find((account) => account.id === "acct-checking").source, "ledger");
   assert.equal(listed.body.accounts.find((account) => account.id === "acct-checking").stale, true);
 
@@ -155,7 +155,7 @@ test("account API requires a session and validates create, update, and delete", 
   assert.equal((await handleFinanceAccount("acct-missing", headers, env, store, limiter, NOW, "direct")).status, 404);
 
   const worth = await handleFinanceOverview(headers, env, store, limiter, NOW, "direct", "http://127.0.0.1/api/finance/overview?asOf=2026-11-10T17:00:00Z");
-  assert.equal(worth.body.netWorthCents, NET_WORTH_CENTS + 2600);
+  assert.equal(worth.body.netWorthCents, -12_919_164 + 2600);
 
   const removed = await handleFinanceDeleteAccount(created.body.id, headers, env, store, limiter, NOW, "direct");
   assert.equal(removed.status, 200);
@@ -182,7 +182,7 @@ test("account API requires a session and validates create, update, and delete", 
   assert.equal(masked.status, 400);
   assert.equal(masked.body.field, "mask");
   const after = await handleFinanceOverview(headers, env, store, limiter, NOW, "direct", "http://127.0.0.1/api/finance/overview?asOf=2026-11-10T17:00:00Z");
-  assert.equal(after.body.netWorthCents, NET_WORTH_CENTS);
+  assert.equal(after.body.netWorthCents, -12_919_164);
 });
 
 test("transactions keep working without an account and reject an unknown one", async () => {
@@ -285,12 +285,12 @@ test("the account seed is add-only under a new flag and does not rewrite the old
     const linked = await store.financeTransaction("fin-pizza");
     assert.equal(linked.body.accountId, "acct-checking");
     const view = await store.financeAccounts(NOW);
-    assert.equal(view.netWorthCents, NET_WORTH_CENTS);
+    assert.equal(view.netWorthCents, -12_919_164);
     assert.equal(view.accounts.some((account) => account.id === "acct-checking"), true);
     const moved = await store.financePatchTransaction("fin-pizza", { accountId: "acct-card" }, NOW);
     assert.equal(moved.body.accountId, "acct-card");
     const overview = await store.financeOverview(NOW);
-    assert.equal(overview.body.netWorthCents, NET_WORTH_CENTS);
+    assert.equal(overview.body.netWorthCents, -12_919_164);
     const again = await store.financeTransaction("fin-pizza");
     assert.equal(again.body.accountId, "acct-card");
 
@@ -331,11 +331,11 @@ test("a negative net worth keeps the minus in front of the dollar sign", () => {
     { type: "loan", balanceCents: 12_900_536, hiddenFromNetWorth: false, closed: false },
     ...Array.from({ length: 5 }, () => ({ type: "loan", balanceCents: 100_000, hiddenFromNetWorth: false, closed: false })),
   ];
-  const rolled = rollUpAccounts([...SEED_ACCOUNTS, ...loans]);
-  assert.equal(rolled.netWorthCents, -11_553_300);
-  assert.equal(netWorthText(rolled.netWorthCents), "−$115,533.00");
-  assert.equal(money(rolled.netWorthCents, true).includes("$-"), false);
-  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: rolled.netWorthCents, snapshot: seedSnapshots() });
+  assert.equal(rollUpAccounts(SEED_ACCOUNTS).netWorthCents, -12_919_164);
+  assert.equal(netWorthText(-12_919_164), "−$129,191.64");
+  assert.equal(netWorthText(-11_553_300), "−$115,533.00");
+  assert.equal(money(-11_553_300, true).includes("$-"), false);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: -11_553_300, snapshot: seedSnapshots() });
   assert.equal(view.body.netWorthCents, -11_553_300);
   assert.equal(view.body.chart.points.at(-1), -11_553_300);
   assert.ok(Math.min(...view.body.chart.points) < 0);

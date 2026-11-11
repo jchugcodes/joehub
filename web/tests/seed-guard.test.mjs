@@ -59,7 +59,7 @@ test("preview and an unset VERCEL_ENV still seed every current version", async (
       assert.ok(items.some((item) => item.name === "Bananas"));
       const overview = await store.financeOverview(now);
       assert.equal(overview.status, 200);
-      assert.equal(overview.body.netWorthCents, 1_847_236);
+      assert.equal(overview.body.netWorthCents, -12_919_164);
       const bills = await store.financeBills(now);
       assert.equal(bills.empty, false);
       assert.ok(bills.bills.some((bill) => bill.name === "City Water (example)"));
@@ -69,6 +69,7 @@ test("preview and an unset VERCEL_ENV still seed every current version", async (
         "joehub:finance:seeded",
         "joehub:finance:seeded:v2",
         "joehub:finance:seeded:v3",
+        "joehub:finance:seeded:v4",
         "joehub:grocery:seeded",
         "joehub:tasks:seeded",
         "joehub:tasks:seeded:v2",

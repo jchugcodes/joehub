@@ -140,7 +140,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     assert.equal(cooked.result?.success, true);
 
     await open(send, "/finance/accounts", 390, 1600);
-    await waitFor(send, "document.body.innerText.includes('Everyday checking') && document.body.innerText.includes('Stale') && document.body.innerText.includes('$18,472') ? 'yes' : ''", "list");
+    await waitFor(send, "document.body.innerText.includes('Everyday checking') && document.body.innerText.includes('Stale') && document.body.innerText.includes('129,191') ? 'yes' : ''", "list");
     assert.equal(await evalPage(send, "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 ? 'yes' : 'no'"), "yes");
     await shot(send, "A01-app.png");
 
@@ -151,7 +151,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await pressLabel(send, evalPage, "Hide from net worth");
     await waitFor(send, "document.querySelector(\"[role='switch']\")?.getAttribute('aria-checked') === 'true' ? 'yes' : ''", "hidden");
     await open(send, "/finance/accounts", 390, 1600);
-    await waitFor(send, "document.body.innerText.includes('Hidden') && document.body.innerText.includes('$16,000') ? 'yes' : ''", "hidden rollup");
+    await waitFor(send, "document.body.innerText.includes('Hidden') && document.body.innerText.includes('131,664') ? 'yes' : ''", "hidden rollup");
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
     await pressLabel(send, evalPage, "Hide from net worth");
     await waitFor(send, "document.querySelector(\"[role='switch']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "shown again");
