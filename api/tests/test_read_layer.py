@@ -106,8 +106,9 @@ def test_query_source_serves_the_read_layer() -> None:
     cookie = response.headers["set-cookie"].split(";", 1)[0].split("=", 1)[1]
     accounts = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert accounts.status_code == 200
-    assert accounts.json()[0]["name"] == "Layer Checking"
-    assert accounts.json()[0]["balance_cents"] == 2500
+    snapshot = accounts.json()
+    assert snapshot["netWorthCents"] == 1_847_236
+    assert snapshot["accounts"][0]["name"] == "Example checking"
     entries = client.get("/api/journal/entries", cookies={COOKIE_NAME: cookie})
     assert entries.json()[0]["body"] == "Layer body"
     applications = client.get("/api/jobs/applications", cookies={COOKIE_NAME: cookie})

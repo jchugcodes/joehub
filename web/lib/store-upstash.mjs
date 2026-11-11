@@ -1,4 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
+import { categoryView, createTransaction, defaultCaps, overview, parseCaps, patchTransaction, presentTransaction, resetLedger, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -175,6 +176,49 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (parsed && parsed.pending && !parsed.taskId) await command(["DEL", k(`joehub:task:idem:${key}`)]);
     },
   };
+
+  function financeScore(row) {
+    const day = Number(String(row.date || "").replaceAll("-", ""));
+    const created = Number(row.createdAt) || 0;
+    return String(day * 1_000_000 + (created % 1_000_000));
+  }
+
+  function legacyFinance(raw) {
+    if (raw == null || raw === "1") return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.transactions)) return parsed;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function ensureFinance() {
+    const flagKey = k("joehub:finance:seeded");
+    const raw = await command(["GET", flagKey]);
+    if (raw === "1") return;
+    const legacy = legacyFinance(raw);
+    const transactions = legacy ? legacy.transactions : SEED_TRANSACTIONS;
+    const caps = legacy && legacy.caps && typeof legacy.caps === "object" ? legacy.caps : defaultCaps();
+    const planCents = legacy && Number.isInteger(legacy.planCents) ? legacy.planCents : PLAN_CENTS;
+    await command(["SET", k("joehub:finance:caps"), JSON.stringify(caps), "NX"]);
+    await command(["SET", k("joehub:finance:plan"), JSON.stringify({ cents: planCents }), "NX"]);
+    await command(["SET", k("joehub:finance:accounts"), JSON.stringify(legacy && legacy.accounts ? legacy.accounts : ACCOUNTS), "NX"]);
+    await command(["SET", k("joehub:finance:goals"), JSON.stringify(legacy && legacy.goals ? legacy.goals : GOALS), "NX"]);
+    await command(["SET", k("joehub:finance:snapshots"), JSON.stringify(legacy && legacy.snapshots ? legacy.snapshots : seedSnapshots()), "NX"]);
+    for (const row of transactions) {
+      await command(["SET", k(`joehub:finance:txn:${row.id}`), JSON.stringify(row), "NX"]);
+      await command(["ZADD", k("joehub:finance:txns"), financeScore(row), row.id]);
+    }
+    if (legacy && legacy.idem && typeof legacy.idem === "object") {
+      for (const [idemKey, value] of Object.entries(legacy.idem)) {
+        await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(value), "NX", "EX", "86400"]);
+      }
+    }
+    if (legacy) await command(["SET", flagKey, "1"]);
+    else await command(["SET", flagKey, "1", "NX"]);
+  }
 
   async function ensureGrocerySeeded() {
     const flagKey = k("joehub:grocery:seeded");
@@ -449,6 +493,108 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async clearGrocery() {
       await ensureGrocerySeeded();
       return performGroceryClear(grocery);
+    },
+    async financeRows() {
+      return (await this.financeBundle()).transactions;
+    },
+    async financeBundle() {
+      await ensureFinance();
+      const caps = await readJson(k("joehub:finance:caps"));
+      const plan = await readJson(k("joehub:finance:plan"));
+      const snapshot = await readJson(k("joehub:finance:snapshots"));
+      const accounts = await readJson(k("joehub:finance:accounts"));
+      const goals = await readJson(k("joehub:finance:goals"));
+      if (!caps || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
+      const ids = (await command(["ZREVRANGE", k("joehub:finance:txns"), "0", "-1"])) || [];
+      const transactions = [];
+      for (const id of ids) {
+        const row = await readJson(k(`joehub:finance:txn:${id}`));
+        if (row) transactions.push(row);
+      }
+      return { transactions, caps, planCents: plan.cents, snapshot, accounts, goals };
+    },
+    async financeOverview(now, week, range) {
+      const state = await this.financeBundle();
+      return overview(state.transactions, now, week, range, state.caps, { planCents: state.planCents, snapshot: state.snapshot });
+    },
+    async financeCategory(now, week, category) {
+      const state = await this.financeBundle();
+      return categoryView(state.transactions, now, week, category, state.caps);
+    },
+    async financeSaveCaps(body, idemKey) {
+      const state = await this.financeBundle();
+      if (idemKey) {
+        const prior = await readJson(k(`joehub:finance:txn:idem:${idemKey}`));
+        if (prior) return prior;
+      }
+      const parsed = parseCaps(body && body.caps, state.caps);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
+      const result = { status: 200, body: { caps: parsed.caps, envelopeCents: ENVELOPE_CENTS } };
+      await command(["SET", k("joehub:finance:caps"), JSON.stringify(parsed.caps)]);
+      if (idemKey) await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
+      return result;
+    },
+    async financeAccounts() {
+      return (await this.financeBundle()).accounts;
+    },
+    async financeGoals() {
+      return (await this.financeBundle()).goals;
+    },
+    async financeTransactions(now = Date.now(), week = "") {
+      return transactionsForWeek(await this.financeRows(), now, week);
+    },
+    async financeTransaction(id) {
+      await ensureFinance();
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const row = await readJson(k(`joehub:finance:txn:${id}`));
+      return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+    },
+    async financeCreateTransaction(body, now = Date.now(), key = "") {
+      await ensureFinance();
+      if (key) {
+        const prior = await readJson(k(`joehub:finance:txn:idem:create:${key}`));
+        if (prior) return prior;
+      }
+      const existing = await this.financeRows();
+      const seq = existing.filter((row) => String(row.id).startsWith("fin-manual-")).length + 1;
+      const result = createTransaction(existing, body, now, seq);
+      if (result.status === 201) {
+        const created = result.rows[0];
+        await command(["SET", k(`joehub:finance:txn:${created.id}`), JSON.stringify(created)]);
+        await command(["ZADD", k("joehub:finance:txns"), financeScore(created), created.id]);
+      }
+      const stored = { status: result.status, body: result.body };
+      if (key && result.status === 201) await command(["SET", k(`joehub:finance:txn:idem:create:${key}`), JSON.stringify(stored), "EX", "86400"]);
+      return stored;
+    },
+    async financePatchTransaction(id, body, now = Date.now()) {
+      await ensureFinance();
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const existing = await this.financeRows();
+      const result = patchTransaction(existing, id, body, now);
+      if (result.status === 200) {
+        const next = result.rows.find((row) => row.id === id);
+        await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
+        await command(["ZADD", k("joehub:finance:txns"), financeScore(next), id]);
+      }
+      return { status: result.status, body: result.body };
+    },
+    async financeSimulateRefresh(now = Date.now()) {
+      const existing = await this.financeRows();
+      const next = simulateLedgerRefresh(existing, now);
+      const shell = next.find((row) => row.id === "fin-shell");
+      if (shell) await command(["SET", k("joehub:finance:txn:fin-shell"), JSON.stringify(shell)]);
+      return { status: 200, body: shell ? presentTransaction(shell) : { ok: true } };
+    },
+    async financeResetLedger(id) {
+      if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
+      const existing = await this.financeRows();
+      const result = resetLedger(existing, id);
+      if (result.status === 200) {
+        const next = result.rows.find((row) => row.id === id);
+        await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
+      }
+      return { status: result.status, body: result.body };
     },
   };
 }

@@ -1,9 +1,18 @@
 import Link from "next/link";
 import { Ring, Sparkline } from "../components/Charts";
 import { home } from "../lib/design-fixtures";
+import { detroitHeading } from "../lib/detroit-date.mjs";
+import { money } from "../lib/finance.mjs";
 import { store } from "../lib/store.mjs";
 
 export const dynamic = "force-dynamic";
+
+type HomeOverview = {
+  netWorthCents: number;
+  chart?: { caption?: string };
+  month: { spentCents: number; planCents: number; percent: number };
+  caps?: { slug: string; name: string; status: string }[];
+};
 
 type HomeTask = { title: string; status: string; dueDate?: string };
 
@@ -12,18 +21,27 @@ function detroitToday(now = Date.now()) {
 }
 
 export default async function HomePage() {
+  const now = Date.now();
+  let overview: HomeOverview | null = null;
+  try {
+    const result = await store.financeOverview(now);
+    if (result && result.status === 200) overview = result.body as HomeOverview;
+  } catch {
+    overview = null;
+  }
+  const dining = overview?.caps?.find((cap) => cap.slug === "dining-out") || null;
+  const spentWidth = overview ? Math.min(100, Math.max(0, overview.month.percent)) : 0;
   const tasks = (await store.listUnfinishedTasks()) as HomeTask[];
-  const today = detroitToday();
+  const today = detroitToday(now);
   const open = tasks.filter((task) => task.status !== "Done");
   const blocked = open.filter((task) => task.status === "Blocked").length;
   const dueToday = open.filter((task) => task.dueDate === today);
   const highlight = dueToday[0] || open[0] || null;
-  const spentWidth = 27;
   return (
     <div>
       <header className="flex items-center justify-between px-5 pt-2">
         <div>
-          <p className="text-ui-13 mut">{home.date}</p>
+          <p className="text-ui-13 mut">{detroitHeading(now)}</p>
           <h1 className="text-ui-24 font-bold">{home.greeting}</h1>
         </div>
         <span className="grid h-10 w-10 place-items-center rounded-full bg-ink text-ui-15 font-bold text-white" aria-hidden>
@@ -37,26 +55,31 @@ export default async function HomePage() {
           <span>FINANCE</span>
           <span aria-hidden className="text-inactive">›</span>
         </div>
-        <div className="mt-1 flex items-end justify-between">
-          <div>
-            <p className="text-ui-28 font-extrabold tnum">{home.net}</p>
-            <p className="text-ui-13 font-semibold text-finance-primary">{home.ytd}</p>
-          </div>
-          <Sparkline compact />
-        </div>
-        <div
-          className="mt-3 h-2 overflow-hidden rounded-full bg-line"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={spentWidth}
-          aria-label="Spent against the monthly plan"
-        >
-          <div className="h-full rounded-full bg-finance-dining" style={{ width: `${spentWidth}%` }} />
-        </div>
-        <p className="mt-1 text-ui-12 mut">
-          {home.spent} · {home.diningNote}
-        </p>
+        {overview ? (
+          <>
+            <div className="mt-1 flex items-end justify-between">
+              <div>
+                <p className="text-ui-28 font-extrabold tnum">{money(overview.netWorthCents)}</p>
+                {overview.chart?.caption ? <p className="text-ui-13 font-semibold text-finance-primary">{overview.chart.caption}</p> : null}
+              </div>
+              <Sparkline compact />
+            </div>
+            <div
+              className="mt-3 h-2 overflow-hidden rounded-full bg-line"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={spentWidth}
+              aria-label="Spent against the monthly plan"
+            >
+              <div className="h-full rounded-full bg-finance-dining" style={{ width: `${spentWidth}%` }} />
+            </div>
+            <p className="mt-1 text-ui-12 mut">
+              {money(overview.month.spentCents, false)} of {money(overview.month.planCents, false)} spent
+              {dining ? ` · ${dining.name} ${dining.status} this week` : ""}
+            </p>
+          </>
+        ) : null}
       </Link>
 
       <Link href="/jobs" className="block card p-4">

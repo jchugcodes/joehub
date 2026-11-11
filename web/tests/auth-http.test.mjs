@@ -11,7 +11,7 @@ const PAGES = [
   "/finance",
   "/finance/accounts",
   "/finance/caps",
-  "/finance/dining-out",
+  "/finance/transactions",
   "/finance/goals",
   "/finance/goals/student-loan-payoff",
   "/jobs",
@@ -26,6 +26,8 @@ const PAGES = [
 const APIS = [
   ["/api/finance/accounts", "GET"],
   ["/api/finance/transactions", "GET"],
+  ["/api/finance/transactions", "POST"],
+  ["/api/finance/ledger/simulate-refresh", "POST"],
   ["/api/jobs/applications", "GET"],
   ["/api/jobs/statuses", "GET"],
   ["/api/journal/entries", "GET"],

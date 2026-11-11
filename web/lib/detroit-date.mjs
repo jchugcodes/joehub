@@ -15,3 +15,14 @@ export function detroitCalendarDate(now) {
   };
   return `${pick("year")}-${pick("month")}-${pick("day")}`;
 }
+
+export function detroitHeading(now) {
+  const date = new Date(now);
+  if (Number.isNaN(date.getTime())) throw new Error("invalid time");
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}

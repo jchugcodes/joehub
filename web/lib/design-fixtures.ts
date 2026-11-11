@@ -1,13 +1,8 @@
 /** Frame example copy. Not a mapping from the API or the database. See docs/DESIGN_GAPS.md. */
 
 export const home = {
-  date: "Friday, Nov 6",
   greeting: "Evening, Joe",
   initial: "J",
-  net: "$18,472",
-  ytd: "+7.5% YTD",
-  spent: "$1,126 of $4,204 spent",
-  diningNote: "Dining $18 left this week",
   jobs: [
     { label: "Applied", value: "8", tone: "jobs" },
     { label: "Interviewing", value: "3", tone: "interview" },
@@ -38,7 +33,7 @@ export const finance = {
     { label: "YTD saved", value: "$9.8k", tone: "jobs-text" },
   ],
   caps: [
-    { name: "Dining Out", left: "$62", rest: "left $18", cap: "$80/wk", width: 78, tone: "dining", icon: "dining", href: "/finance/dining-out" },
+    { name: "Dining Out", left: "$62", rest: "left $18", cap: "$80/wk", width: 78, tone: "dining", icon: "dining", href: "/finance/categories/dining-out" },
     { name: "Groceries", left: "$94", rest: "left $26", cap: "$120/wk", width: 78, tone: "groceries", icon: "groceries" },
     { name: "Transport", left: "$31", rest: "left $29", cap: "$60/wk", width: 52, tone: "transport", icon: "transport" },
     { name: "Subscriptions", left: "$48", rest: "left $7", cap: "$55/wk", width: 87, tone: "subscriptions", icon: "subscriptions" },

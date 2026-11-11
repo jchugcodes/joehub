@@ -1,0 +1,553 @@
+"""Synthetic Finance read model. Money is integer cents. Weeks are Monday–Sunday in America/Detroit."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+DETROIT = ZoneInfo("America/Detroit")
+PLAN_CENTS = 420_400
+NET_WORTH_CENTS = 1_847_236
+YTD_DELTA_CENTS = 128_410
+ACCOUNTS_UPDATED = "2026-11-10T14:58:00.000Z"
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+YTD_Y = [116, 102.8, 109.4, 89.6, 94.9, 79.1, 76.5, 84.4, 64.6, 56.7, 62, 42.2, 34.3, 39.6, 23.8, 18.5, 4]
+
+CATEGORIES = [
+    {"slug": "dining-out", "name": "Dining Out", "capCents": 8000, "color": "#E07A5F"},
+    {"slug": "groceries", "name": "Groceries", "capCents": 12000, "color": "#2E8B6A"},
+    {"slug": "transport", "name": "Transport", "capCents": 6000, "color": "#5B6B8C"},
+    {"slug": "subscriptions", "name": "Subscriptions", "capCents": 5500, "color": "#8E7CC3"},
+    {"slug": "shopping", "name": "Shopping", "capCents": 7500, "color": "#E9B949"},
+    {"slug": "utilities", "name": "Utilities", "capCents": 0, "color": "#3A86C8"},
+]
+
+
+def _txn(row_id, payee, day, category, kind, amount, **extra):
+    row = {
+        "id": row_id,
+        "payee": payee,
+        "date": day,
+        "category": category,
+        "type": kind,
+        "amountCents": amount,
+        "source": extra.get("source", "manual"),
+    }
+    if "correction" in extra:
+        row["correction"] = extra["correction"]
+    return row
+
+
+SEED_TRANSACTIONS = [
+    _txn("fin-payroll", "Payroll (example)", "2026-11-09", None, "income", 235_000, source="ledger"),
+    _txn("fin-pizza", "Joe's Pizza", "2026-11-10", "dining-out", "expense", -3240),
+    _txn("fin-sweetgreen", "Sweetgreen", "2026-11-09", "dining-out", "expense", -2860),
+    _txn("fin-deli", "Corner Deli", "2026-11-09", "dining-out", "expense", -2450),
+    _txn("fin-cafe", "Cafe Norte (example)", "2026-11-10", "dining-out", "expense", -2100),
+    _txn("fin-refund", "Example refund — Joe's Pizza", "2026-11-10", "dining-out", "refund", 1450),
+    _txn("fin-northside", "Northside Market", "2026-11-10", "groceries", "expense", -6188),
+    _txn("fin-trader", "Trader Joe's", "2026-11-09", "groceries", "expense", -4612),
+    _txn("fin-bus", "City Bus pass", "2026-11-09", "transport", "expense", -2500),
+    _txn("fin-shell", "Shell (example)", "2026-11-09", "transport", "expense", -2218, source="ledger", correction={"category": "transport", "amountCents": -2218}),
+    _txn("fin-stream", "Streaming Club (example)", "2026-11-09", "subscriptions", "expense", -4675),
+    _txn("fin-harbor", "Harbor Supply Co.", "2026-11-10", "shopping", "expense", -1800),
+    _txn("fin-power", "City Power (example)", "2026-11-09", "utilities", "expense", -6410),
+    _txn("fin-vendor", "SQ *DEMO VENDOR", "2026-11-10", None, "expense", -940),
+    _txn("fin-transfer", "Transfer to Savings (example)", "2026-11-09", None, "transfer", -20_000),
+    _txn("fin-span-dining", "Example bistro", "2026-11-01", "dining-out", "expense", -7400),
+    _txn("fin-span-groceries", "Example market", "2026-11-01", "groceries", "expense", -8840),
+    _txn("fin-span-transport", "Example ride", "2026-11-01", "transport", "expense", -4000),
+    _txn("fin-span-subs", "Example stream", "2026-11-01", "subscriptions", "expense", -4675),
+    _txn("fin-span-shop", "Example shop", "2026-11-01", "shopping", "expense", -1200),
+    _txn("fin-early-dining", "Example lunch counter", "2026-11-02", "dining-out", "expense", -12_000),
+    _txn("fin-early-groceries", "Example grocery run", "2026-11-03", "groceries", "expense", -15_000),
+    _txn("fin-early-transport", "Example fare", "2026-11-04", "transport", "expense", -8000),
+    _txn("fin-early-shop", "Example outlet", "2026-11-05", "shopping", "expense", -7042),
+    _txn("fin-early-power", "Example utility", "2026-11-06", "utilities", "expense", -5900),
+    _txn("fin-old", "Example 2025 shop", "2025-01-06", "shopping", "expense", -1500),
+]
+
+RECENT_IDS = ["fin-payroll", "fin-pizza", "fin-refund", "fin-northside", "fin-trader", "fin-bus", "fin-shell", "fin-stream", "fin-harbor", "fin-power", "fin-vendor", "fin-transfer", "fin-sweetgreen", "fin-deli", "fin-cafe"]
+
+ACCOUNTS = {
+    "netWorthCents": NET_WORTH_CENTS,
+    "assetsCents": 2_647_236,
+    "liabilitiesCents": 800_000,
+    "updatedAt": ACCOUNTS_UPDATED,
+    "accounts": [
+        {"name": "Example checking", "group": "Cash", "amountCents": 247_236},
+        {"name": "Example savings", "group": "Cash", "amountCents": 1_000_000},
+        {"name": "Example brokerage", "group": "Investments", "amountCents": 1_400_000},
+        {"name": "Example loan", "group": "Liability", "amountCents": 760_000},
+        {"name": "Example card", "group": "Liability", "amountCents": 40_000},
+    ],
+}
+
+GOALS = [
+    {"slug": "student-loan-payoff", "name": "Student loan payoff", "value": 62, "amount": "$12,400", "target": "$20,000", "note": "On track"},
+    {"slug": "emergency-fund", "name": "Emergency fund", "value": 41, "amount": "$4,100", "target": "$10,000", "note": "On track"},
+    {"slug": "nyc-move-fund", "name": "NYC move fund", "value": 28, "amount": "$2,240", "target": "$8,000", "note": "Behind"},
+    {"slug": "travel-japan", "name": "Travel — Japan", "value": 15, "amount": "$450", "target": "$3,000", "note": "Paused"},
+]
+
+
+def _date(ymd: str):
+    year, month, day = (int(part) for part in ymd.split("-"))
+    return datetime(year, month, day, 12, tzinfo=DETROIT)
+
+
+def detroit_ymd(ms: int) -> str:
+    moment = datetime.fromtimestamp(ms / 1000, DETROIT)
+    return moment.date().isoformat()
+
+
+def add_days(ymd: str, count: int) -> str:
+    return (_date(ymd) + timedelta(days=count)).date().isoformat()
+
+
+def week_start(ymd: str) -> str:
+    return add_days(ymd, -_date(ymd).weekday())
+
+
+def days_left(today: str, start: str):
+    if week_start(today) != start:
+        return None
+    return 7 - _date(today).weekday()
+
+
+def _format_day(ymd: str) -> str:
+    return f"{MONTHS[int(ymd[5:7]) - 1]} {int(ymd[8:10])}"
+
+
+def week_label(start: str, today: str) -> str:
+    end = add_days(start, 6)
+    same = start[5:7] == end[5:7]
+    span = f"{_format_day(start)}–{int(end[8:10])}" if same else f"{_format_day(start)}–{_format_day(end)}"
+    return f"This week · {span}" if week_start(today) == start else span
+
+
+def money(cents: int) -> str:
+    sign = "−" if cents < 0 else ""
+    absolute = abs(cents)
+    if absolute % 100:
+        text = f"{absolute / 100:.2f}"
+    else:
+        text = str(absolute // 100)
+    whole, _, frac = text.partition(".")
+    grouped = f"{int(whole):,}"
+    return f"{sign}${grouped}.{frac}" if frac else f"{sign}${grouped}"
+
+
+def effective(row: dict) -> dict:
+    correction = row.get("correction") or None
+    latest = None if correction else ((row.get("ledger") or {}).get("latest") or None)
+    overlay = correction or latest or {}
+    shown = dict(row)
+    shown["amountCents"] = overlay.get("amountCents", row["amountCents"])
+    shown["category"] = overlay["category"] if "category" in overlay else row["category"]
+    shown["type"] = overlay.get("type", row["type"])
+    shown["payee"] = overlay.get("payee") or row["payee"]
+    shown["date"] = overlay.get("date") or row["date"]
+    shown["corrected"] = bool(correction)
+    return shown
+
+
+def spend_cents(row: dict) -> int:
+    if row["type"] not in {"expense", "refund"}:
+        return 0
+    return -row["amountCents"]
+
+
+def _cap_state(spent: int, cap: int) -> dict:
+    if not cap:
+        return {"state": "none", "percent": None, "fill": 0, "tone": "muted", "status": "No cap set"}
+    ratio = spent / cap
+    percent = round(ratio * 100)
+    fill = min(100, max(0, percent))
+    if ratio > 1:
+        return {"state": "over", "percent": percent, "fill": 100, "tone": "over", "status": f"{money(spent - cap)} over"}
+    if ratio > 0.85:
+        return {"state": "near", "percent": percent, "fill": fill, "tone": "over", "status": f"{money(cap - spent)} left"}
+    return {"state": "under", "percent": percent, "fill": fill, "tone": "category", "status": f"{money(cap - spent)} left"}
+
+
+def _rows_in_week(txns, start: str):
+    end = add_days(start, 6)
+    return [effective(row) for row in txns if start <= effective(row)["date"] <= end]
+
+
+def default_caps() -> dict:
+    return {item["slug"]: item["capCents"] for item in CATEGORIES}
+
+
+ENVELOPE_CENTS = sum(default_caps().values())
+
+
+def parse_caps(raw, current: dict | None = None) -> dict:
+    current = current or default_caps()
+    if not isinstance(raw, dict):
+        return {"ok": False, "field": CATEGORIES[0]["slug"], "detail": "Enter an amount."}
+    caps = {}
+    for category in CATEGORIES:
+        slug = category["slug"]
+        if slug not in raw:
+            return {"ok": False, "field": slug, "detail": "Enter an amount."}
+        value = raw[slug]
+        if value in ("", None):
+            caps[slug] = 0
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {"ok": False, "field": slug, "detail": "Can’t be negative." if isinstance(value, int) and value < 0 else "Enter an amount."}
+        caps[slug] = value
+    if sum(caps.values()) != ENVELOPE_CENTS:
+        increased = next((item["slug"] for item in CATEGORIES if caps[item["slug"]] > current.get(item["slug"], 0)), None)
+        changed = next((item["slug"] for item in CATEGORIES if caps[item["slug"]] != current.get(item["slug"], 0)), None)
+        return {"ok": False, "field": increased or changed or CATEGORIES[0]["slug"], "detail": "That total has to stay $390."}
+    return {"ok": True, "caps": caps}
+
+
+def caps_for_week(txns, start: str, caps: dict | None = None):
+    amounts = caps or default_caps()
+    rows = _rows_in_week(txns, start)
+    result = []
+    for category in CATEGORIES:
+        cap_cents = amounts.get(category["slug"], category["capCents"])
+        spent = sum(spend_cents(row) for row in rows if row["category"] == category["slug"])
+        result.append({**category, "spentCents": spent, "capCents": cap_cents, **_cap_state(spent, cap_cents)})
+    return result
+
+
+def _ytd_points():
+    start = NET_WORTH_CENTS - YTD_DELTA_CENTS
+    points = []
+    span = YTD_Y[0] - YTD_Y[-1]
+    for index, value in enumerate(YTD_Y):
+        if index == 0:
+            points.append(start)
+        elif index == len(YTD_Y) - 1:
+            points.append(NET_WORTH_CENTS)
+        else:
+            points.append(round(start + ((YTD_Y[0] - value) / span) * (NET_WORTH_CENTS - start)))
+    return points
+
+
+def _weekly_series(txns, start_from=None, end=None):
+    weeks = {}
+    for row in (effective(item) for item in txns):
+        start = week_start(row["date"])
+        if start_from and start < start_from:
+            continue
+        if end and start > end:
+            continue
+        weeks[start] = weeks.get(start, 0) + spend_cents(row)
+    return [{"week": week, "cents": weeks[week]} for week in sorted(weeks)]
+
+
+def chart_for(txns, today: str, selected: str) -> dict:
+    current = week_start(today)
+    if selected == "YTD":
+        return {"range": "YTD", "kind": "net-worth", "caption": f"+{money(YTD_DELTA_CENTS)} (7.5%) YTD", "points": _ytd_points()}
+    start_from = None
+    if selected == "1W":
+        start_from = current
+    elif selected == "1M":
+        start_from = week_start(f"{today[:7]}-01")
+    elif selected == "1Y":
+        start_from = week_start(add_days(today, -365))
+    points = _weekly_series(txns, start_from, current)
+    return {"range": selected, "kind": "weekly", "caption": "", "points": [point["cents"] for point in points]}
+
+
+def month_progress(txns, today: str) -> dict:
+    start = f"{today[:7]}-01"
+    year, month = int(today[:4]), int(today[5:7])
+    end_day = (datetime(year + (month == 12), 1 if month == 12 else month + 1, 1) - timedelta(days=1)).day
+    shown = [effective(row) for row in txns]
+    spent = sum(spend_cents(row) for row in shown if start <= row["date"] <= today)
+    return {
+        "label": f"{_format_day(start)}–{int(today[8:10])}",
+        "spentCents": spent,
+        "planCents": PLAN_CENTS,
+        "percent": round(spent / PLAN_CENTS * 100),
+        "day": int(today[8:10]),
+        "days": end_day,
+    }
+
+
+def _date_label(ymd: str) -> str:
+    names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    return f"{names[_date(ymd).weekday()]} {_format_day(ymd)}"
+
+
+def _category_name(slug):
+    found = next((item for item in CATEGORIES if item["slug"] == slug), None)
+    return found["name"] if found else (slug or "Uncategorized")
+
+
+def _meta(row: dict) -> str:
+    if row["type"] == "income":
+        return f"{_date_label(row['date'])} · Income"
+    if row["type"] == "transfer":
+        return f"{_date_label(row['date'])} · Transfer"
+    if not row["category"]:
+        return f"{_date_label(row['date'])} · Uncategorized"
+    return f"{_date_label(row['date'])} · {_category_name(row['category'])}"
+
+
+def overview(txns, now_ms: int, week: str = "", selected: str = "", caps: dict | None = None) -> dict:
+    today = detroit_ymd(now_ms)
+    start = week_start(week) if week and len(week) == 10 else week_start(today)
+    if start > week_start(today):
+        return {"status": 400, "body": {"detail": "That week has not started.", "field": "week"}}
+    chosen = selected if selected in {"1W", "1M", "YTD", "1Y", "All"} else "YTD"
+    rows = _rows_in_week(txns, start)
+    order = {row_id: index for index, row_id in enumerate(RECENT_IDS)}
+    recent = sorted(rows, key=lambda row: (order.get(row["id"], 99), row["date"]))
+    return {
+        "status": 200,
+        "body": {
+            "asOf": today,
+            "weekStart": start,
+            "weekEnd": add_days(start, 6),
+            "label": week_label(start, today),
+            "current": start == week_start(today),
+            "daysLeft": days_left(today, start),
+            "previousWeek": add_days(start, -7),
+            "nextWeek": None if start == week_start(today) else add_days(start, 7),
+            "netWorthCents": NET_WORTH_CENTS,
+            "chart": chart_for(txns, today, chosen),
+            "month": month_progress(txns, today),
+            "caps": caps_for_week(txns, start, caps),
+            "recent": [
+                {"id": row["id"], "payee": row["payee"], "amountCents": row["amountCents"], "meta": _meta(row), "corrected": row["corrected"]}
+                for row in recent
+            ],
+            "empty": len(rows) == 0,
+        },
+    }
+
+
+def category_view(txns, now_ms: int, week: str, category_value: str, caps: dict | None = None) -> dict:
+    category = next((item for item in CATEGORIES if item["slug"] == category_value or item["name"].lower() == category_value.lower()), None)
+    if not category:
+        return {"status": 404, "body": {"detail": "That category is not here."}}
+    today = detroit_ymd(now_ms)
+    start = week_start(week) if week and len(week) == 10 else week_start(today)
+    if start > week_start(today):
+        return {"status": 400, "body": {"detail": "That week has not started.", "field": "week"}}
+    rows = [row for row in _rows_in_week(txns, start) if row["category"] == category["slug"]]
+    spent = sum(spend_cents(row) for row in rows)
+    cap_cents = (caps or default_caps()).get(category["slug"], category["capCents"])
+    return {
+        "status": 200,
+        "body": {
+            **category,
+            "spentCents": spent,
+            "capCents": cap_cents,
+            **_cap_state(spent, cap_cents),
+            "weekStart": start,
+            "label": week_label(start, today),
+            "daysLeft": days_left(today, start),
+            "rows": [
+                {"id": row["id"], "payee": row["payee"], "amountCents": row["amountCents"], "meta": f"{_date_label(row['date'])} · {category['name']}", "corrected": row["corrected"]}
+                for row in rows
+            ],
+        },
+    }
+
+
+def public_transactions(txns):
+    shown = []
+    for row in txns:
+        item = effective(row)
+        shown.append(
+            {
+                "id": item["id"],
+                "payee": item["payee"],
+                "amountCents": item["amountCents"],
+                "date": item["date"],
+                "category": item["category"],
+                "type": item["type"],
+                "corrected": item["corrected"],
+            }
+        )
+    return shown
+
+
+TXN_TYPES = {"expense", "income", "transfer", "refund"}
+
+
+def _recent_meta(row: dict) -> str:
+    label = _date_label(row["date"])
+    if row["type"] == "income":
+        return f"{label} · Income"
+    if row["type"] == "transfer":
+        return f"{label} · Transfer"
+    if row["type"] == "refund":
+        return f"{label} · {_category_name(row.get('category')) if row.get('category') else 'Refund'}"
+    if not row.get("category"):
+        return f"{label} · Uncategorized"
+    return f"{label} · {_category_name(row.get('category'))}"
+
+
+def present_transaction(row: dict) -> dict:
+    shown = effective(row)
+    ledger = row.get("ledger") or {}
+    return {
+        "id": shown["id"],
+        "payee": shown["payee"],
+        "amountCents": shown["amountCents"],
+        "date": shown["date"],
+        "category": shown["category"],
+        "type": shown["type"],
+        "source": row.get("source") or "manual",
+        "meta": _recent_meta(shown),
+        "corrected": shown["corrected"],
+        "uncategorized": shown["type"] == "expense" and not shown.get("category"),
+        "original": ledger.get("original"),
+        "latest": ledger.get("latest"),
+        "correction": (
+            {"amountCents": row["correction"].get("amountCents"), "category": row["correction"].get("category"), "payee": row["correction"].get("payee") or row.get("payee")}
+            if row.get("correction")
+            else None
+        ),
+    }
+
+
+def transactions_for_week(txns, now_ms: int, week: str = "") -> dict:
+    today = detroit_ymd(now_ms)
+    start = week_start(week) if week and len(week) == 10 else week_start(today)
+    if start > week_start(today):
+        return {"status": 400, "body": {"detail": "That week has not started.", "field": "week"}}
+    rows = []
+    for row in _rows_in_week(txns, start):
+        original = next((item for item in txns if item["id"] == row["id"]), row)
+        rows.append(present_transaction(original))
+    return {
+        "status": 200,
+        "body": {
+            "weekStart": start,
+            "label": week_label(start, today),
+            "daysLeft": days_left(today, start),
+            "today": today,
+            "previousWeek": add_days(start, -7),
+            "nextWeek": add_days(start, 7) if add_days(start, 7) <= week_start(today) else None,
+            "rows": rows,
+        },
+    }
+
+
+def _resolve_category(value):
+    if value in ("", None):
+        return None
+    text = str(value)
+    return next((item for item in CATEGORIES if item["slug"] == text or item["name"].lower() == text.lower()), None)
+
+
+def _clean_payee(value) -> str:
+    payee = " ".join(str(value or "").split())
+    return payee if 1 <= len(payee) <= 80 else ""
+
+
+def _clean_date(value) -> str:
+    date = str(value or "")
+    if len(date) != 10:
+        return ""
+    try:
+        parsed = _date(date)
+    except ValueError:
+        return ""
+    return date if parsed.date().isoformat() == date else ""
+
+
+def _signed_amount(kind: str, cents):
+    if isinstance(cents, bool) or not isinstance(cents, int) or cents == 0 or abs(cents) > 100_000_000:
+        return None
+    return abs(cents) if kind in {"income", "refund"} else -abs(cents)
+
+
+def _read_draft(body: dict, shown: dict) -> dict:
+    kind = str((body or {}).get("type") or shown.get("type") or "")
+    if kind not in TXN_TYPES:
+        return {"ok": False, "detail": "Choose a type.", "field": "type"}
+    payee = _clean_payee(body["payee"] if isinstance(body, dict) and "payee" in body else shown.get("payee"))
+    if not payee:
+        return {"ok": False, "detail": "Enter a name.", "field": "payee"}
+    date = _clean_date(body["date"] if isinstance(body, dict) and "date" in body else shown.get("date"))
+    if not date:
+        return {"ok": False, "detail": "Enter a date.", "field": "date"}
+    raw = body["amountCents"] if isinstance(body, dict) and "amountCents" in body else shown.get("amountCents")
+    amount = _signed_amount(kind, raw)
+    if amount is None:
+        return {"ok": False, "detail": "Enter an amount.", "field": "amount"}
+    if kind in {"transfer", "income"}:
+        category = None
+    elif isinstance(body, dict) and "category" in body:
+        category = body.get("category")
+    else:
+        category = shown.get("category")
+    if category in ("", None):
+        category = None
+    else:
+        resolved = _resolve_category(category)
+        if not resolved:
+            return {"ok": False, "detail": "Choose a category.", "field": "category"}
+        category = resolved["slug"]
+    return {"ok": True, "draft": {"payee": payee, "date": date, "type": kind, "amountCents": amount, "category": category}}
+
+
+def create_transaction(rows, body, now_ms: int, seq: int) -> dict:
+    parsed = _read_draft(body if isinstance(body, dict) else {}, {"type": "expense", "category": None, "amountCents": 0})
+    if not parsed["ok"]:
+        return {"status": 400, "body": {"detail": parsed["detail"], "field": parsed["field"]}, "rows": rows}
+    row = {"id": f"fin-manual-{now_ms}-{seq}", "source": "manual", "createdAt": now_ms, **parsed["draft"]}
+    return {"status": 201, "body": present_transaction(row), "rows": [row, *rows]}
+
+
+def patch_transaction(rows, row_id: str, body, now_ms: int) -> dict:
+    index = next((i for i, item in enumerate(rows) if item["id"] == row_id), -1)
+    if index < 0:
+        return {"status": 404, "body": {"detail": "That transaction is not here."}, "rows": rows}
+    current = rows[index]
+    parsed = _read_draft(body if isinstance(body, dict) else {}, effective(current))
+    if not parsed["ok"]:
+        return {"status": 400, "body": {"detail": parsed["detail"], "field": parsed["field"]}, "rows": rows}
+    if current.get("source") == "ledger":
+        nxt = {**current, "correction": {**parsed["draft"], "updatedAt": now_ms}}
+    else:
+        nxt = {**current, **parsed["draft"], "updatedAt": now_ms}
+    copy_rows = list(rows)
+    copy_rows[index] = nxt
+    return {"status": 200, "body": present_transaction(nxt), "rows": copy_rows}
+
+
+def simulate_ledger_refresh(rows, now_ms: int) -> list:
+    refreshed = []
+    for row in rows:
+        if row.get("id") != "fin-shell" or row.get("source") != "ledger":
+            refreshed.append(row)
+            continue
+        ledger = dict(row.get("ledger") or {})
+        ledger["latest"] = {
+            "payee": row.get("payee"),
+            "amountCents": -2418,
+            "category": "shopping",
+            "importedAt": datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(),
+        }
+        refreshed.append({**row, "ledger": ledger})
+    return refreshed
+
+
+def reset_ledger(rows, row_id: str) -> dict:
+    index = next((i for i, item in enumerate(rows) if item["id"] == row_id), -1)
+    if index < 0:
+        return {"status": 404, "body": {"detail": "That transaction is not here."}, "rows": rows}
+    current = rows[index]
+    if current.get("source") != "ledger":
+        return {"status": 400, "body": {"detail": "That row was entered here."}, "rows": rows}
+    if not current.get("correction"):
+        return {"status": 400, "body": {"detail": "There is no correction to reset."}, "rows": rows}
+    nxt = {key: value for key, value in current.items() if key != "correction"}
+    copy_rows = list(rows)
+    copy_rows[index] = nxt
+    return {"status": 200, "body": present_transaction(nxt), "rows": copy_rows}

@@ -11,8 +11,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FIXTURES = JSON.parse(readFileSync(new URL("../lib/fixtures.json", import.meta.url), "utf8"));
 
 const CONTRACT = {
-  "/api/finance/accounts": "accounts",
-  "/api/finance/transactions": "transactions",
   "/api/jobs/applications": "applications",
   "/api/jobs/statuses": "statuses",
   "/api/journal/entries": "entries",
@@ -79,6 +77,21 @@ test("next http login, session, logout, revoke, and contract json", { timeout: 1
       assert.match(response.headers.get("content-type") || "", /application\/json/, path);
       assert.deepEqual(await response.json(), FIXTURES[key]);
     }
+    const accounts = await fetch(`${base()}/api/finance/accounts`, { headers: auth });
+    assert.equal(accounts.status, 200);
+    assert.equal((await accounts.json()).netWorthCents, 1847236);
+    const transactions = await fetch(`${base()}/api/finance/transactions?asOf=2026-11-10T15:00:00-05:00`, { headers: auth });
+    assert.equal(transactions.status, 200);
+    assert.equal((await transactions.json()).rows.some((row) => row.payee === "Joe's Pizza"), true);
+    const financeOverview = await fetch(`${base()}/api/finance/overview?asOf=2026-11-10T15:00:00-05:00`, { headers: auth });
+    assert.equal(financeOverview.status, 200);
+    const financeBody = await financeOverview.json();
+    assert.equal(financeBody.month.spentCents, 112600);
+    assert.equal(financeBody.label, "This week · Nov 9–15");
+    const goals = await fetch(`${base()}/api/finance/goals`, { headers: auth });
+    assert.equal(goals.status, 200);
+    const goalRows = await goals.json();
+    assert.equal(goalRows.find((goal) => goal.slug === "emergency-fund").amount, "$4,100");
 
     const secondLogin = await fetch(`${base()}/api/session/login`, {
       method: "POST",

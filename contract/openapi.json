@@ -3,7 +3,7 @@
   "info": {
     "title": "joehub public read API",
     "version": "0.1.0",
-    "description": "Synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. Finance, jobs, and journal routes are read-only fixtures. POST /api/tasks creates one unfinished task and honors an Idempotency-Key for about 24 hours. POST /api/grocery creates one grocery item and honors an Idempotency-Key for about 24 hours. No raw SQL, file download, or export. The browser authenticates with the joehub_session cookie."
+    "description": "Synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. Finance routes are a synthetic read model. Jobs and journal routes are read-only fixtures. POST /api/tasks creates one unfinished task and honors an Idempotency-Key for about 24 hours. POST /api/grocery creates one grocery item and honors an Idempotency-Key for about 24 hours. No raw SQL, file download, or export. The browser authenticates with the joehub_session cookie."
   },
   "servers": [
     {
@@ -16,18 +16,95 @@
     }
   ],
   "paths": {
+    "/api/finance/overview": {
+      "get": {
+        "operationId": "financeOverview",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "week", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "range", "in": "query", "required": false, "schema": { "type": "string", "enum": ["1W", "1M", "YTD", "1Y", "All"] } }
+        ],
+        "responses": { "200": { "description": "Synthetic week, caps, and chart" } }
+      }
+    },
+    "/api/finance/weeks/{start}/categories/{category}": {
+      "get": {
+        "operationId": "financeCategory",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "start", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "category", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Synthetic category rows for one week" } }
+      }
+    },
+    "/api/finance/caps": {
+      "patch": {
+        "operationId": "financeSaveCaps",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Saved weekly caps. The set total stays $390." },
+          "400": { "description": "Invalid amount or the set total changed." }
+        }
+      }
+    },
     "/api/finance/accounts": {
       "get": {
         "operationId": "financeAccounts",
         "security": [{ "sessionCookie": [] }],
-        "responses": { "200": { "description": "Synthetic account balances" } }
+        "responses": { "200": { "description": "Synthetic account snapshot" } }
+      }
+    },
+    "/api/finance/goals": {
+      "get": {
+        "operationId": "financeGoals",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic goals" } }
       }
     },
     "/api/finance/transactions": {
       "get": {
         "operationId": "financeTransactions",
         "security": [{ "sessionCookie": [] }],
-        "responses": { "200": { "description": "Synthetic transactions" } }
+        "responses": { "200": { "description": "Synthetic transactions for one week" } }
+      },
+      "post": {
+        "operationId": "financeCreateTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "name": "Idempotency-Key", "in": "header", "required": false, "schema": { "type": "string" } }],
+        "responses": {
+          "201": { "description": "Created transaction" },
+          "400": { "description": "Invalid draft" }
+        }
+      }
+    },
+    "/api/finance/ledger/simulate-refresh": {
+      "post": {
+        "operationId": "financeSimulateRefresh",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Synthetic ledger refresh for the sample Shell row" }, "404": { "description": "Disabled in production" } }
+      }
+    },
+    "/api/finance/transactions/{id}": {
+      "get": {
+        "operationId": "financeTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "One synthetic transaction" }, "404": { "description": "Missing transaction" } }
+      },
+      "patch": {
+        "operationId": "financePatchTransaction",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Updated transaction" }, "400": { "description": "Invalid draft" }, "404": { "description": "Missing transaction" } }
+      }
+    },
+    "/api/finance/transactions/{id}/reset-ledger": {
+      "post": {
+        "operationId": "financeResetLedger",
+        "security": [{ "sessionCookie": [] }],
+        "responses": { "200": { "description": "Correction removed and the latest import kept" }, "400": { "description": "Nothing to reset" } }
       }
     },
     "/api/jobs/applications": {

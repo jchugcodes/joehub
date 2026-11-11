@@ -464,19 +464,27 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.equal(names.filter((name) => name === "Lemons").length, 1);
 
     await send("Page.navigate", { url: `${base()}/finance` });
-    await waitFor(send, "document.body.innerText.includes('Finance') ? 'yes' : ''", "finance");
-    const financeFont = await evalPage(
+    await waitFor(
       send,
-      `(() => {
+      "location.pathname.startsWith('/finance') && document.body.classList.contains('font-sans') && document.body.querySelector('.finance-type') ? 'yes' : ''",
+      "finance route",
+    );
+    await evalPage(send, "document.fonts.ready.then(() => 'ready')");
+    const financeFontExpression = `(() => {
         const outfit = getComputedStyle(document.documentElement).getPropertyValue("--font-outfit");
         const body = getComputedStyle(document.body).fontFamily;
         return { outfit, body, grocery: document.querySelector(".grocery-type") ? "yes" : "no", tasks: document.querySelector(".tasks-type") ? "yes" : "no" };
-      })()`,
-    );
+      })()`;
+    const fontBy = Date.now() + 3000;
+    let financeFont = await evalPage(send, financeFontExpression);
+    while (Date.now() < fontBy && !(/DM Sans|__DM_Sans/i.test(financeFont?.body || "") && !/Outfit/i.test(financeFont?.body || ""))) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      financeFont = await evalPage(send, financeFontExpression);
+    }
     assert.equal(financeFont.grocery, "no");
     assert.equal(financeFont.tasks, "no");
-    const financeOutfit = financeFont.outfit.replaceAll(/['"]/g, "").trim().toLowerCase();
-    assert.equal(financeFont.body.toLowerCase().includes(financeOutfit), false);
+    assert.match(financeFont.body, /DM Sans|__DM_Sans/i, JSON.stringify(financeFont));
+    assert.doesNotMatch(financeFont.body, /Outfit/i, JSON.stringify(financeFont));
   } finally {
     await page.close();
     await stopProcess(chrome);

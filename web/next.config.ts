@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/finance/accounts": ["./lib/fixtures.json"],
     "/api/finance/transactions": ["./lib/fixtures.json"],
+    "/api/finance/transactions/[id]": ["./lib/fixtures.json"],
+    "/api/finance/transactions/[id]/reset-ledger": ["./lib/fixtures.json"],
+    "/api/finance/ledger/simulate-refresh": ["./lib/fixtures.json"],
     "/api/jobs/applications": ["./lib/fixtures.json"],
     "/api/jobs/statuses": ["./lib/fixtures.json"],
     "/api/journal/entries": ["./lib/fixtures.json"],

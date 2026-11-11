@@ -61,7 +61,7 @@ module.exports = {
         "tab-line": "var(--tab-line)",
       },
       fontFamily: {
-        /* App default stays DM Sans. Tasks and Grocery opt into Outfit. */
+        /* App default stays DM Sans. Tasks, Grocery, and Finance opt into Outfit. */
         sans: ["var(--font-dm)", "DM Sans", "system-ui", "sans-serif"],
         outfit: ["var(--font-outfit)", "Outfit", "system-ui", "sans-serif"],
       },

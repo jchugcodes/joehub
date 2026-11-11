@@ -1,6 +1,7 @@
 import { createStore } from "./sessions.mjs";
 import { createLimiter } from "./ratelimit.mjs";
 import { readKeyPrefix } from "./keys.mjs";
+import { installMemoryFinance } from "./finance.mjs";
 import { installMemoryGrocery } from "./grocery.mjs";
 import { installMemoryTasks } from "./tasks.mjs";
 import { createUpstashLimiter, createUpstashStore, StoreError } from "./store-upstash.mjs";
@@ -64,7 +65,7 @@ function build(env) {
     };
   }
   return {
-    store: installMemoryGrocery(installMemoryTasks(createStore())),
+    store: installMemoryFinance(installMemoryGrocery(installMemoryTasks(createStore()))),
     loginLimiter: createLimiter(5),
     apiLimiter: createLimiter(60),
   };

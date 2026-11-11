@@ -96,6 +96,21 @@ def test_contract_paths_match_the_app() -> None:
         if path in {"/api/grocery/{id}/check", "/api/grocery/{id}/uncheck"}:
             assert expected == {"post"}
             continue
+        if path == "/api/finance/caps":
+            assert expected == {"patch"}
+            continue
+        if path == "/api/finance/transactions":
+            assert expected == {"get", "post"}
+            continue
+        if path == "/api/finance/transactions/{id}":
+            assert expected == {"get", "patch"}
+            continue
+        if path == "/api/finance/ledger/simulate-refresh":
+            assert expected == {"post"}
+            continue
+        if path == "/api/finance/transactions/{id}/reset-ledger":
+            assert expected == {"post"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -121,7 +136,8 @@ def test_login_cookie_session_logout_and_revoke() -> None:
     cookie = login(client)
     accounts = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert accounts.status_code == 200
-    assert accounts.json()[0]["name"] == "Sample Checking"
+    assert accounts.json()["netWorthCents"] == 1_847_236
+    assert accounts.json()["accounts"][0]["name"] == "Example checking"
     assert accounts.headers["cache-control"] == "no-store"
     devices = client.get("/api/session/devices", cookies={COOKIE_NAME: cookie})
     assert devices.status_code == 200
@@ -177,15 +193,93 @@ def test_logs_omit_row_data(caplog: pytest.LogCaptureFixture) -> None:
     client, _app = client_app()
     cookie = login(client)
     caplog.set_level(logging.INFO, logger="joehub_api.access")
-    response = client.get("/api/finance/transactions", cookies={COOKIE_NAME: cookie})
+    response = client.get("/api/finance/transactions?asOf=2026-11-10T15:00:00-05:00", cookies={COOKIE_NAME: cookie})
     assert response.status_code == 200
-    assert "SYNTHETIC-ACORN-PAYEE" in response.text
+    assert "Joe's Pizza" in response.text
     messages = " ".join(
         record.getMessage() for record in caplog.records if record.name == "joehub_api.access"
     )
     assert "/api/finance/transactions" in messages
-    assert "SYNTHETIC-ACORN-PAYEE" not in messages
+    assert "Joe's Pizza" not in messages
     assert SECRET not in messages
+
+
+def test_finance_transaction_writes() -> None:
+    client, app = client_app()
+    cookie = login(client)
+    query = {"asOf": "2026-11-10T15:00:00-05:00"}
+    created = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        headers={"Idempotency-Key": "demo-1"},
+        json={"payee": "Corner cafe", "amountCents": 1250, "date": "2026-11-10", "type": "expense"},
+    )
+    assert created.status_code == 201
+    assert created.json()["uncategorized"] is True
+    replay = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        headers={"Idempotency-Key": "demo-1"},
+        json={"payee": "Other", "amountCents": 900, "date": "2026-11-10", "type": "expense"},
+    )
+    assert replay.status_code == 201
+    assert replay.json()["id"] == created.json()["id"]
+    listed = client.get("/api/finance/transactions", params=query, cookies={COOKIE_NAME: cookie})
+    assert listed.status_code == 200
+    assert sum(1 for row in listed.json()["rows"] if row["payee"] == "Corner cafe") == 1
+    income = client.post(
+        "/api/finance/transactions",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Side gig", "amountCents": 5000, "date": "2026-11-10", "type": "income", "category": "dining-out"},
+    )
+    assert income.status_code == 201
+    assert income.json()["amountCents"] == 5000
+    assert income.json()["category"] is None
+    patched = client.patch(
+        "/api/finance/transactions/fin-shell",
+        params=query,
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Shell (example)", "amountCents": 2218, "date": "2026-11-09", "type": "expense", "category": "shopping"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["category"] == "shopping"
+    assert patched.json()["corrected"] is True
+    stored = next(row for row in app.state.finance_rows if row["id"] == "fin-shell")
+    assert stored["category"] == "transport"
+    assert stored["correction"]["category"] == "shopping"
+    missing = client.patch(
+        "/api/finance/transactions/missing",
+        cookies={COOKIE_NAME: cookie},
+        json={"payee": "Nope", "amountCents": 100, "date": "2026-11-10", "type": "expense"},
+    )
+    assert missing.status_code == 404
+
+
+def test_ledger_refresh_keeps_a_correction_until_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, app = client_app()
+    cookie = login(client)
+    refreshed = client.post("/api/finance/ledger/simulate-refresh", cookies={COOKIE_NAME: cookie})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["corrected"] is True
+    assert refreshed.json()["latest"]["amountCents"] == -2418
+    assert refreshed.json()["latest"]["category"] == "shopping"
+    assert refreshed.json()["category"] == "transport"
+    assert refreshed.json()["amountCents"] == -2218
+    pizza = next(row for row in app.state.finance_rows if row["id"] == "fin-pizza")
+    assert pizza.get("ledger") in (None, {})
+    kept = next(row for row in app.state.finance_rows if row["id"] == "fin-shell")
+    assert kept["correction"]["category"] == "transport"
+    reset = client.post("/api/finance/transactions/fin-shell/reset-ledger", cookies={COOKIE_NAME: cookie})
+    assert reset.status_code == 200
+    assert reset.json()["corrected"] is False
+    assert reset.json()["category"] == "shopping"
+    assert reset.json()["amountCents"] == -2418
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    hidden = client.post("/api/finance/ledger/simulate-refresh", cookies={COOKIE_NAME: cookie})
+    assert hidden.status_code == 404
 
 
 def test_dev_login_disabled_without_the_flag() -> None:
@@ -283,8 +377,6 @@ def test_http_contract_is_json_and_matches_fixtures() -> None:
     cookie = login(client)
     fixtures = json.loads((REPO / "contract" / "fixtures.json").read_text(encoding="utf-8"))
     mapping = {
-        "/api/finance/accounts": "accounts",
-        "/api/finance/transactions": "transactions",
         "/api/jobs/applications": "applications",
         "/api/jobs/statuses": "statuses",
         "/api/journal/entries": "entries",
@@ -295,6 +387,27 @@ def test_http_contract_is_json_and_matches_fixtures() -> None:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")
         assert response.json() == fixtures[key]
+    snapshot = client.get("/api/finance/accounts", cookies={COOKIE_NAME: cookie})
+    assert snapshot.json()["netWorthCents"] == 1_847_236
+    overview_body = client.get("/api/finance/overview", params={"asOf": "2026-11-10T15:00:00-05:00"}, cookies={COOKIE_NAME: cookie}).json()
+    assert overview_body["month"]["spentCents"] == 112_600
+    assert overview_body["label"] == "This week · Nov 9–15"
+    moved = client.patch(
+        "/api/finance/caps",
+        cookies={COOKIE_NAME: cookie},
+        json={"caps": {"dining-out": 9000, "groceries": 11000, "transport": 6000, "subscriptions": 5500, "shopping": 7500, "utilities": 0}},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["envelopeCents"] == 39000
+    over = client.patch(
+        "/api/finance/caps",
+        cookies={COOKIE_NAME: cookie},
+        json={"caps": {"dining-out": 10000, "groceries": 12000, "transport": 6000, "subscriptions": 5500, "shopping": 7500, "utilities": 0}},
+    )
+    assert over.status_code == 400
+    assert over.json()["field"] == "dining-out"
+    after = client.get("/api/finance/overview", params={"asOf": "2026-11-10T15:00:00-05:00"}, cookies={COOKIE_NAME: cookie}).json()
+    assert next(cap["capCents"] for cap in after["caps"] if cap["slug"] == "dining-out") == 9000
     unprefixed = client.get("/finance/accounts", cookies={COOKIE_NAME: cookie})
     assert unprefixed.status_code == 404
     assert unprefixed.json() != fixtures["accounts"]

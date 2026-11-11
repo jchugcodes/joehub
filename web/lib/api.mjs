@@ -372,6 +372,183 @@ export function handleGroceryItemUncheck(id, headers, env, store, limiter, now, 
   return handleGroceryCheck(id, headers, env, store, limiter, now, ip, "uncheckGrocery");
 }
 
+function financeWhen(now, url) {
+  const params = url ? new URL(url).searchParams : new URLSearchParams();
+  const raw = params.get("asOf");
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return { now: Number.isFinite(parsed) ? parsed : now, week: params.get("week") || "", range: params.get("range") || "" };
+}
+
+export async function handleFinanceOverview(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeOverview !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    return await store.financeOverview(query.now, query.week, query.range);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCategory(headers, env, store, limiter, now, ip, url, week, category) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    return await store.financeCategory(query.now, week || query.week, category);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceAccounts(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeAccounts !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeAccounts() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceGoals(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeGoals !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeGoals() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCaps(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, body: { detail: "Enter an amount.", field: "dining-out" } };
+  }
+  try {
+    if (!store || typeof store.financeSaveCaps !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeSaveCaps(body, idem.key);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceTransactions(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeTransactions !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    return await store.financeTransactions(query.now, query.week);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+async function readTxnBody(request) {
+  try {
+    const body = await request.json();
+    return body && typeof body === "object" ? body : {};
+  } catch {
+    return null;
+  }
+}
+
+export async function handleFinanceCreateTransaction(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  const body = await readTxnBody(request);
+  if (!body) return { status: 400, body: { detail: "Enter a name.", field: "payee" } };
+  try {
+    if (!store || typeof store.financeCreateTransaction !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeCreateTransaction(body, financeWhen(now, request.url).now, idem.key);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceTransaction(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeTransaction !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeTransaction(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceSimulateRefresh(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") return { status: 404, body: { detail: "Not found." } };
+  try {
+    if (!store || typeof store.financeSimulateRefresh !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeSimulateRefresh(now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceResetLedger(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeResetLedger !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeResetLedger(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinancePatchTransaction(id, headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const body = await readTxnBody(request);
+  if (!body) return { status: 400, body: { detail: "Enter a name.", field: "payee" } };
+  try {
+    if (!store || typeof store.financePatchTransaction !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financePatchTransaction(id, body, financeWhen(now, request.url).now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleGroceryItemGet(id, headers, env, store, limiter, now, ip) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

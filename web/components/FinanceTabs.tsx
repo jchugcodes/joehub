@@ -3,14 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { Icon } from "./Icon";
 
 const links = [
   { href: "/finance", label: "Overview" },
-  { href: "/finance/dining-out", label: "Categories" },
+  { href: "/finance/categories", label: "Categories" },
   { href: "/finance/goals", label: "Goals" },
   { href: "/finance/accounts", label: "Accounts" },
 ];
+
+function selected(pathname: string, href: string) {
+  if (href === "/finance") return pathname === "/finance";
+  if (href === "/finance/categories") return pathname.startsWith("/finance/categories");
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function revealTab(item: HTMLElement, scroller: HTMLElement) {
   const itemBox = item.getBoundingClientRect();
@@ -20,7 +25,7 @@ function revealTab(item: HTMLElement, scroller: HTMLElement) {
   if (itemBox.left < view.left + margin) scroller.scrollLeft -= view.left + margin - itemBox.left;
 }
 
-export function FinanceTabs({ hint = false }: { hint?: boolean }) {
+export function FinanceTabs() {
   const pathname = usePathname();
   const scrollerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -38,7 +43,7 @@ export function FinanceTabs({ hint = false }: { hint?: boolean }) {
     <nav aria-label="Finance sections" data-tabs="contained" className="finance-sections flex w-full min-w-0 items-end border-b border-line">
       <div ref={scrollerRef} className="flex min-w-0 flex-1 items-end gap-6 overflow-x-auto overflow-y-hidden px-5 scroll-px-5">
         {links.map((link) => {
-          const current = pathname === link.href;
+          const current = selected(pathname, link.href);
           return (
             <Link
               key={link.href}
@@ -51,8 +56,8 @@ export function FinanceTabs({ hint = false }: { hint?: boolean }) {
                   if (scroller) revealTab(node, scroller);
                 };
               }}
-              className={`shrink-0 scroll-mx-2 border-b-[2.5px] pb-2.5 text-ui-15 ${
-                current ? "border-finance-primary font-bold text-ink" : "border-transparent font-medium text-muted"
+              className={`finance-type shrink-0 scroll-mx-2 border-b-[2.5px] pb-2.5 text-body ${
+                current ? "border-finance-primary font-medium text-ink" : "border-transparent font-medium text-muted"
               }`}
             >
               {link.label}
@@ -60,11 +65,6 @@ export function FinanceTabs({ hint = false }: { hint?: boolean }) {
           );
         })}
       </div>
-      {hint ? (
-        <span className="swipe-hint flex shrink-0 items-center gap-1 pb-2.5 pr-5 text-ui-11 text-muted">
-          swipe <Icon name="swipe" size={14} />
-        </span>
-      ) : null}
     </nav>
   );
 }
