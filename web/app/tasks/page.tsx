@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
+import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 
 const CACHE_KEY = "joehub.tasks.unfinished";
 
 type Priority = "High" | "Medium" | "Low";
-type Status = "To do" | "Doing" | "Blocked";
+type Status = "To do" | "Doing" | "Blocked" | "Done";
 
 interface Task {
   id: string;
@@ -107,7 +108,9 @@ export default function TasksPage() {
   const [offline, setOffline] = useState(false);
   const [link, setLink] = useState<"live" | "offline" | "reconnecting" | "back">("live");
   const downRef = useRef(false);
-  const [open, setOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | "add" | "edit">(null);
+  const [editingId, setEditingId] = useState("");
+  const [gone, setGone] = useState("");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [titleError, setTitleError] = useState("");
   const [formError, setFormError] = useState("");
@@ -233,15 +236,36 @@ export default function TasksPage() {
   function openAdd() {
     if (offline || mode !== "ready") return;
     idemRef.current = newKey();
+    setEditingId("");
     setDraft(emptyDraft());
     setTitleError("");
     setFormError("");
-    setOpen(true);
+    setGone("");
+    setSheet("add");
+  }
+
+  function openEdit(task: Task) {
+    if (offline || mode !== "ready") return;
+    const status: Status = task.status === "Doing" || task.status === "Blocked" ? task.status : "To do";
+    setEditingId(task.id);
+    setDraft({
+      title: task.title,
+      notes: task.notes || "",
+      dueDate: task.dueDate || "",
+      priority: task.priority || "",
+      status,
+      project: task.project || "",
+    });
+    setTitleError("");
+    setFormError("");
+    setGone("");
+    setSheet("edit");
   }
 
   function cancel() {
     if (savingRef.current) return;
-    setOpen(false);
+    setSheet(null);
+    setEditingId("");
     setTitleError("");
     setFormError("");
     setDraft(emptyDraft());
@@ -261,41 +285,63 @@ export default function TasksPage() {
     setSaving(true);
     setTitleError("");
     setFormError("");
-    const payload: Record<string, string> = { title, status: draft.status };
-    if (draft.notes.trim()) payload.notes = draft.notes.trim();
-    if (draft.dueDate) payload.dueDate = draft.dueDate;
-    if (draft.priority) payload.priority = draft.priority;
-    if (draft.project.trim()) payload.project = draft.project.trim();
+    const editing = sheet === "edit";
+    const payload: Record<string, string | null> = editing
+      ? {
+          title,
+          notes: draft.notes.trim() || null,
+          dueDate: draft.dueDate || null,
+          priority: draft.priority || null,
+          status: draft.status,
+          project: draft.project.trim() || null,
+        }
+      : { title, status: draft.status };
+    if (!editing) {
+      if (draft.notes.trim()) payload.notes = draft.notes.trim();
+      if (draft.dueDate) payload.dueDate = draft.dueDate;
+      if (draft.priority) payload.priority = draft.priority;
+      if (draft.project.trim()) payload.project = draft.project.trim();
+    }
     try {
-      const response = await fetch("/api/tasks", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": idemRef.current,
-        },
+      const response = await fetch(editing ? `/api/tasks/${editingId}` : "/api/tasks", {
+        method: editing ? "PATCH" : "POST",
+        headers: editing
+          ? { "content-type": "application/json" }
+          : { "content-type": "application/json", "idempotency-key": idemRef.current },
         body: JSON.stringify(payload),
       });
       const body = (await response.json().catch(() => null)) as { detail?: string; field?: string; id?: string } | null;
+      if (response.status === 404 && editing) {
+        setSheet(null);
+        setEditingId("");
+        setDraft(emptyDraft());
+        setGone(body?.detail || "This task is no longer here.");
+        void load();
+        return;
+      }
       if (response.status === 400 && body?.field === "title") {
         setTitleError(body.detail || "Enter a title.");
         document.getElementById("task-title")?.focus();
         return;
       }
       if (!response.ok || !body || typeof body.id !== "string") {
-        setFormError("Couldn't save this task. Your draft is still here.");
+        setFormError(editing ? "Couldn't save these edits. Your changes are still here." : "Couldn't save this task. Your draft is still here.");
         return;
       }
       const task = body as Task;
       const at = Date.now();
-      const next = [task, ...tasks.filter((item) => item.id !== task.id)];
+      const next = editing
+        ? tasks.map((item) => (item.id === task.id ? task : item)).filter((item) => item.status !== "Done")
+        : [task, ...tasks.filter((item) => item.id !== task.id)];
       writeCache(next, at);
       setTasks(next);
       setSavedAt(at);
-      setOpen(false);
+      setSheet(null);
+      setEditingId("");
       setDraft(emptyDraft());
       void load();
     } catch {
-      setFormError("Couldn't save this task. Your draft is still here.");
+      setFormError(editing ? "Couldn't save these edits. Your changes are still here." : "Couldn't save this task. Your draft is still here.");
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -307,7 +353,7 @@ export default function TasksPage() {
   const showAddBar = !showFab && !offline && (wide || (mode === "ready" && tasks.length === 0));
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && open ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
+    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="relative min-w-0 flex-1">
       <header className="px-5 pt-3">
         <p className="text-meta text-muted">joehub</p>
@@ -339,6 +385,11 @@ export default function TasksPage() {
             Add a task
           </button>
         </div>
+      ) : null}
+      {gone ? (
+        <p role="alert" data-missing="true" className="mx-4 mt-3 rounded-xl bg-line px-3 py-2 text-meta font-medium">
+          {gone}
+        </p>
       ) : null}
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
@@ -377,13 +428,21 @@ export default function TasksPage() {
           {tasks.map((task) => {
             const meta = taskMeta(task);
             return (
-            <li key={task.id} className="card min-w-0 p-4">
+            <li key={task.id} className="min-w-0">
+              <button
+                type="button"
+                className="card block w-full min-w-0 p-4 text-left disabled:opacity-50"
+                aria-label={`Edit ${task.title}`}
+                disabled={offline}
+                onClick={() => openEdit(task)}
+              >
               <div className="flex items-start justify-between gap-3">
                 <h2 className="min-w-0 break-words text-body font-medium">{task.title}</h2>
                 <span className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>{task.status}</span>
               </div>
               {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
               {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
+              </button>
             </li>
             );
           })}
@@ -408,9 +467,9 @@ export default function TasksPage() {
         </button>
       ) : null}
       </div>
-      {open ? (
+      {sheet ? (
         <Sheet
-          title="Add a task"
+          title={sheet === "edit" ? "Edit task" : "Add a task"}
           onClose={cancel}
           frame
           dock={wide ? "panel" : "sheet"}
@@ -476,6 +535,18 @@ export default function TasksPage() {
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
               className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
             />
+            {sheet === "edit" ? (
+              <div className="mt-1 flex justify-end">
+                <button
+                  type="button"
+                  className="min-h-11 px-1 text-meta font-medium disabled:opacity-50"
+                  disabled={offline}
+                  onClick={() => setDraft({ ...draft, dueDate: detroitCalendarDate(Date.now()) })}
+                >
+                  Today
+                </button>
+              </div>
+            ) : null}
             <label className="mt-3 block text-meta font-medium" htmlFor="task-priority">
               Priority
             </label>
@@ -502,6 +573,7 @@ export default function TasksPage() {
               <option>To do</option>
               <option>Doing</option>
               <option>Blocked</option>
+              {sheet === "edit" ? <option>Done</option> : null}
             </select>
             <label className="mt-3 block text-meta font-medium" htmlFor="task-project">
               Project

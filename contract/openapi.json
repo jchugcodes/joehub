@@ -108,6 +108,49 @@
         }
       }
     },
+    "/api/tasks/{id}": {
+      "get": {
+        "operationId": "getTask",
+        "description": "One task by id, including a task that is not on the unfinished list.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "patch": {
+        "operationId": "patchTask",
+        "description": "Change any field. Send null to clear notes, dueDate, priority, or project. Title cannot be cleared. Status is To do, Doing, Blocked, or Done. Choosing Done completes the task: completedAt is set and the task leaves the unfinished list. dueDate may be YYYY-MM-DD or today, which is the America/Detroit calendar day. updatedAt changes.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated task",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
+          },
+          "400": { "description": "Invalid task" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
     "/api/session/login": {
       "post": {
         "operationId": "sessionLogin",
@@ -146,6 +189,36 @@
     }
   },
   "components": {
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "required": ["id", "title", "status", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "notes": { "type": "string" },
+          "dueDate": { "type": "string", "description": "Calendar date YYYY-MM-DD in America/Detroit." },
+          "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+          "status": { "type": "string", "enum": ["To do", "Doing", "Blocked", "Done"] },
+          "project": { "type": "string" },
+          "createdAt": { "type": "integer" },
+          "updatedAt": { "type": "integer" },
+          "completedAt": { "type": "integer" }
+        }
+      },
+      "TaskPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "notes": { "type": ["string", "null"] },
+          "dueDate": { "type": ["string", "null"], "description": "YYYY-MM-DD, or today for the America/Detroit calendar day. Null clears it." },
+          "priority": { "type": ["string", "null"], "enum": ["High", "Medium", "Low", null] },
+          "status": { "type": "string", "enum": ["To do", "Doing", "Blocked", "Done"] },
+          "project": { "type": ["string", "null"] }
+        }
+      }
+    },
     "securitySchemes": {
       "sessionCookie": {
         "type": "apiKey",

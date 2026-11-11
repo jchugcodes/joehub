@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { buildSampleTasks, performCreate, unfinishedNewestFirst } from "./tasks.mjs";
+import { buildSampleTasks, performCreate, performPatch, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -92,7 +92,17 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
   const tasks = {
     async putTask(task) {
       await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
+      if (task.status === "Done") {
+        await command(["ZREM", k("joehub:tasks:active"), task.id]);
+        await command(["ZADD", k("joehub:tasks:done"), String(task.completedAt || task.updatedAt), task.id]);
+        return;
+      }
+      await command(["ZREM", k("joehub:tasks:done"), task.id]);
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+    },
+    async getTask(id) {
+      if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return null;
+      return readJson(k(`joehub:task:${id}`));
     },
     async readIdem(key) {
       const parsed = await readJson(k(`joehub:task:idem:${key}`));
@@ -230,6 +240,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async createTask(raw, idemKey, now) {
       await ensureSeeded();
       return performCreate(tasks, raw, idemKey, now);
+    },
+    async getTask(id) {
+      await ensureSeeded();
+      return tasks.getTask(id);
+    },
+    async patchTask(id, raw, now) {
+      await ensureSeeded();
+      return performPatch(tasks, id, raw, now);
     },
   };
 }

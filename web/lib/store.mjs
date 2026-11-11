@@ -22,6 +22,8 @@ function unavailableStore() {
     hit: fail,
     listUnfinishedTasks: fail,
     createTask: fail,
+    getTask: fail,
+    patchTask: fail,
   };
 }
 

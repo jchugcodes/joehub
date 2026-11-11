@@ -77,6 +77,9 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/tasks":
             assert expected == {"get", "post"}
             continue
+        if path == "/api/tasks/{id}":
+            assert expected == {"get", "patch"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -375,3 +378,91 @@ def test_tasks_require_a_session_and_create_once() -> None:
     assert [row["id"] for row in listed.json() if row["title"] == "Sample task"] == [first.json()["id"]]
     done = client.post("/api/tasks", json={"title": "Finished", "status": "Done"}, cookies={COOKIE_NAME: cookie})
     assert done.status_code == 400
+
+
+def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
+    from joehub_api.tasks import TaskStore, detroit_calendar_date
+
+    after_utc_midnight = int(datetime(2026, 11, 10, 0, 30, tzinfo=timezone.utc).timestamp() * 1000)
+    before_detroit = int(datetime(2026, 11, 10, 4, 59, tzinfo=timezone.utc).timestamp() * 1000)
+    after_detroit = int(datetime(2026, 11, 10, 5, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    assert detroit_calendar_date(after_utc_midnight) == "2026-11-09"
+    assert detroit_calendar_date(before_detroit) == "2026-11-09"
+    assert detroit_calendar_date(after_detroit) == "2026-11-10"
+    clock = {"now": after_utc_midnight}
+    store = TaskStore(clock=lambda: clock["now"])
+    _status, created = store.create(
+        {"title": "Edit me", "notes": "Keep", "dueDate": "2026-11-20", "priority": "High", "project": "Home"},
+        None,
+    )
+    clock["now"] = after_utc_midnight + 25
+    status, patched = store.patch(created["id"], {"dueDate": "today", "notes": None, "priority": None, "project": None})
+    assert status == 200
+    assert patched["dueDate"] == "2026-11-09"
+    assert "notes" not in patched and "priority" not in patched and "project" not in patched
+    assert patched["updatedAt"] > created["updatedAt"]
+    for field in ("id", "createdAt", "updatedAt", "completedAt", "nope"):
+        status, body = store.patch(created["id"], {field: "x", "title": "Ignored"})
+        assert status == 400
+        assert body["field"] == field
+        assert field in body["detail"]
+    assert store.get(created["id"])[1]["title"] == "Edit me"
+
+    client, _app = client_app()
+    assert client.get("/api/tasks/missing-task").status_code == 401
+    assert client.patch("/api/tasks/missing-task", json={"title": "Nope"}).status_code == 401
+    cookie = login(client)
+    created_response = client.post(
+        "/api/tasks",
+        json={"title": "Edit me", "notes": "Keep", "dueDate": "2026-11-20", "priority": "High", "project": "Home", "status": "Doing"},
+        cookies={COOKIE_NAME: cookie},
+    )
+    assert created_response.status_code == 201
+    task_id = created_response.json()["id"]
+    edited = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"title": "Edited", "status": "Blocked"},
+        cookies={COOKIE_NAME: cookie},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["title"] == "Edited"
+    assert edited.json()["updatedAt"] > created_response.json()["updatedAt"]
+    cleared = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"notes": None, "dueDate": None, "priority": None, "project": None},
+        cookies={COOKIE_NAME: cookie},
+    )
+    assert cleared.status_code == 200
+    assert "notes" not in cleared.json()
+    assert "dueDate" not in cleared.json()
+    blank = client.patch(f"/api/tasks/{task_id}", json={"title": "   "}, cookies={COOKIE_NAME: cookie})
+    assert blank.status_code == 400
+    assert blank.json()["field"] == "title"
+    for field in ("id", "createdAt", "updatedAt", "completedAt", "mystery"):
+        rejected = client.patch(
+            f"/api/tasks/{task_id}",
+            json={field: "nope", "title": "Should stay"},
+            cookies={COOKIE_NAME: cookie},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["field"] == field
+        assert field in rejected.json()["detail"]
+    stored_mid = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
+    assert stored_mid.json()["title"] == "Edited"
+    assert stored_mid.json()["id"] == task_id
+    missing = client.patch("/api/tasks/missing-task", json={"title": "Nope"}, cookies={COOKIE_NAME: cookie})
+    assert missing.status_code == 404
+    stored = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
+    assert stored.status_code == 200
+    assert stored.json()["title"] == "Edited"
+    assert stored.json()["status"] == "Blocked"
+    assert "notes" not in stored.json()
+    done = client.patch(f"/api/tasks/{task_id}", json={"status": "Done"}, cookies={COOKIE_NAME: cookie})
+    assert done.status_code == 200
+    assert done.json()["status"] == "Done"
+    assert isinstance(done.json()["completedAt"], int)
+    listed = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert all(row["id"] != task_id for row in listed.json())
+    finished = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
+    assert finished.json()["status"] == "Done"
+    assert finished.json()["completedAt"] == done.json()["completedAt"]
