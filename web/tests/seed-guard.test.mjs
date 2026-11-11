@@ -61,6 +61,7 @@ test("preview and an unset VERCEL_ENV still seed every current version", async (
       const names = flags.map((args) => args[1]).sort();
       assert.deepEqual(names, [
         "joehub:finance:seeded",
+        "joehub:finance:seeded:v2",
         "joehub:grocery:seeded",
         "joehub:tasks:seeded",
         "joehub:tasks:seeded:v2",
