@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { financeTabs } from "../lib/live-pages.mjs";
+import { financeTabsFor } from "../lib/live-pages.mjs";
 import { useProductionNav } from "./LivePages";
 
 function selected(pathname: string, href: string) {
@@ -22,7 +22,7 @@ function revealTab(item: HTMLElement, scroller: HTMLElement) {
 
 export function FinanceTabs() {
   const pathname = usePathname();
-  const links = financeTabs(useProductionNav() ? { VERCEL_ENV: "production" } : {});
+  const links = financeTabsFor(useProductionNav());
   const scrollerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const scroller = scrollerRef.current;

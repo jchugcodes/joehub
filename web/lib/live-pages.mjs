@@ -41,7 +41,10 @@ export function primaryTabs(env = process.env) {
 }
 
 export function financeTabs(env = process.env) {
-  const production = productionNav(env);
+  return financeTabsFor(productionNav(env));
+}
+
+export function financeTabsFor(production) {
   return FINANCE_TABS.filter((tab) => (production ? tab.live : tab.shipped));
 }
 
