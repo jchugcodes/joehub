@@ -128,7 +128,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     const full = await withPage(cdp, `${server.base}/`, 390);
     assert.deepEqual(full.labels, ["Home", "Finance", "Jobs", "Journal", "More"]);
     const previewFinance = await withPage(cdp, `${server.base}/finance`, 390);
-    assert.deepEqual(previewFinance.finance, ["Overview", "Categories", "Goals", "Accounts", "Bills"]);
+    assert.deepEqual(previewFinance.finance, ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills"]);
     await stopProcess(server.child);
     server = await boot(true);
 

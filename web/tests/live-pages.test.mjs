@@ -16,7 +16,7 @@ test("preview and dev keep the full nav", () => {
   );
   assert.deepEqual(
     financeTabs({}).map((tab) => tab.label),
-    ["Overview", "Categories", "Goals", "Accounts", "Bills"],
+    ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills"],
   );
 });
 

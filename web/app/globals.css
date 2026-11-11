@@ -16,6 +16,7 @@
   --tab-line: #e6e8e4;
   --scrim: rgb(0 0 0 / 0.4);
   --finance: #2e8b6a;
+  --accent: #4eae86;
   --jobs: #3a86c8;
   --journal: #c2577a;
   --dining: #e07a5f;
@@ -84,6 +85,14 @@ html {
   font-weight: 400;
 }
 
+.finance-type.font-medium {
+  font-weight: 500;
+}
+
+.finance-type.font-semibold {
+  font-weight: 600;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -105,6 +114,10 @@ html {
 /* The six finance subtabs share one row. Hide a leftover scrollbar track; the row is sized to fit at 360. */
 .finance-tab-row {
   scrollbar-width: none;
+}
+
+.finance-tab-row a[aria-current="page"] {
+  border-bottom-color: var(--accent);
 }
 
 .finance-tab-row::-webkit-scrollbar {

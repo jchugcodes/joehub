@@ -51,6 +51,7 @@ module.exports = {
         },
         page: "var(--page)",
         surface: "var(--surface)",
+        accent: "var(--accent)",
         ink: "var(--ink)",
         muted: "var(--muted)",
         line: "var(--line)",
