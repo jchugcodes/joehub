@@ -1,4 +1,5 @@
 import { devPagesOpen, productionLike, readAuthConfig } from "./auth-config.mjs";
+import { isGatedPath, productionNav } from "./live-pages.mjs";
 import { readKeyPrefix } from "./keys.mjs";
 import { openCookie } from "./seal.mjs";
 import { createUpstashStore, StoreError } from "./store-upstash.mjs";
@@ -35,6 +36,9 @@ export async function decide(request, env, now) {
   const url = new URL(request.url);
   const pathname = url.pathname;
   if (pathname === "/api/health") return { type: "next" };
+  if (productionNav(env) && !pathname.startsWith("/api/") && isGatedPath(pathname)) {
+    return { type: "redirect", location: "/" };
+  }
   const config = readAuthConfig(env);
   if (!config.ok) return unavailable(pathname);
   if (PUBLIC.has(pathname)) return { type: "next" };
