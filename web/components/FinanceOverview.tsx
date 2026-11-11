@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hasNetWorthHistory } from "../lib/finance.mjs";
+import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
+import { useProductionNav } from "./LivePages";
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
 type Range = (typeof RANGES)[number];
@@ -33,7 +36,7 @@ type Overview = {
   nextWeek: string | null;
   netWorthCents: number;
   chart: { range: string; kind: string; caption: string; points: number[]; axis?: { min: number; max: number; zero: number | null } };
-  month: { label: string; spentCents: number; planCents: number; percent: number; day: number; days: number };
+  month: { label: string; spentCents: number; planCents: number | null; percent: number | null; day: number; days: number };
   caps: Cap[];
   recent: Recent[];
   empty: boolean;
@@ -90,6 +93,7 @@ function chartGeometry(points: number[], axis?: { min: number; max: number; zero
 }
 
 export function FinanceOverview() {
+  const production = useProductionNav();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [week, setWeek] = useState("");
   const [range, setRange] = useState<Range>("YTD");
@@ -284,8 +288,10 @@ export function FinanceOverview() {
               <span className="text-title">{dollars(overview.netWorthCents)}</span>
               <span className="text-section">.{centsPart(overview.netWorthCents)}</span>
             </p>
-            {!offline && overview.chart.caption ? <p className="mt-2 text-body text-finance-primary">{overview.chart.caption}</p> : null}
-            {!offline ? (
+            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline && overview.chart.caption && !(production && /no history imported|\(7\.5%\)/.test(overview.chart.caption)) ? (
+              <p className="mt-2 text-body text-finance-primary">{overview.chart.caption}</p>
+            ) : null}
+            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline ? (
               <div className="mt-4" data-chart={overview.chart.range} data-points={overview.chart.points.join(",")}>
                 <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
                   <path d={chartGeometry(overview.chart.points, overview.chart.axis).fill} fill="#2E8B6A" opacity="0.1" />
@@ -345,15 +351,22 @@ export function FinanceOverview() {
                   <p className="text-muted">{overview.month.label}</p>
                 </div>
                 <p className="mt-1 font-medium">
-                  <span className="text-title">{money(overview.month.spentCents, false)}</span>{" "}
-                  <span className="text-body font-normal text-muted">of {money(overview.month.planCents, false)} plan</span>
+                  <span className="text-title">{money(overview.month.spentCents, false)}</span>
+                  {showMonthBudget(production, overview.month) && overview.month.planCents != null && overview.month.percent != null ? (
+                    <>
+                      {" "}
+                      <span className="text-body font-normal text-muted">of {money(overview.month.planCents, false)} plan</span>
+                    </>
+                  ) : null}
                 </p>
-                <div className="relative mt-3 h-2.5 rounded-full bg-line">
-                  <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, overview.month.percent))}%`, background: "#E07A5F" }} />
-                  <span className="absolute -top-1 h-[18px] w-0.5 bg-ink" style={{ left: `${Math.min(100, Math.round((overview.month.day / overview.month.days) * 100))}%` }} />
-                </div>
-                <p className="mt-2 flex justify-between text-meta text-muted">
-                  <span>{overview.month.percent}% used</span>
+                {showMonthBudget(production, overview.month) && overview.month.percent != null ? (
+                  <div className="relative mt-3 h-2.5 rounded-full bg-line">
+                    <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, overview.month.percent))}%`, background: "#E07A5F" }} />
+                    <span className="absolute -top-1 h-[18px] w-0.5 bg-ink" style={{ left: `${Math.min(100, Math.round((overview.month.day / overview.month.days) * 100))}%` }} />
+                  </div>
+                ) : null}
+                <p className={`mt-2 flex text-meta text-muted ${showMonthBudget(production, overview.month) ? "justify-between" : "justify-end"}`}>
+                  {showMonthBudget(production, overview.month) && overview.month.percent != null ? <span>{overview.month.percent}% used</span> : null}
                   <span>Day {overview.month.day} of {overview.month.days}</span>
                 </p>
               </section>

@@ -1,6 +1,7 @@
 /** Synthetic Finance read model. Money is integer cents. Weeks are Monday–Sunday in America/Detroit. */
 
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
+import { productionNav } from "./live-pages.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 
 export const PLAN_CENTS = 420_400;
@@ -487,6 +488,19 @@ export function envelopeTotal(categories = CATEGORIES) {
   return categories.reduce((sum, item) => (Number.isInteger(item.weeklyCapCents) ? sum + item.weeklyCapCents : sum), 0);
 }
 
+/** A monthly plan is an explicit amount, or the sum of stored monthly caps. The weekly envelope is not one. */
+export function monthlyPlanCents(planCents, categories) {
+  if (Array.isArray(categories)) {
+    const monthly = categories.filter((item) => Number.isInteger(item.monthlyCapCents));
+    if (monthly.length) {
+      const sum = monthly.reduce((total, item) => total + item.monthlyCapCents, 0);
+      return sum > 0 ? sum : null;
+    }
+    if (Number.isInteger(planCents) && planCents > 0 && planCents === envelopeTotal(categories)) return null;
+  }
+  return Number.isInteger(planCents) && planCents > 0 ? planCents : null;
+}
+
 export function categoriesFromCaps(caps, base = SEED_CATEGORIES) {
   const source = caps && typeof caps === "object" && !Array.isArray(caps) ? caps : {};
   return base.map((category) => {
@@ -667,6 +681,18 @@ export function seedSnapshots() {
   };
 }
 
+/** A chart needs two different store points. The seeded YTD curve and a flat line are not history. */
+export function hasNetWorthHistory(points) {
+  const values = (Array.isArray(points) ? points : []).filter((value) => Number.isFinite(value));
+  if (new Set(values).size < 2) return false;
+  const seed = ytdPoints();
+  if (values.length === seed.length) {
+    const shift = values[values.length - 1] - seed[seed.length - 1];
+    if (values.every((value, index) => value - seed[index] === shift)) return false;
+  }
+  return true;
+}
+
 function weeklySeries(txns, from, to) {
   const weeks = new Map();
   for (const row of txns.map(effective)) {
@@ -706,17 +732,18 @@ export function chartFor(txns, today, range, snapshot) {
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
-export function monthProgress(txns, today, planCents = PLAN_CENTS) {
+export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env) {
   const month = monthBounds(today);
   const spent = txns
     .map(effective)
     .filter((row) => row.date >= month.start && row.date <= today)
     .reduce((sum, row) => sum + spendCents(row), 0);
+  const budget = productionNav(env) ? null : monthlyPlanCents(planCents, categories);
   return {
     label: `${formatDay(month.start)}–${Number(today.slice(8))}`,
     spentCents: spent,
-    planCents,
-    percent: Math.round((spent / planCents) * 100),
+    planCents: budget,
+    percent: budget ? Math.round((spent / budget) * 100) : null,
     day: month.day,
     days: month.days,
   };
@@ -741,7 +768,9 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
     return { status: 400, body: { detail: "That week has not started.", field: "week" } };
   }
   const chosen = ["1W", "1M", "YTD", "1Y", "All"].includes(range) ? range : "YTD";
+  const categories = context.categories || CATEGORIES;
   const planCents = context.planCents ?? PLAN_CENTS;
+  const env = context.env || process.env;
   const snapshot = context.snapshot || seedSnapshots();
   const netWorthCents = Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents;
   const rows = rowsInWeek(txns, start);
@@ -760,8 +789,8 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
       netWorthCents,
       chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
-      month: monthProgress(txns, today, planCents),
-      caps: capsForWeek(txns, start, caps, context.categories || CATEGORIES),
+      month: monthProgress(txns, today, planCents, categories, env),
+      caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,
         payee: row.payee,
@@ -1273,7 +1302,7 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   let billSeq = 0;
   let caps = defaultCaps();
   const idem = new Map();
-  const planCents = PLAN_CENTS;
+  const planCents = process.env.JOEHUB_MONTHLY_PLAN === "weekly-envelope" ? ENVELOPE_CENTS : PLAN_CENTS;
   const snapshot = seedSnapshots();
   const legacyAccounts = structuredClone(ACCOUNTS);
   let manualAccounts = structuredClone(SEED_ACCOUNTS);
