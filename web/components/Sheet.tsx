@@ -41,6 +41,7 @@ export function Sheet({
   formId,
   saveLabel = "Save",
   saveDisabled = false,
+  footer = null,
 }: {
   title: string;
   onClose: () => void;
@@ -60,6 +61,8 @@ export function Sheet({
   formId?: string;
   saveLabel?: string;
   saveDisabled?: boolean;
+  /** Quiet action pinned under the fields, such as Delete. Stays on screen while the form scrolls. */
+  footer?: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -155,7 +158,7 @@ export function Sheet({
           aria-modal="true"
           aria-labelledby={titleId}
           data-sheet="form"
-          className="fixed inset-x-0 z-10 mx-auto flex w-full max-w-full flex-col overflow-x-hidden rounded-t-sheetTop bg-surface shadow-2xl"
+          className="fixed inset-x-0 z-10 mx-auto flex w-full max-w-full min-h-0 flex-col overflow-hidden rounded-t-sheetTop bg-surface shadow-2xl"
           style={{ bottom: 0, height: "100dvh", maxHeight: "100dvh" }}
         >
           <div className="shrink-0 px-1 pt-2">
@@ -183,7 +186,8 @@ export function Sheet({
               </button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 pb-8">{children}</div>
+          <div className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 ${footer ? "pb-4" : "pb-8"}`}>{children}</div>
+          {footer ? <div className="shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">{footer}</div> : null}
         </div>
       </div>
     );
