@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { FinanceTabs } from "./FinanceTabs";
+import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
 
 type Row = { id: string; payee: string; amountCents: number; meta: string };
@@ -100,8 +101,9 @@ export function FinanceCategory({ slug, tabs = false }: { slug: string; tabs?: b
           </div>
           <ul className="px-5">
             {category.rows.map((row) => (
-              <li key={row.id} className="flex min-h-11 items-center justify-between gap-3 border-b border-line py-2.5">
-                <span>
+              <li key={row.id} className="flex min-h-11 items-center gap-3 border-b border-line py-2.5">
+                <CategoryMark category={category.slug} />
+                <span className="min-w-0 flex-1">
                   <span className="block text-body font-medium">{row.payee}</span>
                   <span className="block text-meta text-muted">{row.meta}</span>
                 </span>
