@@ -602,6 +602,13 @@ export default function GroceryPage() {
           formId="grocery-form"
           saveLabel="Save"
           saveDisabled={saveDisabled}
+          footer={
+            !wide && editingId ? (
+              <button type="button" className="flex min-h-11 w-full items-center px-1 text-left text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                Delete
+              </button>
+            ) : null
+          }
           actions={
             wide ? (
               <div className="flex gap-2">
@@ -712,11 +719,6 @@ export default function GroceryPage() {
               <p role="alert" className="text-meta font-medium text-[#E07A5F]">
                 {formError}
               </p>
-            ) : null}
-            {!wide && editingId ? (
-              <button type="button" className="min-h-11 min-w-11 px-1 text-left text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
-                Delete
-              </button>
             ) : null}
           </form>
         </Sheet>
