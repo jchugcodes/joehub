@@ -1,4 +1,5 @@
 import { detroitCalendarDate } from "./detroit-date.mjs";
+import { readOptionalSourceId, readSourceId } from "./source-id.mjs";
 
 function addCalendarDays(ymd, count) {
   const [year, month, day] = ymd.split("-").map(Number);
@@ -27,7 +28,7 @@ const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 const PENDING_MS = 30 * 1000;
 const PRIORITIES = new Set(["High", "Medium", "Low"]);
 const CREATE_STATUSES = new Set(["To do", "Doing", "Blocked"]);
-const PATCH_FIELDS = new Set(["title", "notes", "dueDate", "priority", "status", "project"]);
+const PATCH_FIELDS = new Set(["title", "notes", "dueDate", "priority", "status", "project", "sourceId"]);
 
 export const HANDOFF_ID = "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4";
 export const KIT_ID = "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5";
@@ -163,7 +164,10 @@ export function validateTaskCreate(body) {
     if (project.length > 120) return { ok: false, field: "project", detail: "Project is too long." };
   }
 
-  return { ok: true, title, notes, dueDate, priority, status, project };
+  const source = readOptionalSourceId(body);
+  if (!source.ok) return { ok: false, field: source.field, detail: source.detail };
+
+  return { ok: true, title, notes, dueDate, priority, status, project, sourceId: source.sourceId };
 }
 
 function reject(field, detail) {
@@ -228,6 +232,11 @@ export function validateTaskPatch(body, now) {
       patch.project = project || null;
     }
   }
+  if (Object.prototype.hasOwnProperty.call(body, "sourceId")) {
+    const source = readSourceId(body.sourceId);
+    if (!source.ok) return reject(source.field, source.detail);
+    patch.sourceId = source.sourceId || null;
+  }
   return { ok: true, patch };
 }
 
@@ -235,7 +244,7 @@ export function applyTaskPatch(existing, patch, now) {
   const next = structuredClone(existing);
   if (patch.title) next.title = patch.title;
   if (patch.status) next.status = patch.status;
-  for (const key of ["notes", "dueDate", "priority", "project"]) {
+  for (const key of ["notes", "dueDate", "priority", "project", "sourceId"]) {
     if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
     if (patch[key]) next[key] = patch[key];
     else delete next[key];
@@ -265,6 +274,7 @@ function taskFrom(parsed, id, now) {
   if (parsed.dueDate) task.dueDate = parsed.dueDate;
   if (parsed.priority) task.priority = parsed.priority;
   if (parsed.project) task.project = parsed.project;
+  if (parsed.sourceId) task.sourceId = parsed.sourceId;
   return task;
 }
 

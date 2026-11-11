@@ -354,7 +354,7 @@ test("finance corrections survive a ledger refresh until reset at 390 and 1280",
       await waitFor(send, "document.getElementById('txn-payee')?.value === 'Shell (example)' ? 'yes' : ''", `shell ${width}`);
       assert.equal(await evalPage(send, "document.querySelector('[role=dialog]')?.tagName"), width === 1280 ? "ASIDE" : "DIV");
       await replaceCap(send, "txn-amount", "22.18");
-      await pressLabel(send, evalPage, "Transport");
+      await pressLabel(send, evalPage, "Gas & Transport");
       await pressLabel(send, evalPage, "Save correction");
       await waitFor(send, "document.body.innerText.includes('Corrected') && !document.getElementById('txn-payee') ? 'yes' : ''", `kept ${width}`);
       await pointerClick(send, evalPage, shellButton);
@@ -364,7 +364,7 @@ test("finance corrections survive a ledger refresh until reset at 390 and 1280",
       const posted = await evalPage(send, "fetch('/api/finance/ledger/simulate-refresh', { method: 'POST' }).then((response) => response.status)");
       assert.equal(posted, 200);
       await send("Page.reload", { ignoreCache: true });
-      await waitFor(send, "document.body.innerText.includes('Ledger updated') && document.body.innerText.includes('Latest Ledger import') && document.body.innerText.includes('Shopping · −$24.18') && document.body.innerText.includes('Transport · −$22.18') ? 'yes' : ''", `conflict ${width}`);
+      await waitFor(send, "document.body.innerText.includes('Ledger updated') && document.body.innerText.includes('Latest Ledger import') && document.body.innerText.includes('Shopping · −$24.18') && document.body.innerText.includes('Gas & Transport · −$22.18') ? 'yes' : ''", `conflict ${width}`);
       await pressLabel(send, evalPage, "Reset to Ledger…");
       await waitFor(send, "document.body.innerText.includes('Reset to Ledger?') ? 'yes' : ''", `confirm ${width}`);
       await pressLabel(send, evalPage, "Cancel");
