@@ -102,6 +102,15 @@ html {
   container-type: inline-size;
 }
 
+/* The six finance subtabs share one row. Hide a leftover scrollbar track; the row is sized to fit at 360. */
+.finance-tab-row {
+  scrollbar-width: none;
+}
+
+.finance-tab-row::-webkit-scrollbar {
+  display: none;
+}
+
 .finance-sections .swipe-hint {
   display: none;
 }
