@@ -326,12 +326,31 @@ test("tasks add and the unfinished list work at phone and desktop widths", { tim
           set("task-due", "2026-11-20");
           set("task-priority", "High");
           set("task-status", "Doing");
-          set("task-project", "Errands");
           return document.getElementById("task-title").value;
         })()`,
       ),
       "Buy synthetic oats",
     );
+    assert.equal(await press(send, "task-project"), "yes");
+    await waitFor(send, "document.body.innerText.includes('New list') ? 'yes' : ''", "new list row");
+    assert.equal(await press(send, "New list"), "yes");
+    await waitFor(send, "document.getElementById('new-list-name') ? 'yes' : ''", "new list");
+    assert.equal(
+      await evalPage(
+        send,
+        `(() => {
+          const el = document.getElementById("new-list-name");
+          const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
+          desc.set.call(el, "Errands");
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return el.value;
+        })()`,
+      ),
+      "Errands",
+    );
+    assert.equal(await press(send, "Add"), "yes");
+    await waitFor(send, "document.querySelector('#task-project .truncate')?.textContent === 'Errands' ? 'yes' : ''", "list selected");
     assert.equal(await press(send, "Save"), "yes");
     await waitFor(
       send,

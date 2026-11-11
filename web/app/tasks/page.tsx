@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
+import { ManageLists, TaskListMenu, listAccent, type TaskList } from "../../components/TaskLists";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
+import { nextPaletteColor, resolveTaskList } from "../../lib/list-display.mjs";
 
 const CACHE_KEY = "joehub.tasks.unfinished";
 
@@ -102,8 +104,9 @@ function completedLabel(ms: number) {
   return `Completed ${MONTHS[month - 1]} ${day}`;
 }
 
-function taskMeta(task: Task, today = detroitToday()) {
-  return [task.project, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
+function taskMeta(task: Task, lists: TaskList[] = [], today = detroitToday()) {
+  const list = task.project ? resolveTaskList(task.project, lists).label : "";
+  return [list, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
 }
 
 function formatDetroit(ms: number) {
@@ -163,6 +166,18 @@ export default function TasksPage() {
   const [group, setGroup] = useState<"all" | "status" | "project">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [sortOpen, setSortOpen] = useState(false);
+  const [lists, setLists] = useState<TaskList[]>([]);
+  const [listOpen, setListOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [newListColor, setNewListColor] = useState("");
+  const [colorOpen, setColorOpen] = useState(false);
+  const [listError, setListError] = useState("");
+  const [manage, setManage] = useState<null | "home" | "edit" | "delete">(null);
+  const [editList, setEditList] = useState<TaskList | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState<string | null>(null);
+  const [manageError, setManageError] = useState("");
+  const [manageSaving, setManageSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const savingRef = useRef(false);
   const actingRef = useRef(false);
@@ -201,6 +216,15 @@ export default function TasksPage() {
       if (!q) writeCache(next, at);
       setTasks(next);
       if (!q) setSavedAt(at);
+      try {
+        const listsResponse = await fetch("/api/lists", { cache: "no-store" });
+        if (listsResponse.ok && gen === loadGen.current) {
+          const listed = (await listsResponse.json()) as unknown;
+          if (Array.isArray(listed)) setLists(listed as TaskList[]);
+        }
+      } catch {
+        // The task list still stands when lists cannot be read.
+      }
       setActiveQuery(q);
       const recovered = downRef.current;
       downRef.current = false;
@@ -368,6 +392,85 @@ export default function TasksPage() {
     setTitleError("");
     setFormError("");
     setDraft(emptyDraft());
+    setListOpen(false);
+  }
+
+  function openListMenu() {
+    setNewListColor((current) => current || nextPaletteColor(lists));
+    setListError("");
+    setColorOpen(false);
+    setListOpen(true);
+    setManage(null);
+  }
+
+  async function addList() {
+    const name = newListName.trim();
+    if (!name) {
+      setListError("Enter a list name.");
+      return;
+    }
+    const response = await fetch("/api/lists", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, color: newListColor || nextPaletteColor(lists) }),
+    });
+    const body = (await response.json().catch(() => null)) as { id?: string; detail?: string; name?: string; color?: string | null; createdAt?: number; updatedAt?: number } | null;
+    if (!response.ok || !body || typeof body.id !== "string") {
+      setListError(body?.detail || "Couldn't add that list.");
+      return;
+    }
+    const created: TaskList = { id: body.id, name: body.name || name, color: body.color || newListColor, createdAt: body.createdAt || Date.now(), updatedAt: body.updatedAt || Date.now(), count: 0 };
+    setLists((current) => [...current, created]);
+    setDraft((current) => ({ ...current, project: created.id }));
+    setNewListName("");
+    setListOpen(false);
+    setColorOpen(false);
+  }
+
+  async function saveListEdit() {
+    if (!editList || manageSaving) return;
+    setManageSaving(true);
+    setManageError("");
+    try {
+      const response = await fetch(`/api/lists/${editList.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: editName, color: editColor }),
+      });
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      if (!response.ok) {
+        setManageError(body?.detail || "Couldn't save this list.");
+        return;
+      }
+      setManage("home");
+      void load();
+    } catch {
+      setManageError("Couldn't save this list.");
+    } finally {
+      setManageSaving(false);
+    }
+  }
+
+  async function removeList() {
+    if (!editList || manageSaving) return;
+    setManageSaving(true);
+    setManageError("");
+    try {
+      const response = await fetch(`/api/lists/${editList.id}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      if (!response.ok) {
+        setManageError(body?.detail || "Couldn't delete this list.");
+        return;
+      }
+      if (draft.project === editList.id) setDraft((current) => ({ ...current, project: "" }));
+      setManage("home");
+      setEditList(null);
+      void load();
+    } catch {
+      setManageError("Couldn't delete this list.");
+    } finally {
+      setManageSaving(false);
+    }
   }
 
   async function save(event: React.FormEvent) {
@@ -539,7 +642,7 @@ export default function TasksPage() {
     const dir = sortOrder === "oldest" ? 1 : -1;
     const ordered = [...(activeQuery ? tasks : openTasks)].sort((left, right) => dir * ((left.createdAt || 0) - (right.createdAt || 0)) || (left.id < right.id ? -1 : 1));
     if (activeQuery || group === "all") return [{ key: "all", label: "", items: ordered }];
-    const labelFor = (task: Task) => (group === "status" ? task.status : task.project || "No list");
+    const labelFor = (task: Task) => (group === "status" ? task.status : resolveTaskList(task.project, lists).label);
     const statusOrder = ["Doing", "To do", "Blocked"];
     const seen = [...new Set(ordered.map(labelFor))];
     const labels =
@@ -547,14 +650,15 @@ export default function TasksPage() {
         ? [...statusOrder.filter((status) => seen.includes(status as Task["status"])), ...seen.filter((status) => !statusOrder.includes(status))]
         : [...seen.filter((label) => label !== "No list").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No list")];
     return labels.map((label) => ({ key: label, label, items: ordered.filter((task) => labelFor(task) === label) }));
-  }, [activeQuery, group, openTasks, sortOrder, tasks]);
+  }, [activeQuery, group, lists, openTasks, sortOrder, tasks]);
   const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
   const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
   function renderTask(task: Task) {
     const done = task.status === "Done";
-    const meta = taskMeta(task);
+    const meta = taskMeta(task, lists);
     const statusColor = STATUS_VAR[task.status] || "var(--muted)";
-    const accent = group === "status" && !activeQuery ? statusColor : "";
+    const listColor = listAccent(resolveTaskList(task.project, lists).color);
+    const accent = activeQuery ? "" : group === "status" ? statusColor : group === "project" ? listColor : "";
     const created = createdLabel(task.createdAt);
     return (
       <li
@@ -829,7 +933,7 @@ export default function TasksPage() {
           <h2 className="pt-8 text-center text-section font-medium text-muted">Select a task</h2>
         </aside>
       ) : null}
-      {sheet ? (
+      {sheet && !manage ? (
         <Sheet
           title={sheet === "edit" ? "Edit task" : "Add a task"}
           onClose={cancel}
@@ -891,7 +995,7 @@ export default function TasksPage() {
               <p className="mt-2 text-meta text-muted">{createdLabel(tasks.find((task) => task.id === editingId)?.createdAt ?? Number.NaN)}</p>
             ) : null}
             </div>
-            <div>
+            {!listOpen ? (<><div>
             <label className="block text-meta font-medium" htmlFor="task-notes">
               Notes
             </label>
@@ -961,20 +1065,32 @@ export default function TasksPage() {
               {sheet === "edit" ? <option>Done</option> : null}
             </select>
             </div>
-            <div>
-            <label className="block text-meta font-medium" htmlFor="task-project">
-              List
-            </label>
-            <input
-              id="task-project"
+            </>) : null}
+            <TaskListMenu
               value={draft.project}
-              onChange={(event) => setDraft({ ...draft, project: event.target.value })}
-              enterKeyHint="done"
-              inputMode="text"
-              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
-              autoComplete="off"
+              label={draft.project ? resolveTaskList(draft.project, lists).label : "None"}
+              lists={lists}
+              legacy={[...new Set(tasks.map((task) => task.project).filter((project): project is string => Boolean(project) && !lists.some((list) => list.id === project)))]}
+              open={listOpen}
+              name={newListName}
+              color={newListColor || nextPaletteColor(lists)}
+              colorOpen={colorOpen}
+              error={listError}
+              onToggle={() => (listOpen ? setListOpen(false) : openListMenu())}
+              onPick={(project) => {
+                setDraft({ ...draft, project });
+                setListOpen(false);
+              }}
+              onName={setNewListName}
+              onColor={setNewListColor}
+              onToggleColor={() => setColorOpen((open) => !open)}
+              onAdd={() => void addList()}
+              onManage={() => {
+                setListOpen(false);
+                setManage("home");
+                setManageError("");
+              }}
             />
-            </div>
             {formError ? (
               <p role="alert" className="text-meta font-medium text-warn">
                 {formError}
@@ -982,6 +1098,42 @@ export default function TasksPage() {
             ) : null}
           </form>
         </Sheet>
+      ) : null}
+      {manage ? (
+        <ManageLists
+          lists={lists}
+          mode={manage}
+          name={editName}
+          color={editColor}
+          error={manageError}
+          moved={editList ? lists.find((list) => list.id === editList.id)?.count ?? 0 : 0}
+          wide={wide}
+          saving={manageSaving}
+          onClose={() => setManage(null)}
+          onNew={() => {
+            setManage(null);
+            openListMenu();
+          }}
+          onOpen={(list) => {
+            setEditList(list);
+            setEditName(list.name);
+            setEditColor(list.color);
+            setManageError("");
+            setManage("edit");
+          }}
+          onName={setEditName}
+          onColor={setEditColor}
+          onSave={() => void saveListEdit()}
+          onAskDelete={() => {
+            setManageError("");
+            setManage("delete");
+          }}
+          onDelete={() => void removeList()}
+          onBack={() => {
+            setManageError("");
+            setManage(manage === "delete" ? "edit" : "home");
+          }}
+        />
       ) : null}
       {confirmDelete ? (
         <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+28px)]" role="alertdialog" aria-labelledby="delete-title">

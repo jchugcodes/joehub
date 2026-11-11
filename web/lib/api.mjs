@@ -159,7 +159,7 @@ function idempotencyKey(headers) {
   return { ok: true, key };
 }
 
-async function requireTasks(headers, env, store, limiter, now, ip) {
+export async function requireTasks(headers, env, store, limiter, now, ip) {
   const blocked = await limited(limiter, ip, now);
   if (blocked) return { blocked };
   try {
@@ -772,6 +772,44 @@ export async function handleFinancePatchTransaction(id, headers, env, store, lim
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };
   }
+}
+
+async function withLists(store, method, run) {
+  try {
+    if (!store || typeof store[method] !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await run();
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleListsGet(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  return withLists(store, "listLists", async () => ({ status: 200, body: await store.listLists() }));
+}
+
+export async function handleListsPost(body, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  return withLists(store, "createList", () => store.createList(body, now));
+}
+
+export async function handleListPatch(id, body, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  return withLists(store, "patchList", () => store.patchList(id, body, now));
+}
+
+export async function handleListDelete(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  return withLists(store, "deleteList", () => store.deleteList(id));
 }
 
 export async function handleGroceryItemGet(id, headers, env, store, limiter, now, ip) {

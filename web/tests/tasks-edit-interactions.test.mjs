@@ -203,7 +203,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
         due: document.getElementById("task-due").value,
         priority: document.getElementById("task-priority").value,
         status: document.getElementById("task-status").value,
-        project: document.getElementById("task-project").value,
+        project: document.getElementById("task-project")?.getAttribute("data-value") ? document.querySelector("#task-project .truncate")?.textContent : "",
         done: [...document.querySelectorAll("#task-status option")].some((option) => option.textContent === "Done"),
         heading: document.querySelector("[role='dialog'] h2")?.textContent || "",
       }))()`,

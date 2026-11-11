@@ -153,8 +153,8 @@ test("phone sheets stay in the viewport with a slim header and 44px targets", { 
     }
     const taskHints = await check("add task hints");
     assert.equal(taskHints.hints["task-title"].enterKeyHint, "next");
-    assert.equal(taskHints.hints["task-project"].enterKeyHint, "done");
     assert.equal(taskHints.hints["task-title"].inputMode, "text");
+    assert.equal(await evalPage("document.getElementById('task-project')?.tagName"), "BUTTON");
 
     await size(390, 844);
     const keyboard = await send("Emulation.setVirtualKeyboardGeometryOverride", {

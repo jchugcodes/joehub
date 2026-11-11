@@ -134,7 +134,7 @@ export function Sheet({
   }, [dock, formId]);
 
   if (dock === "panel") {
-    const slim = header === "slim" && formId;
+    const slim = header === "slim";
     return (
       <aside
         ref={panelRef}
@@ -152,7 +152,7 @@ export function Sheet({
           <h2 id={titleId} className={slim ? `min-w-0 flex-1 truncate text-center ${titleClassName || "text-section font-medium"}` : titleClassName || "text-ui-18 font-bold"}>{title}</h2>
           <div className="flex items-center gap-2">
             {aside}
-            {slim ? (
+            {slim && formId ? (
               <button
                 type="submit"
                 form={formId}
@@ -161,7 +161,7 @@ export function Sheet({
               >
                 {saveLabel}
               </button>
-            ) : (
+            ) : slim ? null : (
               actions
             )}
           </div>
@@ -171,7 +171,7 @@ export function Sheet({
     );
   }
 
-  if (formId) {
+  if (formId || header === "slim") {
     return (
       <div className="fixed inset-0 z-40">
         <button type="button" className="absolute inset-0 cursor-default bg-black/40" aria-label={`Close ${title}`} onClick={onClose} />
@@ -198,6 +198,7 @@ export function Sheet({
               <h2 id={titleId} className={`min-w-0 flex-1 truncate text-center ${titleClassName || "text-section font-medium"}`}>
                 {title}
               </h2>
+              {formId ? (
               <button
                 type="submit"
                 form={formId}
@@ -207,6 +208,7 @@ export function Sheet({
               >
                 {saveLabel}
               </button>
+              ) : <span className="inline-flex min-h-11 min-w-11" />}
             </div>
           </div>
           <div className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 ${footer ? "pb-4" : "pb-8"}`}>{children}</div>

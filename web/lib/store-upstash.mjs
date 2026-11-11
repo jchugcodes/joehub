@@ -4,6 +4,7 @@ import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSn
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
+import { validateListCreate, validateListPatch } from "./list-store.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
@@ -643,6 +644,73 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async deleteTask(id) {
       await ensureSeeded();
       return performDelete(tasks, id);
+    },
+    async listLists() {
+      await ensureSeeded();
+      const ids = (await command(["ZRANGE", k("joehub:lists"), "0", "-1"])) || [];
+      const active = (await command(["ZRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
+      const done = (await command(["ZRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
+      const tally = new Map();
+      for (const taskId of [...active, ...done]) {
+        const task = await readJson(k(`joehub:task:${taskId}`));
+        if (task && task.project) tally.set(task.project, (tally.get(task.project) || 0) + 1);
+      }
+      const rows = [];
+      for (const id of ids) {
+        const list = await readJson(k(`joehub:list:${id}`));
+        if (list) rows.push({ ...list, count: tally.get(id) || 0 });
+      }
+      return rows;
+    },
+    async createList(raw, now) {
+      const parsed = validateListCreate(raw);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail } };
+      const existing = await this.listLists();
+      if (existing.some((list) => list.name.trim().toLowerCase() === parsed.name.toLowerCase())) {
+        return { status: 409, body: { detail: "That list already exists." } };
+      }
+      const id = crypto.randomUUID();
+      const list = { id, name: parsed.name, color: parsed.color, createdAt: now, updatedAt: now };
+      await command(["SET", k(`joehub:list:${id}`), JSON.stringify(list)]);
+      await command(["ZADD", k("joehub:lists"), String(list.createdAt), id]);
+      return { status: 201, body: { ...list, count: 0 } };
+    },
+    async patchList(id, raw, now) {
+      if (!/^[A-Za-z0-9-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That list is no longer here." } };
+      const existing = await readJson(k(`joehub:list:${id}`));
+      if (!existing) return { status: 404, body: { detail: "That list is no longer here." } };
+      const parsed = validateListPatch(raw);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail } };
+      if (parsed.patch.name) {
+        const all = await this.listLists();
+        if (all.some((list) => list.id !== id && list.name.trim().toLowerCase() === parsed.patch.name.toLowerCase())) {
+          return { status: 409, body: { detail: "That list already exists." } };
+        }
+      }
+      const next = { ...existing, ...parsed.patch, createdAt: existing.createdAt, updatedAt: now };
+      await command(["SET", k(`joehub:list:${id}`), JSON.stringify(next)]);
+      const tally = (await this.listLists()).find((list) => list.id === id);
+      return { status: 200, body: { ...next, count: tally ? tally.count : 0 } };
+    },
+    async deleteList(id) {
+      if (!/^[A-Za-z0-9-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That list is no longer here." } };
+      const existing = await readJson(k(`joehub:list:${id}`));
+      if (!existing) return { status: 404, body: { detail: "That list is no longer here." } };
+      const active = (await command(["ZRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
+      const done = (await command(["ZRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
+      let moved = 0;
+      for (const taskId of [...active, ...done]) {
+        const task = await readJson(k(`joehub:task:${taskId}`));
+        if (!task || task.project !== id) continue;
+        const next = { ...task, project: null };
+        next.createdAt = task.createdAt;
+        next.updatedAt = task.updatedAt;
+        await command(["SET", k(`joehub:task:${taskId}`), JSON.stringify(next)]);
+        moved += 1;
+      }
+      await command(["DEL", k(`joehub:list:${id}`)]);
+      await command(["ZREM", k("joehub:lists"), id]);
+      return { status: 200, body: { deleted: true, id, moved } };
     },
     async listGrocery() {
       await ensureGrocerySeeded();
