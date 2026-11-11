@@ -3,6 +3,30 @@
 import { useEffect, useId, useRef } from "react";
 import { Icon } from "./Icon";
 
+type OverlayKeyboard = {
+  boundingRect: { height: number };
+  overlaysContent: boolean;
+  addEventListener(type: "geometrychange", listener: () => void): void;
+  removeEventListener(type: "geometrychange", listener: () => void): void;
+};
+
+function overlayKeyboard() {
+  return (navigator as Navigator & { virtualKeyboard?: OverlayKeyboard }).virtualKeyboard;
+}
+
+function placeOnVisualViewport(node: HTMLElement) {
+  const viewport = window.visualViewport;
+  const keyboard = overlayKeyboard()?.boundingRect;
+  const overlay = keyboard && keyboard.height > 0 ? Math.round(keyboard.height) : 0;
+  const fromViewport = viewport ? Math.max(0, Math.round(window.innerHeight - viewport.offsetTop - viewport.height)) : 0;
+  const bottom = Math.max(fromViewport, overlay);
+  const visible = viewport ? Math.round(viewport.height) : window.innerHeight;
+  const height = Math.max(180, Math.min(visible, window.innerHeight - bottom));
+  node.style.bottom = `${bottom}px`;
+  node.style.height = `${height}px`;
+  node.style.maxHeight = `${height}px`;
+}
+
 /** Local sheet. Escape closes it and Tab stays inside. Not part of the API. */
 export function Sheet({
   title,
@@ -14,6 +38,9 @@ export function Sheet({
   aside = null,
   titleClassName,
   corner = null,
+  formId,
+  saveLabel = "Save",
+  saveDisabled = false,
 }: {
   title: string;
   onClose: () => void;
@@ -29,6 +56,10 @@ export function Sheet({
   titleClassName?: string;
   /** Replaces the phone close control. Desktop panels keep `actions`. */
   corner?: React.ReactNode;
+  /** Phone sheets put Cancel and Save in the header and submit this form. */
+  formId?: string;
+  saveLabel?: string;
+  saveDisabled?: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -71,6 +102,28 @@ export function Sheet({
     };
   }, []);
 
+  useEffect(() => {
+    const node = sheetRef.current;
+    if (!node || dock === "panel" || !formId) return;
+    const place = () => placeOnVisualViewport(node);
+    place();
+    const viewport = window.visualViewport;
+    const keyboard = overlayKeyboard();
+    const previousOverlay = keyboard?.overlaysContent;
+    if (keyboard) keyboard.overlaysContent = true;
+    viewport?.addEventListener("resize", place);
+    viewport?.addEventListener("scroll", place);
+    keyboard?.addEventListener("geometrychange", place);
+    window.addEventListener("resize", place);
+    return () => {
+      viewport?.removeEventListener("resize", place);
+      viewport?.removeEventListener("scroll", place);
+      keyboard?.removeEventListener("geometrychange", place);
+      window.removeEventListener("resize", place);
+      if (keyboard) keyboard.overlaysContent = previousOverlay ?? false;
+    };
+  }, [dock, formId]);
+
   if (dock === "panel") {
     return (
       <aside
@@ -89,6 +142,50 @@ export function Sheet({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
       </aside>
+    );
+  }
+
+  if (formId) {
+    return (
+      <div className="fixed inset-0 z-40">
+        <button type="button" className="absolute inset-0 cursor-default bg-black/40" aria-label={`Close ${title}`} onClick={onClose} />
+        <div
+          ref={sheetRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          data-sheet="form"
+          className="fixed inset-x-0 z-10 mx-auto flex w-full max-w-full flex-col overflow-x-hidden rounded-t-sheetTop bg-surface shadow-2xl"
+          style={{ bottom: 0, height: "100dvh", maxHeight: "100dvh" }}
+        >
+          <div className="shrink-0 px-1 pt-2">
+            <div className="mx-auto h-1 w-8 rounded-full bg-line" />
+            <div className="mt-1 flex items-center gap-1">
+              <button
+                type="button"
+                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center px-3 text-body font-medium text-muted"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+              <h2 id={titleId} className={`min-w-0 flex-1 truncate text-center ${titleClassName || "text-section font-medium"}`}>
+                {title}
+              </h2>
+              <button
+                type="submit"
+                form={formId}
+                disabled={saveDisabled}
+                onMouseDown={(event) => event.preventDefault()}
+                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
+              >
+                {saveLabel}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 pb-8">{children}</div>
+        </div>
+      </div>
     );
   }
 
