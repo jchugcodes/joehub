@@ -1,5 +1,7 @@
 /** Synthetic Finance read model. Money is integer cents. Weeks are Monday–Sunday in America/Detroit. */
 
+import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
+
 export const PLAN_CENTS = 420_400;
 export const NET_WORTH_CENTS = 1_847_236;
 export const YTD_DELTA_CENTS = 128_410;
@@ -29,6 +31,9 @@ function txn(id, payee, date, category, type, amountCents, extra = {}) {
     createdAt: extra.createdAt,
     updatedAt: extra.updatedAt || extra.createdAt,
     ...(extra.accountId ? { accountId: extra.accountId } : {}),
+    ...(extra.billId ? { billId: extra.billId } : {}),
+    ...(extra.periodDue ? { periodDue: extra.periodDue } : {}),
+    ...(extra.accountMask ? { accountMask: extra.accountMask } : {}),
     ...(extra.correction ? { correction: extra.correction } : {}),
     ...(extra.ledger ? { ledger: extra.ledger } : {}),
   };
@@ -55,9 +60,24 @@ export const SEED_TRANSACTIONS = [
     },
     accountId: "acct-card",
   }),
-  txn("fin-stream", "Streaming Club (example)", "2026-11-09", "subscriptions", "expense", -4675, { createdAt: T0 + 17 }),
+  txn("fin-stream", "Streaming Club (example)", "2026-11-09", "subscriptions", "expense", -4675, {
+    createdAt: T0 + 17,
+    source: "bill",
+    billId: "bill-stream",
+    periodDue: "2026-11-12",
+    accountId: "acct-checking",
+    accountMask: "3816",
+  }),
   txn("fin-harbor", "Harbor Supply Co.", "2026-11-10", "shopping", "expense", -1800, { createdAt: T0 + 24 }),
   txn("fin-power", "City Power (example)", "2026-11-09", "utilities", "expense", -6410, { createdAt: T0 + 18 }),
+  txn("fin-water", "City Water (example)", "2026-10-09", "utilities", "expense", -4820, {
+    createdAt: T0 - 40,
+    source: "bill",
+    billId: "bill-water",
+    periodDue: "2026-10-09",
+    accountId: "acct-checking",
+    accountMask: "3816",
+  }),
   txn("fin-vendor", "SQ *DEMO VENDOR", "2026-11-10", null, "expense", -940, { createdAt: T0 + 25 }),
   txn("fin-transfer", "Transfer to Savings (example)", "2026-11-09", null, "transfer", -20_000, { createdAt: T0 + 19, accountId: "acct-savings" }),
   txn("fin-span-dining", "Example bistro", "2026-11-01", "dining-out", "expense", -7400, { createdAt: T0 - 80 }),
@@ -111,7 +131,7 @@ function seedAccount(fields) {
 
 /** Synthetic accounts. Hidden balances stay out of the roll-up, so net worth matches Finance. */
 export const SEED_ACCOUNTS = [
-  seedAccount({ id: "acct-checking", name: "Everyday checking", type: "checking", source: "ledger", institution: "Example CU", balanceCents: 247_236, balanceAsOf: STALE_AT, createdAt: STALE_AT }),
+  seedAccount({ id: "acct-checking", name: "Everyday checking", type: "checking", source: "ledger", institution: "Example CU", balanceCents: 247_236, balanceAsOf: STALE_AT, createdAt: STALE_AT, mask: "3816" }),
   seedAccount({ id: "acct-savings", name: "Emergency savings", type: "savings", source: "ledger", institution: "Example CU", balanceCents: 840_000 }),
   seedAccount({ id: "acct-cash", name: "Cash reserve", type: "savings", source: "manual", balanceCents: 160_000 }),
   seedAccount({ id: "acct-card", name: "Everyday card", type: "credit card", source: "ledger", balanceCents: 40_000 }),
@@ -662,7 +682,7 @@ export function patchTransaction(rows, id, body, now = Date.now(), knownAccountI
   const { accountId, ...fields } = parsed.draft;
   const next = current.source === "ledger"
     ? { ...current, accountId, correction: { ...fields, updatedAt: now } }
-    : { ...current, ...fields, accountId, updatedAt: now };
+    : { ...current, ...fields, accountId, updatedAt: now, ...(current.source === "bill" ? { edited: true } : {}) };
   const copy = rows.slice();
   copy[index] = next;
   return { status: 200, body: presentTransaction(next), rows: copy };
@@ -827,6 +847,8 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     return copy;
   });
   let seq = 0;
+  let bills = structuredClone(SEED_BILLS);
+  let billSeq = 0;
   let caps = defaultCaps();
   const idem = new Map();
   const planCents = PLAN_CENTS;
@@ -866,6 +888,43 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     const result = removeAccount(manualAccounts, id, rows);
     if (result.status === 200) manualAccounts = result.accounts;
     return { status: result.status, body: result.body };
+  };
+  const billView = (now) => {
+    const projected = projectBills(bills, now);
+    if (projected.changed) bills = projected.bills;
+    return billsSnapshot(bills, rows, manualAccounts, now);
+  };
+  store.financeBills = async (now = Date.now()) => billView(now);
+  store.financeBill = async (id, now = Date.now()) => {
+    const view = billView(now);
+    const bill = view.bills.find((item) => item.id === id);
+    return bill ? { status: 200, body: bill } : { status: 404, body: { detail: "That bill is not here." } };
+  };
+  store.financeCreateBill = async (body, now = Date.now(), key = "") => {
+    if (key && idem.has(`bill:${key}`)) return idem.get(`bill:${key}`);
+    billSeq += 1;
+    const result = createBill(bills, manualAccounts, body, now, billSeq);
+    if (result.status === 201) bills = result.bills;
+    const stored = { status: result.status, body: result.body };
+    if (key && result.status === 201) idem.set(`bill:${key}`, stored);
+    return stored;
+  };
+  store.financePatchBill = async (id, body, now = Date.now()) => {
+    const toggling = body && typeof body.paid === "boolean" && body.name == null && body.amountCents == null && body.dueDate == null;
+    const result = toggling ? setBillPaid(bills, rows, manualAccounts, id, body.paid, now) : patchBill(bills, rows, manualAccounts, id, body, now);
+    if (result.bills) bills = result.bills;
+    if (result.rows) rows = result.rows;
+    return { status: result.status, body: result.body };
+  };
+  store.financeDeleteBill = async (id) => {
+    const result = deleteBill(bills, id);
+    if (result.status === 200) bills = result.bills;
+    return { status: result.status, body: result.body };
+  };
+  store.financeImportTransaction = async (body) => {
+    const result = importLedgerTransaction(rows, body);
+    rows = result.rows;
+    return { status: 200, body: { linked: result.linked, id: result.transaction.id, sourceId: result.transaction.sourceId || null, billId: result.transaction.billId || null } };
   };
   store.financeGoals = async () => structuredClone(goals);
   store.financeTransactions = async (now = Date.now(), week = "", accountId = "") => {

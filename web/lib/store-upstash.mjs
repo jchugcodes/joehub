@@ -1,5 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { accountsSnapshot, categoryView, createAccount, createTransaction, defaultCaps, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
+import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -215,11 +216,85 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     await command(["SET", flagKey, "1", "NX"]);
   }
 
+  async function listBills() {
+    const ids = (await command(["ZRANGEBYSCORE", k("joehub:finance:bills:index"), "0", "9007199254740991"])) || [];
+    const bills = [];
+    for (const id of ids) {
+      const bill = await readJson(k(`joehub:finance:bill:${id}`));
+      if (bill) bills.push(bill);
+    }
+    return bills;
+  }
+
+  async function writeRows(before, after) {
+    const afterIds = new Set(after.map((row) => row.id));
+    for (const row of before) {
+      if (afterIds.has(row.id)) continue;
+      await command(["DEL", k(`joehub:finance:txn:${row.id}`)]);
+      await command(["ZREM", k("joehub:finance:txns"), row.id]);
+    }
+    const previous = new Map(before.map((row) => [row.id, JSON.stringify(row)]));
+    for (const row of after) {
+      if (previous.get(row.id) === JSON.stringify(row)) continue;
+      await command(["SET", k(`joehub:finance:txn:${row.id}`), JSON.stringify(row)]);
+      await command(["ZADD", k("joehub:finance:txns"), financeScore(row), row.id]);
+    }
+  }
+
+  async function writeBills(before, after) {
+    const afterIds = new Set(after.map((bill) => bill.id));
+    for (const bill of before) {
+      if (afterIds.has(bill.id)) continue;
+      await command(["DEL", k(`joehub:finance:bill:${bill.id}`)]);
+      await command(["ZREM", k("joehub:finance:bills:index"), bill.id]);
+    }
+    const previous = new Map(before.map((bill) => [bill.id, JSON.stringify(bill)]));
+    for (const bill of after) {
+      if (previous.get(bill.id) === JSON.stringify(bill)) continue;
+      await command(["SET", k(`joehub:finance:bill:${bill.id}`), JSON.stringify(bill)]);
+      await command(["ZADD", k("joehub:finance:bills:index"), String(bill.createdAt || bill.updatedAt || 0), bill.id]);
+    }
+  }
+
+  async function ensureBillSeed() {
+    if (!allowSeed) return;
+    const flagKey = k("joehub:finance:seeded:v3");
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const bill of SEED_BILLS) {
+      const key = k(`joehub:finance:bill:${bill.id}`);
+      const created = await command(["SET", key, JSON.stringify(bill), "NX"]);
+      if (created === "OK" || (await command(["GET", key])) != null) {
+        await command(["ZADD", k("joehub:finance:bills:index"), String(bill.createdAt), bill.id]);
+      }
+    }
+    const streamKey = k("joehub:finance:txn:fin-stream");
+    const stream = await readJson(streamKey);
+    if (stream && !stream.billId) {
+      await command(["SET", streamKey, JSON.stringify({
+        ...stream,
+        source: "bill",
+        billId: "bill-stream",
+        periodDue: "2026-11-12",
+        accountId: stream.accountId || "acct-checking",
+        accountMask: stream.accountMask || "3816",
+      })]);
+    }
+    const water = SEED_TRANSACTIONS.find((row) => row.id === "fin-water");
+    if (water) {
+      const waterKey = k("joehub:finance:txn:fin-water");
+      if ((await command(["SET", waterKey, JSON.stringify(water), "NX"])) === "OK") {
+        await command(["ZADD", k("joehub:finance:txns"), financeScore(water), water.id]);
+      }
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
   async function ensureFinance() {
     const flagKey = k("joehub:finance:seeded");
     const raw = await command(["GET", flagKey]);
     if (raw === "1") {
       await ensureAccountSeed();
+      await ensureBillSeed();
       return;
     }
     const legacy = legacyFinance(raw);
@@ -243,6 +318,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     if (legacy) await command(["SET", flagKey, "1"]);
     else await command(["SET", flagKey, "1", "NX"]);
     await ensureAccountSeed();
+    await ensureBillSeed();
   }
 
   async function listManualAccounts() {
@@ -618,6 +694,72 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       await command(["DEL", k(`joehub:finance:account:${id}`)]);
       await command(["ZREM", k("joehub:finance:accounts:index"), id]);
       return { status: result.status, body: result.body };
+    },
+    async financeBills(now = Date.now()) {
+      await ensureFinance();
+      const accounts = await listManualAccounts();
+      let bills = await listBills();
+      const projected = projectBills(bills, now);
+      if (projected.changed) {
+        await writeBills(bills, projected.bills);
+        bills = projected.bills;
+      }
+      return billsSnapshot(bills, await this.financeRows(), accounts, now);
+    },
+    async financeBill(id, now = Date.now()) {
+      const view = await this.financeBills(now);
+      const bill = view.bills.find((item) => item.id === id);
+      return bill ? { status: 200, body: bill } : { status: 404, body: { detail: "That bill is not here." } };
+    },
+    async financeCreateBill(body, now = Date.now(), key = "") {
+      await ensureFinance();
+      if (key) {
+        const prior = await readJson(k(`joehub:finance:bill:idem:${key}`));
+        if (prior) return prior;
+      }
+      const accounts = await listManualAccounts();
+      const existing = await listBills();
+      const seq = existing.filter((bill) => String(bill.id).startsWith("bill-") && String(bill.id).includes("-")).length + 1;
+      const result = createBill(existing, accounts, body, now, seq);
+      if (result.status === 201) await writeBills(existing, result.bills);
+      const stored = { status: result.status, body: result.body };
+      if (key && result.status === 201) await command(["SET", k(`joehub:finance:bill:idem:${key}`), JSON.stringify(stored), "EX", "86400"]);
+      return stored;
+    },
+    async financePatchBill(id, body, now = Date.now()) {
+      await ensureFinance();
+      const accounts = await listManualAccounts();
+      const existing = await listBills();
+      const rows = await this.financeRows();
+      const toggling = body && typeof body.paid === "boolean" && body.name == null && body.amountCents == null && body.dueDate == null;
+      const result = toggling ? setBillPaid(existing, rows, accounts, id, body.paid, now) : patchBill(existing, rows, accounts, id, body, now);
+      if (result.bills) await writeBills(existing, result.bills);
+      if (result.rows) await writeRows(rows, result.rows);
+      return { status: result.status, body: result.body };
+    },
+    async financeDeleteBill(id) {
+      await ensureFinance();
+      const existing = await listBills();
+      const result = deleteBill(existing, id);
+      if (result.status === 200) await writeBills(existing, result.bills);
+      return { status: result.status, body: result.body };
+    },
+    async financeImportTransaction(body) {
+      await ensureFinance();
+      const rows = await this.financeRows();
+      const result = importLedgerTransaction(rows, body);
+      await writeRows(rows, result.rows);
+      const transaction = result.transaction;
+      return {
+        status: 200,
+        body: {
+          linked: result.linked,
+          id: transaction.id,
+          sourceId: transaction.sourceId || null,
+          billId: transaction.billId || null,
+          transaction: presentTransaction(transaction),
+        },
+      };
     },
     async financeGoals() {
       return (await this.financeBundle()).goals;

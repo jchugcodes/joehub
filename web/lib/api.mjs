@@ -494,6 +494,92 @@ export async function handleFinanceDeleteAccount(id, headers, env, store, limite
   }
 }
 
+export async function handleFinanceBills(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeBills !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeBills(financeWhen(now, url).now) };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCreateBill(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  const body = await readAccountBody(request);
+  if (!body) return { status: 400, body: { detail: "Name required.", field: "name" } };
+  try {
+    if (!store || typeof store.financeCreateBill !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeCreateBill(body, financeWhen(now, request.url).now, idem.key);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceBill(id, headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeBill !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeBill(id, financeWhen(now, url).now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinancePatchBill(id, headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const body = await readAccountBody(request);
+  if (!body) return { status: 400, body: { detail: "Name required.", field: "name" } };
+  try {
+    if (!store || typeof store.financePatchBill !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financePatchBill(id, body, financeWhen(now, request.url).now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceDeleteBill(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeDeleteBill !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeDeleteBill(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceImportTransaction(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const body = await readAccountBody(request);
+  if (!body) return { status: 400, body: { detail: "Enter a valid amount.", field: "amount" } };
+  try {
+    if (!store || typeof store.financeImportTransaction !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeImportTransaction(body);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinanceGoals(headers, env, store, limiter, now, ip) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;
