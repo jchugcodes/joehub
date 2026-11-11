@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
@@ -127,6 +127,7 @@ export default function TasksPage() {
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
+  const [group, setGroup] = useState<"all" | "status" | "project">("all");
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -447,6 +448,18 @@ export default function TasksPage() {
   const controlsDisabled = offline || mode !== "ready";
   const openTasks = tasks.filter((task) => task.status !== "Done");
   const completedTasks = activeQuery ? [] : tasks.filter((task) => task.status === "Done");
+  const groups = useMemo(() => {
+    const source = activeQuery ? tasks : openTasks;
+    if (activeQuery || group === "all") return [{ key: "all", label: "", items: source }];
+    const labelFor = (task: Task) => (group === "status" ? task.status : task.project || "No project");
+    const statusOrder = ["Doing", "To do", "Blocked"];
+    const seen = [...new Set(source.map(labelFor))];
+    const labels =
+      group === "status"
+        ? [...statusOrder.filter((status) => seen.includes(status as Task["status"])), ...seen.filter((status) => !statusOrder.includes(status))]
+        : [...seen.filter((label) => label !== "No project").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No project")];
+    return labels.map((label) => ({ key: label, label, items: source.filter((task) => labelFor(task) === label) }));
+  }, [activeQuery, group, openTasks, tasks]);
   const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
   const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
   function renderTask(task: Task) {
@@ -536,6 +549,7 @@ export default function TasksPage() {
         </p>
       ) : null}
       {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
+      <>
       <form className="mt-4 px-4" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="task-search">
           Search tasks
@@ -559,6 +573,34 @@ export default function TasksPage() {
           ) : null}
         </div>
       </form>
+      <div className="mt-3 flex flex-wrap items-center gap-2 px-4" role="group" aria-label="Group tasks">
+        {(
+          [
+            ["all", "All"],
+            ["status", "Status"],
+            ["project", "Project"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={group === value}
+            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
+            onClick={() => setGroup(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {group !== "all" ? (
+        <div className="mt-1 flex items-center gap-2 px-4">
+          <span className="rounded-full bg-[#E6E8E4] px-3 py-1 text-meta font-medium text-[#5C6560]">{group === "status" ? "Status" : "Project"}</span>
+          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setGroup("all")}>
+            Clear
+          </button>
+        </div>
+      ) : null}
+      </>
       )}
       {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
       {mode === "loading" ? (
@@ -608,12 +650,24 @@ export default function TasksPage() {
           </div>
         </div>
       ) : null}
-      {mode === "ready" && !activeQuery && openTasks.length > 0 ? (
-        <ul aria-label="Unfinished tasks" className="mt-4 space-y-3 px-4">
-          {openTasks.map((task) => renderTask(task))}
-        </ul>
+      {mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
+        <div className="mt-4 space-y-4">
+          {groups.map((section) => (
+            <section key={section.key} aria-label={section.label || undefined}>
+              {section.label ? (
+                <h2 className="flex items-center justify-between px-5 text-meta font-medium">
+                  <span>{section.label}</span>
+                  <span className="font-medium text-muted">{section.items.length}</span>
+                </h2>
+              ) : null}
+              <ul aria-label={activeQuery ? "Search results" : "Unfinished tasks"} className={`${section.label ? "mt-2" : ""} space-y-3 px-4`}>
+                {section.items.map((task) => renderTask(task))}
+              </ul>
+            </section>
+          ))}
+        </div>
       ) : null}
-      {mode === "ready" && !activeQuery && completedTasks.length > 0 ? (
+      {mode === "ready" && !activeQuery && group !== "project" && completedTasks.length > 0 ? (
         <section aria-label="Completed" className="mt-6" data-completed="true">
           <h2 className="flex items-center justify-between px-5 text-meta font-medium">
             <span>Completed</span>
@@ -621,11 +675,6 @@ export default function TasksPage() {
           </h2>
           <ul className="mt-2 space-y-3 px-4">{completedTasks.map((task) => renderTask(task))}</ul>
         </section>
-      ) : null}
-      {mode === "ready" && activeQuery && tasks.length > 0 ? (
-        <ul aria-label="Search results" className="mt-4 space-y-3 px-4">
-          {tasks.map((task) => renderTask(task))}
-        </ul>
       ) : null}
       {showAddBar && !offline ? (
         <div className="mt-4 px-4">
