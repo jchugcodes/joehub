@@ -78,6 +78,26 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     await command(["SET", flagKey, "1", "NX"]);
   }
 
+  async function ensureBotSamples(samples) {
+    const flagKey = k("joehub:tasks:seeded:v2");
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const sample of samples) {
+      if (!sample.bot) continue;
+      const key = k(`joehub:task:${sample.id}`);
+      const existing = await readJson(key);
+      if (!existing) {
+        const created = await command(["SET", key, JSON.stringify(sample), "NX"]);
+        if (created === "OK") {
+          await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+        }
+        continue;
+      }
+      if (existing.bot) continue;
+      await command(["SET", key, JSON.stringify({ ...existing, bot: sample.bot })]);
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
   async function ensureSeeded() {
     const flagKey = k("joehub:tasks:seeded");
     const samples = buildSampleTasks(Date.now());
@@ -85,6 +105,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       for (const sample of samples) await placeSample(sample);
       await command(["SET", flagKey, "1", "NX"]);
     }
+    await ensureBotSamples(samples);
     await addMissingSamples(samples.filter((sample) => sample.status !== "Done"), "v3");
     await addMissingSamples(samples.filter((sample) => sample.status === "Done"), "v4");
   }

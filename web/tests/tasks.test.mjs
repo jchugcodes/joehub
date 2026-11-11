@@ -443,6 +443,28 @@ test("delete removes a task from the list and from search", async () => {
   assert.equal((await performDelete(backend, created.body.id)).status, 404);
 });
 
+test("bot progress is read-only and a title edit keeps it", async () => {
+  assert.equal(validateTaskCreate({ title: "Nope", assignee: "Scout" }).ok, false);
+  assert.equal(validateTaskCreate({ title: "Nope", bot: { name: "Scout" } }).ok, false);
+  assert.equal(validateTaskPatch({ bot: { name: "Scout" } }, 1).ok, false);
+  assert.equal(validateTaskPatch({ assignee: "Cela" }, 1).ok, false);
+  const backend = createMemoryBackend();
+  const now = Date.parse("2026-11-09T16:00:00.000Z");
+  await backend.putTask({
+    id: "bot-1",
+    title: "Review the sample",
+    status: "Doing",
+    createdAt: now,
+    updatedAt: now,
+    bot: { name: "Scout", detail: "Waiting on your reply · 2 of 3 questions" },
+  });
+  const patched = await performPatch(backend, "bot-1", { title: "Review the seeded sample" }, now + 10);
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.title, "Review the seeded sample");
+  assert.equal(patched.body.bot.name, "Scout");
+  assert.equal(patched.body.bot.detail, "Waiting on your reply · 2 of 3 questions");
+});
+
 test("upstash deletes done tasks after 7 days on search", async () => {
   const fake = await startFakeUpstash();
   const store = createUpstashStore({ url: fake.url, token: fake.token });
@@ -497,6 +519,59 @@ test("get and patch seed sample tasks on a cold start", async () => {
         (args) => args[0] === "ZADD" && args[1] === "joehub:tasks:done" && args[2] === String(sample.updatedAt + 80) && args[3] === sample.id,
       ),
     );
+  } finally {
+    fake.stop();
+  }
+});
+
+test("an old seed flag still adds the missing bot samples once", async () => {
+  const fake = await startFakeUpstash();
+  const redis = (args) =>
+    fetch(fake.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${fake.token}`, "content-type": "application/json" },
+      body: JSON.stringify(args),
+    });
+  const scout = SAMPLE_TASKS.find((task) => task.bot && task.bot.name === "Scout");
+  const cela = SAMPLE_TASKS.find((task) => task.bot && task.bot.name === "Cela");
+  const withoutBot = (sample) => {
+    const stored = { ...sample };
+    delete stored.bot;
+    return stored;
+  };
+  try {
+    await redis(["SET", "joehub:tasks:seeded", "1"]);
+    for (const sample of SAMPLE_TASKS) {
+      if (sample.id === cela.id) continue;
+      const stored = sample.id === scout.id ? { ...withoutBot(sample), title: "Hold for the edited reply" } : withoutBot(sample);
+      await redis(["SET", `joehub:task:${sample.id}`, JSON.stringify(stored)]);
+      await redis(["ZADD", "joehub:tasks:active", String(sample.createdAt), sample.id]);
+    }
+    const store = createUpstashStore({ url: fake.url, token: fake.token });
+    const listed = await store.listUnfinishedTasks();
+    const edited = listed.find((task) => task.id === scout.id);
+    assert.equal(edited.title, "Hold for the edited reply");
+    assert.equal(edited.status, scout.status);
+    assert.equal(edited.bot.name, "Scout");
+    assert.equal(edited.bot.detail, scout.bot.detail);
+    const building = listed.find((task) => task.id === cela.id);
+    assert.equal(building.title, cela.title);
+    assert.equal(building.bot.name, "Cela");
+    assert.equal(building.bot.progress, 60);
+    const again = await store.listUnfinishedTasks();
+    assert.equal(again.find((task) => task.id === scout.id).title, "Hold for the edited reply");
+    assert.equal(fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded:v2").length, 1);
+
+    await redis(["SET", "joehub-preview:tasks:seeded", "1"]);
+    await redis(["SET", `joehub-preview:task:${scout.id}`, JSON.stringify(withoutBot(scout))]);
+    await redis(["ZADD", "joehub-preview:tasks:active", String(scout.createdAt), scout.id]);
+    const preview = createUpstashStore({ url: fake.url, token: fake.token, prefix: "joehub-preview:" });
+    const previewRows = await preview.listUnfinishedTasks();
+    assert.equal(previewRows.find((task) => task.id === scout.id).title, scout.title);
+    assert.equal(previewRows.find((task) => task.id === scout.id).bot.name, "Scout");
+    assert.equal(previewRows.find((task) => task.id === cela.id).bot.name, "Cela");
+    assert.ok(fake.commands.some((args) => args[0] === "SET" && args[1] === "joehub-preview:tasks:seeded:v2"));
+    assert.equal(fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:tasks:seeded:v2").length, 1);
   } finally {
     fake.stop();
   }

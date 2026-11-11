@@ -36,6 +36,10 @@ def _calendar_date(value: str) -> bool:
 def validate_task(body: object) -> tuple[dict | None, dict | None]:
     if not isinstance(body, dict):
         return None, {"detail": "Task must be an object"}
+    if body.get("bot") is not None:
+        return None, {"detail": "Bot assignment can't be changed.", "field": "bot"}
+    if body.get("assignee") is not None:
+        return None, {"detail": "Bot assignment can't be changed.", "field": "assignee"}
     title = body.get("title")
     if not isinstance(title, str) or not title.strip():
         return None, {"detail": "Enter a title.", "field": "title"}

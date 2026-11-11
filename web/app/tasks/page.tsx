@@ -21,6 +21,7 @@ interface Task {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+  bot?: { name: string; detail: string; progress?: number };
 }
 
 interface Draft {
@@ -30,6 +31,27 @@ interface Draft {
   priority: "" | Priority;
   status: Status;
   project: string;
+}
+
+function BotLine({ bot }: { bot: NonNullable<Task["bot"]> }) {
+  const progress = typeof bot.progress === "number" ? Math.max(0, Math.min(100, bot.progress)) : null;
+  const waiting = progress == null;
+  return (
+    <div className={`mt-2 rounded-xl px-3 py-2.5 ${waiting ? "bg-[#3A86C81F] text-[#3A86C8]" : "bg-[#2E8B6A1F] text-[#2E8B6A]"}`} data-bot={bot.name}>
+      <div className="flex items-start gap-2">
+        {waiting ? <Icon name="bot" size={16} className="mt-0.5 shrink-0" /> : null}
+        <p className="min-w-0 text-meta">
+          <span className="font-medium">{bot.name}</span>
+          <span className="font-normal text-muted"> {bot.detail}</span>
+        </p>
+      </div>
+      {waiting ? null : (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white" aria-hidden="true">
+          <div className="h-full rounded-full bg-[#2E8B6A]" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 const emptyDraft = (): Draft => ({
@@ -540,6 +562,7 @@ export default function TasksPage() {
             {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
             {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
             {done && typeof task.completedAt === "number" ? <p className="mt-1 text-meta text-muted">{completedLabel(task.completedAt)}</p> : null}
+            {task.bot ? <BotLine bot={task.bot} /> : null}
           </button>
           {done ? (
             <button
@@ -589,6 +612,9 @@ export default function TasksPage() {
             Dismiss
           </button>
         </p>
+      ) : null}
+      {tasks.some((task) => task.bot) ? (
+        <p className="mx-4 mt-3 rounded-2xl bg-[#3A86C81F] px-3.5 py-2.5 text-meta font-medium text-[#3A86C8]">Bot progress</p>
       ) : null}
       {offline ? (
         <div className="mt-3 px-4">
@@ -787,6 +813,9 @@ export default function TasksPage() {
           }
         >
           <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
+            {sheet === "edit" && tasks.find((task) => task.id === editingId)?.bot ? (
+              <BotLine bot={tasks.find((task) => task.id === editingId)!.bot!} />
+            ) : null}
             <label className="block text-meta font-medium" htmlFor="task-title">
               Title
             </label>
