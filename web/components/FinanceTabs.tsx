@@ -9,6 +9,7 @@ const links = [
   { href: "/finance/categories", label: "Categories" },
   { href: "/finance/goals", label: "Goals" },
   { href: "/finance/accounts", label: "Accounts" },
+  { href: "/finance/bills", label: "Bills" },
 ];
 
 function selected(pathname: string, href: string) {
@@ -41,7 +42,7 @@ export function FinanceTabs() {
   }, []);
   return (
     <nav aria-label="Finance sections" data-tabs="contained" className="finance-sections flex w-full min-w-0 items-end border-b border-line">
-      <div ref={scrollerRef} className="flex min-w-0 flex-1 items-end gap-6 overflow-x-auto overflow-y-hidden px-5 scroll-px-5">
+      <div ref={scrollerRef} className="flex min-w-0 flex-1 items-end gap-3 overflow-x-auto overflow-y-hidden px-5 scroll-px-5">
         {links.map((link) => {
           const current = selected(pathname, link.href);
           return (

@@ -60,7 +60,7 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(diningView.body.rows.reduce((sum, row) => sum - row.amountCents, 0), 9200);
 
   const ranges = ["1W", "1M", "YTD", "1Y", "All"].map((range) => chartFor(SEED_TRANSACTIONS, "2026-11-10", range).points.join(","));
-  assert.equal(new Set(ranges).size, 4);
+  assert.equal(new Set(ranges).size, 5);
   const week = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1W");
   assert.deepEqual(week.points, [38543]);
   const oneMonth = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1M");
