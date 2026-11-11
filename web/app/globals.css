@@ -43,6 +43,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  scroll-padding-bottom: calc(var(--primary-nav-height, 84px) + 28px);
+}
+
 /* Outfit is scoped. Body stays DM Sans via font-sans. */
 .tasks-type,
 .grocery-type,

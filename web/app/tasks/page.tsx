@@ -613,9 +613,6 @@ export default function TasksPage() {
           </button>
         </p>
       ) : null}
-      {tasks.some((task) => task.bot) ? (
-        <p className="mx-4 mt-3 rounded-2xl bg-[#3A86C81F] px-3.5 py-2.5 text-meta font-medium text-[#3A86C8]">Bot progress</p>
-      ) : null}
       {offline ? (
         <div className="mt-3 px-4">
           <button type="button" className="flex min-h-11 w-full items-center justify-center rounded-xl border border-line bg-surface px-4 text-body font-medium text-muted" disabled>
