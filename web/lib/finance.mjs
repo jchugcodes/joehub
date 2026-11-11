@@ -41,6 +41,21 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const CATEGORY_PAGE_ORDER = ["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities"];
 
+/** Lead with the original screen order, then every other category. The month total uses this full list. */
+function pageCategories(categories = CATEGORIES) {
+  const source = Array.isArray(categories) ? categories : CATEGORIES;
+  const bySlug = new Map(source.filter((item) => item && item.slug && item.slug !== "uncategorized").map((item) => [item.slug, item]));
+  const ordered = [];
+  for (const slug of CATEGORY_PAGE_ORDER) {
+    const item = bySlug.get(slug);
+    if (!item) continue;
+    ordered.push(item);
+    bySlug.delete(slug);
+  }
+  const rest = [...bySlug.values()].sort((left, right) => (left.sort ?? 0) - (right.sort ?? 0) || (left.slug < right.slug ? -1 : 1));
+  return [...ordered, ...rest];
+}
+
 function txn(id, payee, date, category, type, amountCents, extra = {}) {
   return {
     id,
@@ -589,7 +604,7 @@ function spentFor(rows, slug) {
 }
 
 export function parseMonthlyBudgets(input, categories = CATEGORIES) {
-  const listed = CATEGORY_PAGE_ORDER.map((slug) => categories.find((item) => item.slug === slug)).filter(Boolean);
+  const listed = pageCategories(categories);
   const first = listed[0] || categories[0];
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, field: first.slug, detail: "Enter an amount." };
@@ -931,7 +946,7 @@ export function categoriesSnapshot(txns, now, period = "month", caps = defaultCa
   const month = monthBounds(today);
   const start = weekStart(today);
   const pool = monthMode ? rowsInMonth(txns, today) : rowsInWeek(txns, start);
-  const listed = CATEGORY_PAGE_ORDER.map((slug) => (categories || CATEGORIES).find((item) => item.slug === slug)).filter(Boolean);
+  const listed = pageCategories(categories || CATEGORIES);
   const items = listed.map((category) => {
     const spent = spentFor(pool, category.slug);
     const hasCap = caps && Object.prototype.hasOwnProperty.call(caps, category.slug);

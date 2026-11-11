@@ -180,6 +180,46 @@ test("production renders spent only even when monthly caps and a plan are stored
   assert.equal(showMonthBudget(false, preview), true);
 });
 
+test("the month total sums every category cap, not only the first screen", () => {
+  const open = new Set(["utilities", "school"]);
+  const categories = SEED_CATEGORIES.map((item) => ({
+    ...item,
+    weeklyCapCents: open.has(item.slug) ? null : 5000,
+    monthlyCapCents: open.has(item.slug) ? null : 10000 + item.sort * 100,
+  }));
+  const caps = Object.fromEntries(categories.filter((item) => Number.isInteger(item.weeklyCapCents)).map((item) => [item.slug, item.weeklyCapCents]));
+  const snapshot = categoriesSnapshot([], NOW, "month", caps, categories, false);
+  const rows = snapshot.categories.filter((item) => item.slug !== "uncategorized");
+  assert.equal(rows.length, 10);
+  assert.deepEqual(
+    rows.map((item) => item.slug),
+    ["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities", "health-fitness", "fun", "school", "other"],
+  );
+  const expected = rows.reduce((sum, item) => sum + (Number.isInteger(item.capCents) ? item.capCents : 0), 0);
+  assert.equal(snapshot.budgetCents, expected);
+  const firstScreen = rows.filter((item) => ["dining-out", "groceries", "transport", "subscriptions", "shopping"].includes(item.slug));
+  const partial = firstScreen.reduce((sum, item) => sum + item.capCents, 0);
+  assert.ok(snapshot.budgetCents > partial);
+  assert.equal(rows.filter((item) => Number.isInteger(item.capCents)).length, 8);
+  assert.equal(rows.find((item) => item.slug === "utilities").capCents, null);
+  assert.equal(rows.find((item) => item.slug === "utilities").status, "No cap set");
+  assert.equal(rows.find((item) => item.slug === "school").capCents, null);
+  assert.equal(rows.find((item) => item.slug === "school").status, "No cap set");
+  for (const slug of ["health-fitness", "fun", "other"]) {
+    const row = rows.find((item) => item.slug === slug);
+    const stored = categories.find((item) => item.slug === slug);
+    assert.equal(row.estimate, true);
+    assert.equal(row.capCents, stored.monthlyCapCents);
+  }
+  const parsed = parseMonthlyBudgets(
+    Object.fromEntries(categories.map((item) => [item.slug, item.monthlyCapCents])),
+    categories,
+  );
+  assert.equal(parsed.ok, true);
+  assert.equal(Object.keys(parsed.budgets).length, categories.length);
+  assert.match(snapshot.budgetLabel, /budgeted · estimates/);
+});
+
 test("moving budget keeps the $390 total and rejects an over-move", async () => {
   const moved = parseCaps({
     "dining-out": 9000,
@@ -323,6 +363,10 @@ test("saving monthly budgets confirms the estimates and leaves blanks empty", as
     subscriptions: 23833,
     shopping: 32500,
     utilities: null,
+    "health-fitness": null,
+    fun: null,
+    school: null,
+    other: null,
   };
   const blank = parseMonthlyBudgets({ ...budgets, "dining-out": null, groceries: null, transport: null, subscriptions: null, shopping: null });
   assert.equal(blank.ok, true);
