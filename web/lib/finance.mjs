@@ -1,6 +1,7 @@
 /** Synthetic Finance read model. Money is integer cents. Weeks are Monday–Sunday in America/Detroit. */
 
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
+import { productionNav } from "./live-pages.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 
 export const PLAN_CENTS = 420_400;
@@ -622,13 +623,13 @@ export function chartFor(txns, today, range, snapshot) {
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
-export function monthProgress(txns, today, planCents = PLAN_CENTS, categories) {
+export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env) {
   const month = monthBounds(today);
   const spent = txns
     .map(effective)
     .filter((row) => row.date >= month.start && row.date <= today)
     .reduce((sum, row) => sum + spendCents(row), 0);
-  const budget = monthlyPlanCents(planCents, categories);
+  const budget = productionNav(env) ? null : monthlyPlanCents(planCents, categories);
   return {
     label: `${formatDay(month.start)}–${Number(today.slice(8))}`,
     spentCents: spent,
@@ -660,6 +661,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
   const chosen = ["1W", "1M", "YTD", "1Y", "All"].includes(range) ? range : "YTD";
   const categories = context.categories || CATEGORIES;
   const planCents = context.planCents ?? PLAN_CENTS;
+  const env = context.env || process.env;
   const snapshot = context.snapshot || seedSnapshots();
   const netWorthCents = Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents;
   const rows = rowsInWeek(txns, start);
@@ -678,7 +680,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
       netWorthCents,
       chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
-      month: monthProgress(txns, today, planCents, categories),
+      month: monthProgress(txns, today, planCents, categories, env),
       caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,

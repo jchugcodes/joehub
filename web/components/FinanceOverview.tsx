@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasNetWorthHistory } from "../lib/finance.mjs";
-import { showNetWorthChart } from "../lib/live-pages.mjs";
+import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
@@ -352,21 +352,21 @@ export function FinanceOverview() {
                 </div>
                 <p className="mt-1 font-medium">
                   <span className="text-title">{money(overview.month.spentCents, false)}</span>
-                  {overview.month.planCents != null ? (
+                  {showMonthBudget(production, overview.month) && overview.month.planCents != null && overview.month.percent != null ? (
                     <>
                       {" "}
                       <span className="text-body font-normal text-muted">of {money(overview.month.planCents, false)} plan</span>
                     </>
                   ) : null}
                 </p>
-                {overview.month.planCents != null && overview.month.percent != null ? (
+                {showMonthBudget(production, overview.month) && overview.month.percent != null ? (
                   <div className="relative mt-3 h-2.5 rounded-full bg-line">
                     <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, overview.month.percent))}%`, background: "#E07A5F" }} />
                     <span className="absolute -top-1 h-[18px] w-0.5 bg-ink" style={{ left: `${Math.min(100, Math.round((overview.month.day / overview.month.days) * 100))}%` }} />
                   </div>
                 ) : null}
-                <p className={`mt-2 flex text-meta text-muted ${overview.month.planCents != null ? "justify-between" : "justify-end"}`}>
-                  {overview.month.percent != null ? <span>{overview.month.percent}% used</span> : null}
+                <p className={`mt-2 flex text-meta text-muted ${showMonthBudget(production, overview.month) ? "justify-between" : "justify-end"}`}>
+                  {showMonthBudget(production, overview.month) && overview.month.percent != null ? <span>{overview.month.percent}% used</span> : null}
                   <span>Day {overview.month.day} of {overview.month.days}</span>
                 </p>
               </section>

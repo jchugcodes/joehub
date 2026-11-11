@@ -53,6 +53,12 @@ export function showNetWorthChart(production, hasHistory) {
   return !production || hasHistory === true;
 }
 
+/** Production shows spent only until labeled monthly budgets ship. */
+export function showMonthBudget(production, month) {
+  if (production) return false;
+  return month != null && month.planCents != null && month.percent != null;
+}
+
 function under(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
