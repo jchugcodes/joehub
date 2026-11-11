@@ -1,18 +1,38 @@
 /** Synthetic Finance read model. Money is integer cents. Weeks are Monday–Sunday in America/Detroit. */
 
+import { readOptionalSourceId } from "./source-id.mjs";
+
 export const PLAN_CENTS = 420_400;
 export const NET_WORTH_CENTS = 1_847_236;
 export const YTD_DELTA_CENTS = 128_410;
 export const ACCOUNTS_UPDATED = "2026-11-10T14:58:00.000Z";
 
-export const CATEGORIES = [
-  { slug: "dining-out", name: "Dining Out", capCents: 8000, color: "#E07A5F" },
-  { slug: "groceries", name: "Groceries", capCents: 12000, color: "#2E8B6A" },
-  { slug: "transport", name: "Transport", capCents: 6000, color: "#5B6B8C" },
-  { slug: "subscriptions", name: "Subscriptions", capCents: 5500, color: "#8E7CC3" },
-  { slug: "shopping", name: "Shopping", capCents: 7500, color: "#E9B949" },
-  { slug: "utilities", name: "Utilities", capCents: 0, color: "#3A86C8" },
+function categoryRecord({ slug, name, weeklyCapCents, color, sort }) {
+  return { slug, name, weeklyCapCents, monthlyCapCents: null, sort, color, capCents: weeklyCapCents };
+}
+
+// Preview and local seed. Existing slugs stay put. A null weekly cap is outside the envelope.
+export const SEED_CATEGORIES = [
+  categoryRecord({ slug: "groceries", name: "Groceries", weeklyCapCents: 12000, color: "#2E8B6A", sort: 1 }),
+  categoryRecord({ slug: "dining-out", name: "Dining Out", weeklyCapCents: 8000, color: "#E07A5F", sort: 2 }),
+  categoryRecord({ slug: "transport", name: "Gas & Transport", weeklyCapCents: 6000, color: "#5B6B8C", sort: 3 }),
+  categoryRecord({ slug: "utilities", name: "Bills & Utilities", weeklyCapCents: 0, color: "#3A86C8", sort: 4 }),
+  categoryRecord({ slug: "subscriptions", name: "Subscriptions", weeklyCapCents: 5500, color: "#8E7CC3", sort: 5 }),
+  categoryRecord({ slug: "shopping", name: "Shopping", weeklyCapCents: 7500, color: "#E9B949", sort: 6 }),
+  categoryRecord({ slug: "health-fitness", name: "Health & Fitness", weeklyCapCents: null, color: "#2A9D8F", sort: 7 }),
+  categoryRecord({ slug: "fun", name: "Fun", weeklyCapCents: null, color: "#C2577A", sort: 8 }),
+  categoryRecord({ slug: "school", name: "School", weeklyCapCents: null, color: "#3A6EA5", sort: 9 }),
+  categoryRecord({ slug: "other", name: "Other", weeklyCapCents: null, color: "#6B746E", sort: 10 }),
 ];
+
+export const CATEGORIES = SEED_CATEGORIES;
+
+const NAME_ALIASES = new Map([
+  ["transport", "transport"],
+  ["gas & transport", "transport"],
+  ["utilities", "utilities"],
+  ["bills & utilities", "utilities"],
+]);
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -305,7 +325,66 @@ function categoryBySlug(slug) {
 }
 
 function categoryByName(name) {
-  return CATEGORIES.find((item) => item.name.toLowerCase() === String(name || "").toLowerCase()) || null;
+  const needle = String(name || "").trim().toLowerCase();
+  const alias = NAME_ALIASES.get(needle);
+  if (alias) return categoryBySlug(alias);
+  return CATEGORIES.find((item) => item.name.toLowerCase() === needle) || null;
+}
+
+export function envelopeTotal(categories = CATEGORIES) {
+  return categories.reduce((sum, item) => (Number.isInteger(item.weeklyCapCents) ? sum + item.weeklyCapCents : sum), 0);
+}
+
+export function categoriesFromCaps(caps, base = SEED_CATEGORIES) {
+  const source = caps && typeof caps === "object" && !Array.isArray(caps) ? caps : {};
+  return base.map((category) => {
+    if (!Object.prototype.hasOwnProperty.call(source, category.slug) || !Number.isInteger(source[category.slug])) return { ...category };
+    return { ...category, weeklyCapCents: source[category.slug], capCents: source[category.slug] };
+  });
+}
+
+export function normalizeCategories(stored, caps) {
+  const rows = Array.isArray(stored) ? stored.map(storedCategory).filter(Boolean) : [];
+  const base = rows.length ? rows : SEED_CATEGORIES.map((category) => ({ ...category }));
+  const known = new Set(base.map((category) => category.slug));
+  const categories = [...base, ...SEED_CATEGORIES.filter((category) => !known.has(category.slug)).map((category) => ({ ...category }))];
+  return categoriesFromCaps(caps, categories);
+}
+
+function storedCategory(raw) {
+  if (!raw || typeof raw.slug !== "string" || typeof raw.name !== "string") return null;
+  const weeklyCapCents = raw.weeklyCapCents == null ? null : raw.weeklyCapCents;
+  if (weeklyCapCents != null && !Number.isInteger(weeklyCapCents)) return null;
+  const monthlyCapCents = raw.monthlyCapCents == null ? null : raw.monthlyCapCents;
+  if (monthlyCapCents != null && !Number.isInteger(monthlyCapCents)) return null;
+  const category = {
+    slug: raw.slug,
+    name: raw.name,
+    weeklyCapCents,
+    monthlyCapCents,
+    sort: Number.isInteger(raw.sort) ? raw.sort : 100,
+    color: typeof raw.color === "string" ? raw.color : "#6B746E",
+    capCents: weeklyCapCents,
+  };
+  if (typeof raw.group === "string" && raw.group.trim()) category.group = raw.group.trim();
+  return category;
+}
+
+export function publicCategories(categories) {
+  return categories
+    .map((category) => {
+      const row = {
+        slug: category.slug,
+        name: category.name,
+        weeklyCapCents: Number.isInteger(category.weeklyCapCents) ? category.weeklyCapCents : null,
+        monthlyCapCents: Number.isInteger(category.monthlyCapCents) ? category.monthlyCapCents : null,
+        sort: category.sort,
+      };
+      if (category.group) row.group = category.group;
+      if (category.color) row.color = category.color;
+      return row;
+    })
+    .sort((left, right) => left.sort - right.sort || (left.slug < right.slug ? -1 : 1));
 }
 
 export function resolveCategory(value) {
@@ -338,18 +417,25 @@ function spentFor(rows, slug) {
   return rows.reduce((sum, row) => (row.category === slug ? sum + spendCents(row) : sum), 0);
 }
 
-export function defaultCaps() {
-  return Object.fromEntries(CATEGORIES.map((item) => [item.slug, item.capCents]));
+export function defaultCaps(categories = CATEGORIES) {
+  return Object.fromEntries(categories.filter((item) => Number.isInteger(item.weeklyCapCents)).map((item) => [item.slug, item.weeklyCapCents]));
 }
 
-export const ENVELOPE_CENTS = CATEGORIES.reduce((sum, item) => sum + item.capCents, 0);
+export const ENVELOPE_CENTS = envelopeTotal();
 
-export function parseCaps(input, current = defaultCaps()) {
+function envelopeSlugs(current, categories) {
+  const slugs = new Set(Object.keys(current || {}));
+  return categories.filter((category) => slugs.has(category.slug)).sort((left, right) => left.sort - right.sort);
+}
+
+export function parseCaps(input, current = defaultCaps(), categories = CATEGORIES) {
+  const listed = envelopeSlugs(current, categories);
+  const first = listed[0] || categories[0];
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { ok: false, field: CATEGORIES[0].slug, detail: "Enter an amount." };
+    return { ok: false, field: first.slug, detail: "Enter an amount." };
   }
   const caps = {};
-  for (const category of CATEGORIES) {
+  for (const category of listed) {
     if (!Object.prototype.hasOwnProperty.call(input, category.slug)) {
       return { ok: false, field: category.slug, detail: "Enter an amount." };
     }
@@ -365,29 +451,36 @@ export function parseCaps(input, current = defaultCaps()) {
     caps[category.slug] = raw;
   }
   const total = Object.values(caps).reduce((sum, value) => sum + value, 0);
-  if (total !== ENVELOPE_CENTS) {
-    const increased = CATEGORIES.find((item) => caps[item.slug] > (current[item.slug] || 0));
-    const changed = CATEGORIES.find((item) => caps[item.slug] !== (current[item.slug] || 0));
-    return { ok: false, field: (increased || changed || CATEGORIES[0]).slug, detail: "That total has to stay $390." };
+  const target = Object.values(current).reduce((sum, value) => sum + value, 0);
+  if (total !== target) {
+    const increased = listed.find((item) => caps[item.slug] > (current[item.slug] || 0));
+    const changed = listed.find((item) => caps[item.slug] !== (current[item.slug] || 0));
+    return { ok: false, field: (increased || changed || first).slug, detail: `That total has to stay ${money(target)}.` };
   }
   return { ok: true, caps };
 }
 
-export function capsForWeek(txns, start, caps = defaultCaps()) {
+export function capsForWeek(txns, start, caps = defaultCaps(), categories = CATEGORIES) {
   const rows = rowsInWeek(txns, start);
-  return CATEGORIES.map((category) => {
-    const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
-    const spent = spentFor(rows, category.slug);
-    const state = capState(spent, capCents);
-    return {
-      slug: category.slug,
-      name: category.name,
-      color: category.color,
-      spentCents: spent,
-      capCents,
-      ...state,
-    };
-  });
+  return [...categories]
+    .sort((left, right) => left.sort - right.sort)
+    .map((category) => {
+      const hasCap = Object.prototype.hasOwnProperty.call(caps, category.slug);
+      const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
+      const inEnvelope = Number.isInteger(weeklyCapCents);
+      const spent = spentFor(rows, category.slug);
+      const state = capState(spent, inEnvelope ? weeklyCapCents : 0);
+      return {
+        slug: category.slug,
+        name: category.name,
+        color: category.color,
+        spentCents: spent,
+        capCents: inEnvelope ? weeklyCapCents : null,
+        weeklyCapCents: inEnvelope ? weeklyCapCents : null,
+        inEnvelope,
+        ...state,
+      };
+    });
 }
 
 const YTD_Y = [116, 102.8, 109.4, 89.6, 94.9, 79.1, 76.5, 84.4, 64.6, 56.7, 62, 42.2, 34.3, 39.6, 23.8, 18.5, 4];
@@ -490,7 +583,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       netWorthCents: Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents,
       chart: chartFor(txns, today, chosen, snapshot),
       month: monthProgress(txns, today, planCents),
-      caps: capsForWeek(txns, start, caps),
+      caps: capsForWeek(txns, start, caps, context.categories || CATEGORIES),
       recent: recent.map((row) => ({
         id: row.id,
         payee: row.payee,
@@ -505,16 +598,28 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
   };
 }
 
-export function categoryView(txns, now, week, categoryValue, caps = defaultCaps()) {
-  const category = resolveCategory(categoryValue);
+function resolveIn(categories, value) {
+  if (!value) return null;
+  const list = categories && categories.length ? categories : CATEGORIES;
+  const bySlug = list.find((item) => item.slug === value);
+  if (bySlug) return bySlug;
+  const needle = String(value).trim().toLowerCase();
+  return list.find((item) => item.name.toLowerCase() === needle) || resolveCategory(value);
+}
+
+export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(), categories = CATEGORIES) {
+  const category = resolveIn(categories, categoryValue);
   if (!category) return { status: 404, body: { detail: "That category is not here." } };
   const today = detroitYmd(now);
   const start = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : weekStart(today);
   if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
   const rows = rowsInWeek(txns, start).filter((row) => row.category === category.slug);
   const spent = rows.reduce((sum, row) => sum + spendCents(row), 0);
-  const capCents = Object.prototype.hasOwnProperty.call(caps, category.slug) ? caps[category.slug] : category.capCents;
-  const state = capState(spent, capCents);
+  const hasCap = Object.prototype.hasOwnProperty.call(caps, category.slug);
+  const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
+  const inEnvelope = Number.isInteger(weeklyCapCents);
+  const capCents = inEnvelope ? weeklyCapCents : null;
+  const state = capState(spent, inEnvelope ? weeklyCapCents : 0);
   return {
     status: 200,
     body: {
@@ -572,6 +677,9 @@ export function presentTransaction(row) {
     original: row.ledger && row.ledger.original ? row.ledger.original : null,
     latest: row.ledger && row.ledger.latest ? row.ledger.latest : null,
     correction: row.correction ? { amountCents: row.correction.amountCents, category: row.correction.category ?? null, payee: row.correction.payee || row.payee } : null,
+    ...(shown.sourceId ? { sourceId: shown.sourceId } : {}),
+    ...(shown.accountMask ? { accountMask: shown.accountMask } : {}),
+    ...(typeof shown.impulse === "boolean" ? { impulse: shown.impulse } : {}),
   };
 }
 
@@ -599,7 +707,7 @@ export function transactionsForWeek(rows, now = Date.now(), week = "", accountId
   };
 }
 
-function readDraft(body, shown = {}) {
+function readDraft(body, shown = {}, categories = CATEGORIES) {
   const type = String((body && body.type) || shown.type || "");
   if (!TXN_TYPES.has(type)) return { ok: false, detail: "Choose a type.", field: "type" };
   const payee = cleanPayee(body && "payee" in body ? body.payee : shown.payee);
@@ -612,13 +720,32 @@ function readDraft(body, shown = {}) {
   let category = type === "transfer" || type === "income" ? null : body && "category" in body ? body.category : shown.category;
   if (category === "" || category == null) category = null;
   else {
-    const resolved = resolveCategory(category);
+    const resolved = resolveIn(categories, category);
     if (!resolved) return { ok: false, detail: "Choose a category.", field: "category" };
     category = resolved.slug;
   }
   const account = readAccountId(body, shown);
   if (!account.ok) return account;
-  return { ok: true, draft: { payee, date, type, amountCents, category, accountId: account.accountId } };
+  const source = readOptionalSourceId(body, shown);
+  if (!source.ok) return source;
+  const mask = readAccountMask(body, shown);
+  if (!mask.ok) return mask;
+  const impulse = readImpulse(body, shown);
+  if (!impulse.ok) return impulse;
+  return {
+    ok: true,
+    draft: {
+      payee,
+      date,
+      type,
+      amountCents,
+      category,
+      accountId: account.accountId,
+      sourceId: source.sourceId,
+      accountMask: mask.accountMask,
+      impulse: impulse.impulse,
+    },
+  };
 }
 
 function readAccountId(body, shown) {
@@ -637,32 +764,67 @@ function knownAccount(accountId, knownAccountIds) {
   return { ok: false, detail: "Choose an account.", field: "accountId" };
 }
 
-export function createTransaction(rows, body, now = Date.now(), seq = 1, knownAccountIds = null) {
-  const parsed = readDraft(body, { type: "expense", category: null, amountCents: 0 });
+function readAccountMask(body, shown) {
+  if (!(body && Object.prototype.hasOwnProperty.call(body, "accountMask"))) {
+    return { ok: true, accountMask: shown.accountMask || "" };
+  }
+  if (body.accountMask == null || body.accountMask === "") return { ok: true, accountMask: "" };
+  const accountMask = String(body.accountMask);
+  if (!/^\d{4}$/.test(accountMask)) return { ok: false, field: "accountMask", detail: "Use the last 4 digits." };
+  return { ok: true, accountMask };
+}
+
+function readImpulse(body, shown) {
+  if (!(body && Object.prototype.hasOwnProperty.call(body, "impulse"))) {
+    return { ok: true, impulse: typeof shown.impulse === "boolean" ? shown.impulse : null };
+  }
+  if (body.impulse == null || body.impulse === "") return { ok: true, impulse: null };
+  if (typeof body.impulse !== "boolean") return { ok: false, field: "impulse", detail: "Choose yes or no." };
+  return { ok: true, impulse: body.impulse };
+}
+
+function withRowMeta(row, { sourceId, accountMask, impulse }) {
+  const next = { ...row };
+  if (sourceId) next.sourceId = sourceId;
+  else delete next.sourceId;
+  if (accountMask) next.accountMask = accountMask;
+  else delete next.accountMask;
+  if (typeof impulse === "boolean") next.impulse = impulse;
+  else delete next.impulse;
+  return next;
+}
+
+export function createTransaction(rows, body, now = Date.now(), seq = 1, categories = CATEGORIES, knownAccountIds = null) {
+  const parsed = readDraft(body, { type: "expense", category: null, amountCents: 0 }, categories);
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
   const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
   if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
-  const row = {
-    id: `fin-manual-${now}-${seq}`,
-    source: "manual",
-    createdAt: now,
-    ...parsed.draft,
-  };
+  const { sourceId, accountMask, impulse, ...fields } = parsed.draft;
+  const row = withRowMeta(
+    {
+      id: `fin-manual-${now}-${seq}`,
+      source: "manual",
+      createdAt: now,
+      ...fields,
+    },
+    { sourceId, accountMask, impulse },
+  );
   return { status: 201, body: presentTransaction(row), rows: [row, ...rows] };
 }
 
-export function patchTransaction(rows, id, body, now = Date.now(), knownAccountIds = null) {
+export function patchTransaction(rows, id, body, now = Date.now(), categories = CATEGORIES, knownAccountIds = null) {
   const index = rows.findIndex((row) => row.id === id);
   if (index < 0) return { status: 404, body: { detail: "That transaction is not here." }, rows };
   const current = rows[index];
-  const parsed = readDraft(body, effective(current));
+  const parsed = readDraft(body, effective(current), categories);
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
   const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
   if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
-  const { accountId, ...fields } = parsed.draft;
-  const next = current.source === "ledger"
+  const { sourceId, accountMask, impulse, accountId, ...fields } = parsed.draft;
+  const edited = current.source === "ledger"
     ? { ...current, accountId, correction: { ...fields, updatedAt: now } }
     : { ...current, ...fields, accountId, updatedAt: now };
+  const next = withRowMeta(edited, { sourceId, accountMask, impulse });
   const copy = rows.slice();
   copy[index] = next;
   return { status: 200, body: presentTransaction(next), rows: copy };
@@ -879,14 +1041,14 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   store.financeCreateTransaction = async (body, now = Date.now(), key = "") => {
     if (key && idem.has(`create:${key}`)) return idem.get(`create:${key}`);
     seq += 1;
-    const result = createTransaction(rows, body, now, seq, knownIds());
+    const result = createTransaction(rows, body, now, seq, undefined, knownIds());
     if (result.status === 201) rows = result.rows;
     const stored = { status: result.status, body: result.body };
     if (key && result.status === 201) idem.set(`create:${key}`, stored);
     return stored;
   };
   store.financePatchTransaction = async (id, body, now = Date.now()) => {
-    const result = patchTransaction(rows, id, body, now, knownIds());
+    const result = patchTransaction(rows, id, body, now, undefined, knownIds());
     if (result.status === 200) rows = result.rows;
     return { status: result.status, body: result.body };
   };

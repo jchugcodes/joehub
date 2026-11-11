@@ -57,6 +57,7 @@ function build(env) {
       url: env.UPSTASH_REDIS_REST_URL,
       token: env.UPSTASH_REDIS_REST_TOKEN,
       prefix: prefix.prefix,
+      env,
     });
     return {
       store,

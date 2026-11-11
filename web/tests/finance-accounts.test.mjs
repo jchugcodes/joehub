@@ -295,7 +295,8 @@ test("production does not write the account seed", async () => {
     const store = createUpstashStore({ url: fake.url, token: fake.token, env: { VERCEL_ENV: "production" } });
     const view = await store.financeAccounts(NOW);
     assert.equal(view.empty, true);
-    assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:seeded:v2")), false);
+    assert.equal(view.netWorthCents, null);
+    assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:seeded")), false);
     assert.equal(fake.commands.some((args) => args[0] === "SET" && String(args[1]).includes("finance:account:")), false);
   } finally {
     await fake.stop();

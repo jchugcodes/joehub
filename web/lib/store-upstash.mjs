@@ -1,5 +1,7 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { accountsSnapshot, categoryView, createAccount, createTransaction, defaultCaps, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS, ENVELOPE_CENTS } from "./finance.mjs";
+import { syntheticSeedEnabled } from "./seed.mjs";
+import { accountsSnapshot, categoriesFromCaps, categoryView, createAccount, createTransaction, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
@@ -17,8 +19,8 @@ function ttlSeconds(expiresAt, now) {
 const PREFIX_PATTERN = /^[a-z0-9-]+:$/;
 
 export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "joehub:", env = process.env }) {
-  const allowSeed = !env || env.VERCEL_ENV !== "production";
   if (typeof prefix !== "string" || !PREFIX_PATTERN.test(prefix)) throw new StoreError();
+  const allowSeed = syntheticSeedEnabled(env);
 
   function k(logical) {
     try {
@@ -53,6 +55,22 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
     if (!payload || Object.prototype.hasOwnProperty.call(payload, "error")) throw new StoreError();
     return payload.result;
+  }
+
+  async function syncSource(prefix, previous, next) {
+    const before = previous && previous.sourceId;
+    const after = next && next.sourceId;
+    if (before && before !== after) {
+      const key = k(`${prefix}${before}`);
+      if ((await command(["GET", key])) === previous.id) await command(["DEL", key]);
+    }
+    if (after && next && next.id) await command(["SET", k(`${prefix}${after}`), next.id]);
+  }
+
+  async function idForSource(prefix, sourceId) {
+    if (!sourceId) return "";
+    const id = await command(["GET", k(`${prefix}${sourceId}`)]);
+    return typeof id === "string" ? id : "";
   }
 
   async function readJson(key) {
@@ -102,6 +120,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
   }
 
   async function ensureSeeded() {
+    if (!allowSeed) return;
     const flagKey = k("joehub:tasks:seeded");
     const samples = buildSampleTasks(Date.now());
     if ((await command(["GET", flagKey])) == null) {
@@ -118,10 +137,13 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const result = await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task), "NX"]);
       if (result !== "OK") return false;
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+      await syncSource("joehub:task:bysource:", null, task);
       return true;
     },
     async replaceTask(task) {
+      const previous = await readJson(k(`joehub:task:${task.id}`));
       await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
+      await syncSource("joehub:task:bysource:", previous, task);
       if (task.status === "Done") {
         await command(["ZREM", k("joehub:tasks:active"), task.id]);
         await command(["ZADD", k("joehub:tasks:done"), String(task.completedAt), task.id]);
@@ -131,7 +153,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
     },
     async removeTask(id) {
+      const previous = await readJson(k(`joehub:task:${id}`));
       await command(["DEL", k(`joehub:task:${id}`)]);
+      await syncSource("joehub:task:bysource:", previous, null);
       await command(["ZREM", k("joehub:tasks:active"), id]);
       await command(["ZREM", k("joehub:tasks:done"), id]);
     },
@@ -216,6 +240,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
   }
 
   async function ensureFinance() {
+    if (!allowSeed) return;
     const flagKey = k("joehub:finance:seeded");
     const raw = await command(["GET", flagKey]);
     if (raw === "1") {
@@ -227,6 +252,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     const caps = legacy && legacy.caps && typeof legacy.caps === "object" ? legacy.caps : defaultCaps();
     const planCents = legacy && Number.isInteger(legacy.planCents) ? legacy.planCents : PLAN_CENTS;
     await command(["SET", k("joehub:finance:caps"), JSON.stringify(caps), "NX"]);
+    await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(categoriesFromCaps(caps))), "NX"]);
     await command(["SET", k("joehub:finance:plan"), JSON.stringify({ cents: planCents }), "NX"]);
     await command(["SET", k("joehub:finance:accounts"), JSON.stringify(legacy && legacy.accounts ? legacy.accounts : ACCOUNTS), "NX"]);
     await command(["SET", k("joehub:finance:goals"), JSON.stringify(legacy && legacy.goals ? legacy.goals : GOALS), "NX"]);
@@ -260,6 +286,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
   }
 
   async function ensureGrocerySeeded() {
+    if (!allowSeed) return;
     const flagKey = k("joehub:grocery:seeded");
     const flag = await command(["GET", flagKey]);
     if (flag != null) return;
@@ -274,6 +301,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async putItem(item) {
       const result = await command(["SET", k(`joehub:grocery:item:${item.id}`), JSON.stringify(item), "NX"]);
       if (result !== "OK") return false;
+      await syncSource("joehub:grocery:item:bysource:", null, item);
       const score = item.checked ? item.checkedAt || item.updatedAt : item.createdAt;
       const index = item.checked ? "joehub:grocery:items:checked" : "joehub:grocery:items:unchecked";
       await command(["ZADD", k(index), String(score), item.id]);
@@ -281,8 +309,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async replaceItem(item) {
       const key = k(`joehub:grocery:item:${item.id}`);
-      if (!(await readJson(key))) return false;
+      const previous = await readJson(key);
+      if (!previous) return false;
       await command(["SET", key, JSON.stringify(item)]);
+      await syncSource("joehub:grocery:item:bysource:", previous, item);
       return true;
     },
     async moveItem(item) {
@@ -303,8 +333,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async deleteItem(id) {
       if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return false;
       const key = k(`joehub:grocery:item:${id}`);
-      if (!(await readJson(key))) return false;
+      const previous = await readJson(key);
+      if (!previous) return false;
       await command(["DEL", key]);
+      await syncSource("joehub:grocery:item:bysource:", previous, null);
       await command(["ZREM", k("joehub:grocery:items:unchecked"), id]);
       await command(["ZREM", k("joehub:grocery:items:checked"), id]);
       return true;
@@ -481,6 +513,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async createTask(raw, idemKey, now, scope) {
       await ensureSeeded();
+      const source = readOptionalSourceId(raw || {});
+      if (source.ok && source.sourceId) {
+        const existingId = await idForSource("joehub:task:bysource:", source.sourceId);
+        if (existingId) {
+          const existing = await tasks.getTask(existingId);
+          if (existing) return performPatch(tasks, existingId, raw, now);
+        }
+      }
       return performCreate(tasks, raw, idemKey, now, undefined, scope || "");
     },
     async getTask(id) {
@@ -507,6 +547,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async createGrocery(raw, idemKey, now, scope) {
       await ensureGrocerySeeded();
+      const source = readOptionalSourceId(raw || {});
+      if (source.ok && source.sourceId) {
+        const existingId = await idForSource("joehub:grocery:item:bysource:", source.sourceId);
+        if (existingId) {
+          const existing = await grocery.getItem(existingId);
+          if (existing) return performGroceryPatch(grocery, existingId, raw, now);
+        }
+      }
       return performGroceryCreate(grocery, raw, idemKey, now, undefined, scope || "");
     },
     async getGrocery(id) {
@@ -538,29 +586,38 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async financeBundle() {
       await ensureFinance();
-      const caps = await readJson(k("joehub:finance:caps"));
+      const storedCaps = await readJson(k("joehub:finance:caps"));
+      const storedCategories = await readJson(k("joehub:finance:categories"));
       const plan = await readJson(k("joehub:finance:plan"));
       const snapshot = await readJson(k("joehub:finance:snapshots"));
       const accounts = await readJson(k("joehub:finance:accounts"));
       const goals = await readJson(k("joehub:finance:goals"));
       const manualAccounts = await listManualAccounts();
-      if (!caps || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
+      const categories = normalizeCategories(storedCategories, storedCategories ? null : storedCaps);
+      const caps = storedCaps && typeof storedCaps === "object" && !Array.isArray(storedCaps) ? storedCaps : defaultCaps(categories);
+      if ((!storedCaps && !storedCategories) || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
       const ids = (await command(["ZREVRANGE", k("joehub:finance:txns"), "0", "-1"])) || [];
       const transactions = [];
       for (const id of ids) {
         const row = await readJson(k(`joehub:finance:txn:${id}`));
         if (row) transactions.push(row);
       }
-      return { transactions, caps, planCents: plan.cents, snapshot, accounts, goals, manualAccounts };
+      return { transactions, caps, categories, planCents: plan.cents, snapshot, accounts, goals, manualAccounts };
     },
     async financeOverview(now, week, range) {
       const state = await this.financeBundle();
-      const netWorthCents = state.manualAccounts.length ? rollUpAccounts(state.manualAccounts).netWorthCents : state.snapshot.netWorthCents;
-      return overview(state.transactions, now, week, range, state.caps, { planCents: state.planCents, snapshot: state.snapshot, netWorthCents });
+      const rolled = state.manualAccounts.length ? rollUpAccounts(state.manualAccounts) : null;
+      const netWorthCents = rolled ? rolled.netWorthCents : state.snapshot.netWorthCents;
+      return overview(state.transactions, now, week, range, state.caps, {
+        planCents: state.planCents,
+        snapshot: state.snapshot,
+        categories: state.categories,
+        netWorthCents,
+      });
     },
     async financeCategory(now, week, category) {
       const state = await this.financeBundle();
-      return categoryView(state.transactions, now, week, category, state.caps);
+      return categoryView(state.transactions, now, week, category, state.caps, state.categories);
     },
     async financeSaveCaps(body, idemKey) {
       const state = await this.financeBundle();
@@ -568,16 +625,20 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         const prior = await readJson(k(`joehub:finance:txn:idem:${idemKey}`));
         if (prior) return prior;
       }
-      const parsed = parseCaps(body && body.caps, state.caps);
+      const parsed = parseCaps(body && body.caps, state.caps, state.categories);
       if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
-      const result = { status: 200, body: { caps: parsed.caps, envelopeCents: ENVELOPE_CENTS } };
+      const categories = categoriesFromCaps(parsed.caps, state.categories);
+      const result = { status: 200, body: { caps: parsed.caps, envelopeCents: envelopeTotal(categories), categories: publicCategories(categories) } };
       await command(["SET", k("joehub:finance:caps"), JSON.stringify(parsed.caps)]);
+      await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(categories))]);
       if (idemKey) await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
       return result;
     },
     async financeAccounts(now = Date.now(), options = {}) {
-      const state = await this.financeBundle();
-      return accountsSnapshot(state.manualAccounts, state.accounts, now, options);
+      await ensureFinance();
+      const manualAccounts = await listManualAccounts();
+      const legacy = (await readJson(k("joehub:finance:accounts"))) || ACCOUNTS;
+      return accountsSnapshot(manualAccounts, legacy, now, options);
     },
     async financeAccount(id, now = Date.now()) {
       await ensureFinance();
@@ -643,13 +704,30 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         if (prior) return prior;
       }
       const existing = await this.financeRows();
-      const accounts = await listManualAccounts();
+      const state = await this.financeBundle();
+      const known = new Set((await listManualAccounts()).map((account) => account.id));
+      const source = readOptionalSourceId(body || {});
+      if (source.ok && source.sourceId) {
+        const existingId = await idForSource("joehub:finance:txn:bysource:", source.sourceId);
+        if (existingId) {
+          const prior = existing.find((row) => row.id === existingId);
+          const updated = patchTransaction(existing, existingId, body, now, state.categories, known);
+          if (updated.status === 200) {
+            const next = updated.rows.find((row) => row.id === existingId);
+            await command(["SET", k(`joehub:finance:txn:${existingId}`), JSON.stringify(next)]);
+            await command(["ZADD", k("joehub:finance:txns"), financeScore(next), existingId]);
+            await syncSource("joehub:finance:txn:bysource:", prior, next);
+          }
+          return { status: updated.status, body: updated.body };
+        }
+      }
       const seq = existing.filter((row) => String(row.id).startsWith("fin-manual-")).length + 1;
-      const result = createTransaction(existing, body, now, seq, new Set(accounts.map((account) => account.id)));
+      const result = createTransaction(existing, body, now, seq, state.categories, known);
       if (result.status === 201) {
         const created = result.rows[0];
         await command(["SET", k(`joehub:finance:txn:${created.id}`), JSON.stringify(created)]);
         await command(["ZADD", k("joehub:finance:txns"), financeScore(created), created.id]);
+        await syncSource("joehub:finance:txn:bysource:", null, created);
       }
       const stored = { status: result.status, body: result.body };
       if (key && result.status === 201) await command(["SET", k(`joehub:finance:txn:idem:create:${key}`), JSON.stringify(stored), "EX", "86400"]);
@@ -659,12 +737,15 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       await ensureFinance();
       if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
       const existing = await this.financeRows();
-      const accounts = await listManualAccounts();
-      const result = patchTransaction(existing, id, body, now, new Set(accounts.map((account) => account.id)));
+      const state = await this.financeBundle();
+      const known = new Set(state.manualAccounts.map((account) => account.id));
+      const prior = existing.find((row) => row.id === id);
+      const result = patchTransaction(existing, id, body, now, state.categories, known);
       if (result.status === 200) {
         const next = result.rows.find((row) => row.id === id);
         await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
         await command(["ZADD", k("joehub:finance:txns"), financeScore(next), id]);
+        await syncSource("joehub:finance:txn:bysource:", prior, next);
       }
       return { status: result.status, body: result.body };
     },
