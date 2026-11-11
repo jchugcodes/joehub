@@ -84,6 +84,14 @@ html {
   font-weight: 400;
 }
 
+.finance-type.font-medium {
+  font-weight: 500;
+}
+
+.finance-type.font-semibold {
+  font-weight: 600;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
