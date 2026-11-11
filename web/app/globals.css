@@ -41,6 +41,32 @@ body {
   font-optical-sizing: auto;
   font-variation-settings: normal;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Sheets stay inside the viewport. Inputs stay at 16px so iOS does not zoom, and tap targets stay at least 44px. */
+[role="dialog"] {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+[role="dialog"] input,
+[role="dialog"] select,
+[role="dialog"] textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+[role="dialog"] button,
+[role="dialog"] a {
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 /* Outfit is scoped. Body stays DM Sans via font-sans. */
