@@ -124,9 +124,8 @@ function Chevron({ direction }: { direction: "right" | "down" | "up" }) {
   );
 }
 
-function Detail({ debt }: { debt: Debt }) {
+function Detail({ debt, titled = false }: { debt: Debt; titled?: boolean }) {
   const rows = [
-    ["Type", typeLabel(debt)],
     Number.isInteger(debt.rateBps) ? ["Interest rate", rateText(debt.rateBps!)] : null,
     Number.isInteger(debt.minimumCents) ? ["Minimum payment", money(debt.minimumCents!)] : null,
     debt.nextDue ? ["Next due", dueLong(debt.nextDue)] : null,
@@ -135,7 +134,9 @@ function Detail({ debt }: { debt: Debt }) {
   ].filter((row): row is string[] => Boolean(row));
   return (
     <div>
-      <p className="text-meta text-muted">Balance</p>
+      {titled ? <h2 className="text-title font-medium">{debt.name}</h2> : null}
+      <p className={`text-body text-muted ${titled ? "mt-0.5" : ""}`}>{typeLabel(debt)}</p>
+      <p className="mt-3 text-meta text-muted">Balance</p>
       <p className="mt-0.5 text-title font-medium tabular-nums">{money(debt.balanceCents)}</p>
       {debt.balanceAsOf ? <p className="mt-1 text-meta text-muted">As of {stamp(debt.balanceAsOf)}</p> : null}
       <dl className="card mt-4 divide-y divide-line">
@@ -307,7 +308,7 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
         {wide || !selected ? <div className="min-w-0 flex-1">{list}</div> : null}
         {wide ? (
           <aside className="card w-[420px] shrink-0 p-8" style={{ minHeight: 520 }}>
-            {selected ? <Detail debt={selected} /> : <p className="pt-8 text-center text-body text-muted">Select a debt</p>}
+            {selected ? <Detail debt={selected} titled /> : <p className="pt-8 text-center text-body text-muted">Select a debt</p>}
           </aside>
         ) : selected ? (
           <div className="px-5">{panel}</div>
