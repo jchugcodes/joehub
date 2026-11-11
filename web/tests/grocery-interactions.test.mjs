@@ -168,6 +168,7 @@ function fill(id, value) {
     const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set;
     set.call(el, ${JSON.stringify(value)});
     el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
     return "yes";
   })()`;
 }
@@ -202,7 +203,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
       })()`,
     );
     assert.equal(titlePaint, "yes");
-    await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty");
+    await waitFor(send, "document.body.innerText.includes('No items.') ? 'yes' : ''", "empty");
     assert.equal(
       await evalPage(
         send,
@@ -234,7 +235,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.equal(await evalPage(send, "document.querySelector(\"[role='checkbox'], input[type=checkbox]\") ? 'yes' : 'no'"), "no");
     await shot(send, "grocery_g02_390.png");
     await gotoGrocery(send, 1280);
-    await waitFor(send, "document.body.innerText.includes('The list is empty') && document.body.innerText.includes('Select an item') ? 'yes' : ''", "empty desktop");
+    await waitFor(send, "document.body.innerText.includes('No items.') && document.body.innerText.includes('Select an item') ? 'yes' : ''", "empty desktop");
     await shot(send, "grocery_g02_1280.png");
 
     await gotoGrocery(send, 390, 685);
@@ -265,7 +266,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.getElementById('grocery-quantity-error')?.textContent === 'Enter a valid quantity.' ? 'yes' : ''", "bad quantity");
     assert.equal(await press(send, "Cancel"), "yes");
-    await waitFor(send, "!document.querySelector('[role=dialog]') && document.body.innerText.includes('The list is empty') ? 'yes' : ''", "cancel empty");
+    await waitFor(send, "!document.querySelector('[role=dialog]') && document.body.innerText.includes('No items.') ? 'yes' : ''", "cancel empty");
     const listed = await fetch(`${base()}/api/grocery`, { headers: { cookie: auth.cookie } });
     assert.deepEqual(await listed.json(), []);
 
@@ -338,7 +339,7 @@ test("grocery add, validation, cancel, reload, and offline reconnect", { timeout
     await gotoGrocery(send, 390);
     assert.equal(await press(send, "Add an item"), "yes");
     await waitFor(send, "document.querySelector('#grocery-name') ? 'yes' : ''", "sheet over list");
-    const suggestions = await evalPage(send, "[...document.querySelectorAll('#grocery-sections option')].map((el) => el.value).join('|')");
+    const suggestions = await evalPage(send, "[...document.querySelectorAll('#grocery-section option')].map((el) => el.value).filter(Boolean).join('|')");
     assert.equal(suggestions, "Produce|Dairy");
     await shot(send, "grocery_g03_390.png");
     assert.equal(await evalPage(send, fill("grocery-name", "Oat milk")), "yes");
@@ -520,7 +521,7 @@ test("grocery edit, cancel, delete, and a failed save leave the item", { timeout
         section: document.getElementById("grocery-section")?.value,
         notes: document.getElementById("grocery-notes")?.value,
         hint: document.getElementById("grocery-duplicate") ? "yes" : "no",
-        suggestions: [...document.querySelectorAll("#grocery-sections option")].map((el) => el.value).join("|"),
+        suggestions: [...document.querySelectorAll("#grocery-section option")].map((el) => el.value).filter(Boolean).join("|"),
       }))()`,
     );
     assert.deepEqual(
@@ -847,10 +848,10 @@ test("grocery clear removes only checked items after confirmation", { timeout: 2
     assert.equal(await press(send, "Remove checked"), "yes");
     await waitFor(send, "document.getElementById('grocery-clear-dialog')?.innerText.includes('Remove 5 checked items?') && document.getElementById('grocery-clear-dialog')?.innerText.includes('Bananas') && document.getElementById('grocery-clear-dialog')?.innerText.includes(\"This can't be undone.\") ? 'yes' : ''", "clear all");
     assert.equal(await press(send, "Remove checked", "document.getElementById('grocery-clear-dialog')"), "yes");
-    await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty after clear", 20000);
+    await waitFor(send, "document.body.innerText.includes('No items.') ? 'yes' : ''", "empty after clear", 20000);
     await shot(send, "grocery_g02_cleared_390.png");
     await send("Page.reload", { ignoreCache: true });
-    await waitFor(send, "document.body.innerText.includes('The list is empty') ? 'yes' : ''", "empty held");
+    await waitFor(send, "document.body.innerText.includes('No items.') ? 'yes' : ''", "empty held");
 
     for (const sample of samples) {
       const created = await fetch(`${base()}/api/grocery`, { method: "POST", headers: auth, body: JSON.stringify(sample) });

@@ -41,6 +41,8 @@ export function Sheet({
   formId,
   saveLabel = "Save",
   saveDisabled = false,
+  saveTone = "ink",
+  header = "default",
   footer = null,
 }: {
   title: string;
@@ -61,6 +63,10 @@ export function Sheet({
   formId?: string;
   saveLabel?: string;
   saveDisabled?: boolean;
+  /** Warn paints the header action red. Used by Delete list. */
+  saveTone?: "ink" | "warn";
+  /** Tasks and Grocery center Cancel, the title, and Save. Finance keeps the default panel header. */
+  header?: "default" | "slim";
   /** Quiet action pinned under the fields, such as Delete. Stays on screen while the form scrolls. */
   footer?: React.ReactNode;
 }) {
@@ -128,6 +134,7 @@ export function Sheet({
   }, [dock, formId]);
 
   if (dock === "panel") {
+    const slim = header === "slim" && formId;
     return (
       <aside
         ref={panelRef}
@@ -136,11 +143,27 @@ export function Sheet({
         aria-labelledby={titleId}
         className="sticky top-2 flex max-h-[calc(100dvh-7rem)] w-[420px] shrink-0 flex-col overflow-hidden rounded-[20px] border border-ink bg-surface shadow-2xl"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <h2 id={titleId} className={titleClassName || "text-ui-18 font-bold"}>{title}</h2>
+        <div className={`flex items-center border-b border-line ${slim ? "gap-1 px-1 py-1" : "justify-between gap-3 px-4 py-3"}`}>
+          {slim ? (
+            <button type="button" className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center px-3 text-body font-medium text-muted" onClick={onClose}>
+              Cancel
+            </button>
+          ) : null}
+          <h2 id={titleId} className={slim ? `min-w-0 flex-1 truncate text-center ${titleClassName || "text-section font-medium"}` : titleClassName || "text-ui-18 font-bold"}>{title}</h2>
           <div className="flex items-center gap-2">
             {aside}
-            {actions}
+            {slim ? (
+              <button
+                type="submit"
+                form={formId}
+                disabled={saveDisabled}
+                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-white"}`}
+              >
+                {saveLabel}
+              </button>
+            ) : (
+              actions
+            )}
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
@@ -180,7 +203,7 @@ export function Sheet({
                 form={formId}
                 disabled={saveDisabled}
                 onMouseDown={(event) => event.preventDefault()}
-                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
+                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-white"}`}
               >
                 {saveLabel}
               </button>
