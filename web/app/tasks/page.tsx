@@ -779,11 +779,26 @@ export default function TasksPage() {
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
-          aside={
-            sheet === "edit" ? (
+          formId="task-form"
+          saveLabel={saving ? "Saving…" : "Save"}
+          saveDisabled={offline || saving}
+          footer={
+            !wide && sheet === "edit" ? (
               <button
                 type="button"
-                className="min-h-11 px-1 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                className="flex min-h-11 w-full items-center px-1 text-left text-body font-medium text-muted disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                disabled={offline}
+              >
+                Delete
+              </button>
+            ) : null
+          }
+          aside={
+            wide && sheet === "edit" ? (
+              <button
+                type="button"
+                className="min-h-11 min-w-11 px-1 text-body font-medium text-muted disabled:opacity-50"
                 onClick={() => setConfirmDelete(true)}
                 disabled={offline}
               >
@@ -809,10 +824,11 @@ export default function TasksPage() {
             ) : null
           }
         >
-          <form id="task-form" className={wide ? "" : "mt-4"} onSubmit={save}>
+          <form id="task-form" className="space-y-5" onSubmit={save}>
             {sheet === "edit" && tasks.find((task) => task.id === editingId)?.bot ? (
               <BotLine bot={tasks.find((task) => task.id === editingId)!.bot!} />
             ) : null}
+            <div>
             <label className="block text-meta font-medium" htmlFor="task-title">
               Title
             </label>
@@ -827,7 +843,9 @@ export default function TasksPage() {
               aria-invalid={titleError ? true : undefined}
               aria-describedby={titleError ? "task-title-error" : undefined}
               placeholder="What needs doing?"
-              className="relative z-10 mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              inputMode="text"
+              enterKeyHint="next"
+              className="relative z-10 mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
               autoComplete="off"
             />
             {titleError ? (
@@ -835,7 +853,9 @@ export default function TasksPage() {
                 {titleError}
               </p>
             ) : null}
-            <label className="mt-3 block text-meta font-medium" htmlFor="task-notes">
+            </div>
+            <div>
+            <label className="block text-meta font-medium" htmlFor="task-notes">
               Notes
             </label>
             <textarea
@@ -843,9 +863,12 @@ export default function TasksPage() {
               value={draft.notes}
               onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
               rows={3}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              enterKeyHint="next"
+              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             />
-            <label className="mt-3 block text-meta font-medium" htmlFor="task-due">
+            </div>
+            <div>
+            <label className="block text-meta font-medium" htmlFor="task-due">
               Due date
             </label>
             <input
@@ -853,13 +876,14 @@ export default function TasksPage() {
               type="date"
               value={draft.dueDate}
               onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              enterKeyHint="next"
+              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             />
             {sheet === "edit" ? (
               <div className="mt-1 flex justify-end">
                 <button
                   type="button"
-                  className="min-h-11 px-1 text-meta font-medium disabled:opacity-50"
+                  className="min-h-11 min-w-11 px-3 text-meta font-medium text-muted disabled:opacity-50"
                   disabled={offline}
                   onClick={() => setDraft({ ...draft, dueDate: detroitCalendarDate(Date.now()) })}
                 >
@@ -867,68 +891,58 @@ export default function TasksPage() {
                 </button>
               </div>
             ) : null}
-            <label className="mt-3 block text-meta font-medium" htmlFor="task-priority">
+            </div>
+            <div>
+            <label className="block text-meta font-medium" htmlFor="task-priority">
               Priority
             </label>
             <select
               id="task-priority"
               value={draft.priority}
               onChange={(event) => setDraft({ ...draft, priority: event.target.value as Draft["priority"] })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             >
               <option value="">None</option>
               <option>High</option>
               <option>Medium</option>
               <option>Low</option>
             </select>
-            <label className="mt-3 block text-meta font-medium" htmlFor="task-status">
+            </div>
+            <div>
+            <label className="block text-meta font-medium" htmlFor="task-status">
               Status
             </label>
             <select
               id="task-status"
               value={draft.status}
               onChange={(event) => setDraft({ ...draft, status: event.target.value as Status })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             >
               <option>To do</option>
               <option>Doing</option>
               <option>Blocked</option>
               {sheet === "edit" ? <option>Done</option> : null}
             </select>
-            <label className="mt-3 block text-meta font-medium" htmlFor="task-project">
+            </div>
+            <div>
+            <label className="block text-meta font-medium" htmlFor="task-project">
               Project
             </label>
             <input
               id="task-project"
               value={draft.project}
               onChange={(event) => setDraft({ ...draft, project: event.target.value })}
-              className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-body"
+              enterKeyHint="done"
+              inputMode="text"
+              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
               autoComplete="off"
             />
+            </div>
             {formError ? (
-              <p role="alert" className="mt-3 text-meta font-medium text-finance-dining">
+              <p role="alert" className="text-meta font-medium text-finance-dining">
                 {formError}
               </p>
             ) : null}
-            {wide ? null : (
-            <div className="sticky bottom-0 z-10 mt-5 flex gap-2 bg-surface py-3">
-              <button
-                type="button"
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium"
-                onClick={cancel}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50"
-                disabled={offline || saving}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-            )}
           </form>
         </Sheet>
       ) : null}
