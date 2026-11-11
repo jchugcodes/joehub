@@ -13,6 +13,7 @@ type Item = {
   color: string;
   spentCents: number;
   capCents: number | null;
+  estimate?: boolean;
   percent: number | null;
   fill: number;
   tone: string;
@@ -206,7 +207,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
                             <span className="min-w-0 truncate text-body font-medium">{item.name}</span>
                             <span className="shrink-0 text-body font-medium">
                               {money(item.spentCents)}
-                              {item.capCents ? <span className="font-normal text-muted"> of {money(item.capCents)}</span> : null}
+                              {item.capCents ? <span className="font-normal text-muted"> of {money(item.capCents)}{item.estimate ? " estimate" : ""}</span> : null}
                             </span>
                           </span>
                           {item.percent != null ? (

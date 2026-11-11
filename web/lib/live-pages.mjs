@@ -53,10 +53,11 @@ export function showNetWorthChart(production, hasHistory) {
   return !production || hasHistory === true;
 }
 
-/** Production shows spent only until labeled monthly budgets ship. */
+/** Production shows the month plan only after Joe saves the category budgets. */
 export function showMonthBudget(production, month) {
-  if (production) return false;
-  return month != null && month.planCents != null && month.percent != null;
+  if (month == null || month.planCents == null || month.percent == null) return false;
+  if (production && month.saved !== true) return false;
+  return true;
 }
 
 function under(pathname, prefix) {

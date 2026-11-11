@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, patchTransaction, PLAN_CENTS, resetLedger, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, patchTransaction, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
@@ -67,15 +67,20 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.deepEqual(week.points, [38543]);
   const oneMonth = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1M");
   assert.deepEqual(oneMonth.points, [74057, 38543]);
-  assert.equal(monthlyBudgetCents(8000), 34300);
-  assert.equal(monthlyBudgetCents(12000), 51400);
-  assert.equal(monthlyBudgetCents(6000), 25700);
-  assert.equal(monthlyBudgetCents(5500), 23600);
-  assert.equal(monthlyBudgetCents(7500), 32100);
+  assert.equal(monthlyBudgetCents(8000), 34667);
+  assert.equal(monthlyBudgetCents(12000), 52000);
+  assert.equal(monthlyBudgetCents(6000), 26000);
+  assert.equal(monthlyBudgetCents(5500), 23833);
+  assert.equal(monthlyBudgetCents(7500), 32500);
   assert.equal(monthlyBudgetCents(0), null);
+  assert.equal(resolvedMonthlyCents(SEED_CATEGORIES.find((item) => item.slug === "utilities")).cents, null);
+  assert.equal(resolvedMonthlyCents(SEED_CATEGORIES.find((item) => item.slug === "school")).cents, null);
+  assert.equal(resolvedMonthlyCents({ slug: "dining-out", monthlyCapCents: null, weeklyCapCents: 8000 }).cents, 34667);
   const monthCategories = categoriesSnapshot(SEED_TRANSACTIONS, NOW, "month");
   assert.equal(monthCategories.spentCents, 112600);
-  assert.equal(monthCategories.budgetCents, 167100);
+  assert.equal(monthCategories.budgetCents, 169000);
+  assert.equal(monthCategories.estimates, true);
+  assert.match(monthCategories.budgetLabel, /estimates/);
   assert.equal(monthCategories.aside, "Day 10 of 30");
   const diningMonth = monthCategories.categories.find((cap) => cap.slug === "dining-out");
   const groceriesMonth = monthCategories.categories.find((cap) => cap.slug === "groceries");
@@ -85,12 +90,14 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   const utilitiesMonth = monthCategories.categories.find((cap) => cap.slug === "utilities");
   const uncategorized = monthCategories.categories.find((cap) => cap.slug === "uncategorized");
   assert.equal(diningMonth.spentCents, 24800);
+  assert.equal(diningMonth.capCents, 34667);
   assert.equal(diningMonth.percent, 72);
-  assert.equal(diningMonth.status, "$95 left");
+  assert.equal(diningMonth.status, "$98.67 left");
+  assert.equal(diningMonth.estimate, true);
   assert.equal(groceriesMonth.spentCents, 31200);
-  assert.equal(groceriesMonth.percent, 61);
+  assert.equal(groceriesMonth.percent, 60);
   assert.equal(transportMonth.spentCents, 14118);
-  assert.equal(transportMonth.percent, 55);
+  assert.equal(transportMonth.percent, 54);
   assert.equal(subsMonth.spentCents, 4675);
   assert.equal(subsMonth.percent, 20);
   assert.equal(shoppingMonth.spentCents, 7800);
@@ -125,20 +132,19 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
 });
 
 test("a weekly envelope is not a monthly plan", () => {
-  const month = monthProgress(SEED_TRANSACTIONS, "2026-11-10", ENVELOPE_CENTS, SEED_CATEGORIES);
+  const blank = SEED_CATEGORIES.map((item) => ({ ...item, weeklyCapCents: null, monthlyCapCents: null }));
+  const month = monthProgress(SEED_TRANSACTIONS, "2026-11-10", ENVELOPE_CENTS, blank);
   assert.equal(month.spentCents, 112600);
   assert.equal(month.planCents, null);
   assert.equal(month.percent, null);
-  assert.equal(month.day, 10);
-  assert.equal(month.days, 30);
-  assert.match(month.label, /–/);
-  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: ENVELOPE_CENTS, categories: SEED_CATEGORIES });
+  assert.equal(month.saved, false);
+  const fromCategories = monthProgress(SEED_TRANSACTIONS, "2026-11-10", ENVELOPE_CENTS, SEED_CATEGORIES);
+  assert.equal(fromCategories.planCents, 169000);
+  assert.notEqual(fromCategories.planCents, ENVELOPE_CENTS);
+  assert.notEqual(fromCategories.planCents, PLAN_CENTS);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: ENVELOPE_CENTS, categories: blank });
   assert.equal(view.body.month.planCents, null);
-  assert.equal(view.body.month.percent, null);
   assert.equal(view.body.month.spentCents, 112600);
-  const explicit = monthProgress(SEED_TRANSACTIONS, "2026-11-10", PLAN_CENTS, SEED_CATEGORIES);
-  assert.equal(explicit.planCents, PLAN_CENTS);
-  assert.equal(explicit.percent, 27);
 });
 
 test("production renders spent only even when monthly caps and a plan are stored", () => {
@@ -157,6 +163,14 @@ test("production renders spent only even when monthly caps and a plan are stored
   assert.match(month.label, /–/);
   assert.equal(showMonthBudget(true, month), false);
   assert.equal(showMonthBudget(true, { planCents: 143470, percent: 74 }), false);
+  const saved = monthProgress(SEED_TRANSACTIONS, "2026-11-10", storedPlan, categories, env, true);
+  assert.equal(saved.planCents, 17934 * 8);
+  assert.equal(saved.saved, true);
+  assert.equal(showMonthBudget(true, saved), true);
+  const utilities = resolvedMonthlyCents(categories.find((item) => item.slug === "utilities"));
+  const school = resolvedMonthlyCents(categories.find((item) => item.slug === "school"));
+  assert.equal(utilities.cents, null);
+  assert.equal(school.cents, null);
   const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: storedPlan, categories, env });
   assert.equal(view.body.month.planCents, null);
   assert.equal(view.body.month.percent, null);

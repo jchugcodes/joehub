@@ -488,16 +488,16 @@ export function envelopeTotal(categories = CATEGORIES) {
   return categories.reduce((sum, item) => (Number.isInteger(item.weeklyCapCents) ? sum + item.weeklyCapCents : sum), 0);
 }
 
-/** A monthly plan is an explicit amount, or the sum of stored monthly caps. The weekly envelope is not one. */
+/** A monthly plan is the sum of per-category monthly budgets. The weekly envelope is not one. */
 export function monthlyPlanCents(planCents, categories) {
   if (Array.isArray(categories)) {
-    const monthly = categories.filter((item) => Number.isInteger(item.monthlyCapCents));
-    if (monthly.length) {
-      const sum = monthly.reduce((total, item) => total + item.monthlyCapCents, 0);
-      return sum > 0 ? sum : null;
-    }
-    if (Number.isInteger(planCents) && planCents > 0 && planCents === envelopeTotal(categories)) return null;
+    const sum = categories.reduce((total, item) => {
+      const cents = resolvedMonthlyCents(item).cents;
+      return total + (Number.isInteger(cents) && cents > 0 ? cents : 0);
+    }, 0);
+    return sum > 0 ? sum : null;
   }
+  if (Number.isInteger(planCents) && planCents > 0 && planCents === ENVELOPE_CENTS) return null;
   return Number.isInteger(planCents) && planCents > 0 ? planCents : null;
 }
 
@@ -592,10 +592,18 @@ export function defaultCaps(categories = CATEGORIES) {
   return Object.fromEntries(categories.filter((item) => Number.isInteger(item.weeklyCapCents)).map((item) => [item.slug, item.weeklyCapCents]));
 }
 
-/** Monthly budget is the weekly cap times 30/7, rounded to the nearest dollar. Zero stays uncapped. */
+/** Fill a missing monthly budget from the weekly cap × 52/12, rounded to the nearest cent. Zero stays blank. */
 export function monthlyBudgetCents(weeklyCapCents) {
   if (!Number.isInteger(weeklyCapCents) || weeklyCapCents <= 0) return null;
-  return Math.round((weeklyCapCents * 30) / 700) * 100;
+  return Math.round((weeklyCapCents * 52) / 12);
+}
+
+/** Stored monthlyCapCents wins. A positive weekly cap fills a blank. The fill is an estimate until Joe saves. */
+export function resolvedMonthlyCents(category) {
+  if (!category) return { cents: null, estimate: false };
+  if (Number.isInteger(category.monthlyCapCents)) return { cents: category.monthlyCapCents, estimate: true };
+  const filled = monthlyBudgetCents(category.weeklyCapCents);
+  return filled == null ? { cents: null, estimate: false } : { cents: filled, estimate: true };
 }
 
 export const ENVELOPE_CENTS = envelopeTotal();
@@ -732,18 +740,20 @@ export function chartFor(txns, today, range, snapshot) {
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
-export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env) {
+export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env, saved = false) {
   const month = monthBounds(today);
   const spent = txns
     .map(effective)
     .filter((row) => row.date >= month.start && row.date <= today)
     .reduce((sum, row) => sum + spendCents(row), 0);
-  const budget = productionNav(env) ? null : monthlyPlanCents(planCents, categories);
+  const confirmed = saved === true;
+  const budget = productionNav(env) && !confirmed ? null : monthlyPlanCents(planCents, categories);
   return {
     label: `${formatDay(month.start)}–${Number(today.slice(8))}`,
     spentCents: spent,
     planCents: budget,
     percent: budget ? Math.round((spent / budget) * 100) : null,
+    saved: confirmed,
     day: month.day,
     days: month.days,
   };
@@ -789,7 +799,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
       netWorthCents,
       chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
-      month: monthProgress(txns, today, planCents, categories, env),
+      month: monthProgress(txns, today, planCents, categories, env, context.budgetsSaved === true),
       caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,
@@ -815,10 +825,10 @@ function resolveIn(categories, value) {
 }
 
 function periodCap(category, caps, monthMode) {
-  const hasCap = Object.prototype.hasOwnProperty.call(caps, category.slug);
+  const hasCap = caps && Object.prototype.hasOwnProperty.call(caps, category.slug);
   const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
-  if (!Number.isInteger(weeklyCapCents)) return null;
-  return monthMode ? monthlyBudgetCents(weeklyCapCents) : weeklyCapCents;
+  if (!monthMode) return Number.isInteger(weeklyCapCents) ? weeklyCapCents : null;
+  return resolvedMonthlyCents({ ...category, weeklyCapCents }).cents;
 }
 
 function presentCategoryRow(row, name) {
@@ -882,7 +892,7 @@ export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(
   };
 }
 
-export function categoriesSnapshot(txns, now, period = "month", caps = defaultCaps(), categories = CATEGORIES) {
+export function categoriesSnapshot(txns, now, period = "month", caps = defaultCaps(), categories = CATEGORIES, saved = false) {
   const monthMode = period !== "week";
   const today = detroitYmd(now);
   const month = monthBounds(today);
@@ -891,13 +901,17 @@ export function categoriesSnapshot(txns, now, period = "month", caps = defaultCa
   const listed = CATEGORY_PAGE_ORDER.map((slug) => (categories || CATEGORIES).find((item) => item.slug === slug)).filter(Boolean);
   const items = listed.map((category) => {
     const spent = spentFor(pool, category.slug);
-    const capCents = periodCap(category, caps, monthMode);
+    const hasCap = caps && Object.prototype.hasOwnProperty.call(caps, category.slug);
+    const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
+    const resolved = monthMode ? resolvedMonthlyCents({ ...category, weeklyCapCents }) : { cents: Number.isInteger(weeklyCapCents) ? weeklyCapCents : null, estimate: false };
+    const capCents = resolved.cents;
     return {
       slug: category.slug,
       name: category.name,
       color: category.color,
       spentCents: spent,
       capCents,
+      estimate: monthMode && saved !== true && resolved.estimate && capCents != null,
       ...capState(spent, capCents || 0),
     };
   });
@@ -918,6 +932,7 @@ export function categoriesSnapshot(txns, now, period = "month", caps = defaultCa
   }
   const budgetCents = items.reduce((sum, item) => sum + (Number.isInteger(item.capCents) ? item.capCents : 0), 0);
   const spentCents = monthMode ? pool.reduce((sum, row) => sum + spendCents(row), 0) : items.reduce((sum, item) => sum + item.spentCents, 0);
+  const estimates = monthMode && saved !== true && items.some((item) => item.estimate);
   return {
     period: monthMode ? "month" : "week",
     weekStart: start,
@@ -925,7 +940,8 @@ export function categoriesSnapshot(txns, now, period = "month", caps = defaultCa
     aside: monthMode ? `Day ${month.day} of ${month.days}` : daysLeft(today, start) != null ? `${daysLeft(today, start)} days left` : "",
     spentCents,
     budgetCents,
-    budgetLabel: monthMode ? `of ${money(budgetCents)} budgeted` : `of ${money(budgetCents)} caps`,
+    estimates,
+    budgetLabel: monthMode ? (budgetCents ? `of ${money(budgetCents)} budgeted${estimates ? " · estimates" : ""}` : "") : `of ${money(budgetCents)} caps`,
     categories: items,
   };
 }
