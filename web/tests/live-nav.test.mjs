@@ -29,7 +29,7 @@ async function boot(production) {
     env: serverEnv(port, production),
   });
   const base = `http://127.0.0.1:${port}`;
-  await waitForHttp(`${base}/`, {
+  await waitForHttp(`${base}${production ? "/tasks" : "/"}`, {
     child: started.child,
     log: started.log,
     accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
@@ -77,6 +77,7 @@ async function withPage(cdp, url, width, run) {
           icons: links.map((link) => link.querySelector("svg") ? 1 : 0),
           finance: [...document.querySelectorAll("nav[aria-label='Finance sections'] a")].map((link) => (link.textContent || "").trim()),
           title: (document.querySelector("h1") || {}).textContent || "",
+          example: document.body.innerText.includes("EXAMPLE DATA"),
           jobs: document.body.innerText.includes("JOBS"),
           journal: document.body.innerText.includes("JOURNAL"),
         };
@@ -111,6 +112,8 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.deepEqual(home.labels, ["Tasks", "Grocery", "Finance"]);
     assert.ok(home.heights.every((height) => height >= 44), JSON.stringify(home.heights));
     assert.ok(home.icons.every((count) => count === 1));
+    assert.equal(home.title, "Tasks");
+    assert.equal(home.example, false);
     assert.equal(home.jobs, false);
     assert.equal(home.journal, false);
     const wide = await withPage(cdp, `${server.base}/`, 1280);
@@ -121,10 +124,10 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     const finance = await withPage(cdp, `${server.base}/finance`, 390);
     assert.deepEqual(finance.finance, ["Overview", "Categories", "Accounts", "Bills"]);
 
-    for (const path of ["/jobs", "/journal", "/more", "/finance/goals"]) {
+    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
-      assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/", path);
+      assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);
     }
     const health = await fetch(`${server.base}/api/health`);
     assert.equal(health.status, 200);

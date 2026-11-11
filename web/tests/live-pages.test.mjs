@@ -24,8 +24,12 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
   for (const env of [{ VERCEL_ENV: "production" }, { NEXT_PUBLIC_VERCEL_ENV: "production" }]) {
     assert.equal(productionNav(env), true);
     assert.deepEqual(
-      primaryTabs(env).map((tab) => tab.label),
-      ["Tasks", "Grocery", "Finance"],
+      primaryTabs(env).map((tab) => ({ href: tab.href, label: tab.label })),
+      [
+        { href: "/tasks", label: "Tasks" },
+        { href: "/grocery", label: "Grocery" },
+        { href: "/finance", label: "Finance" },
+      ],
     );
     assert.deepEqual(
       financeTabs(env).map((tab) => tab.label),
@@ -36,13 +40,13 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
 
 test("production middleware redirects gated pages and leaves auth and api alone", async () => {
   const env = { ...open, NEXT_PUBLIC_VERCEL_ENV: "production" };
-  for (const path of ["/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts"]) {
+  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/not-a-page"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "redirect", path);
-    assert.equal(decision.location, "/", path);
+    assert.equal(decision.location, "/tasks", path);
     assert.equal(isGatedPath(path), true);
   }
-  for (const path of ["/", "/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/transactions", "/finance/caps"]) {
+  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/transactions", "/finance/caps"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "next", path);
   }

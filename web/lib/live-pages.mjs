@@ -12,8 +12,10 @@ export const DEV_PRIMARY = [
   { href: "/more", label: "More", icon: "more" },
 ];
 
+export const TASKS_PATH = "/tasks";
+
 export const LIVE_PRIMARY = [
-  { href: "/", label: "Tasks", icon: "check" },
+  { href: TASKS_PATH, label: "Tasks", icon: "check" },
   { href: "/grocery", label: "Grocery", icon: "groceries" },
   { href: "/finance", label: "Finance", icon: "finance" },
 ];
@@ -27,7 +29,8 @@ export const FINANCE_TABS = [
   { href: "/finance/bills", label: "Bills", live: true, shipped: true },
 ];
 
-const GATED_PREFIXES = ["/jobs", "/journal", "/more", "/finance/goals", "/finance/debts"];
+const LIVE_PREFIXES = ["/tasks", "/grocery", "/finance"];
+const GATED_FINANCE = ["/finance/goals", "/finance/debts"];
 
 export function productionNav(env = process.env) {
   return env.VERCEL_ENV === "production" || env.NEXT_PUBLIC_VERCEL_ENV === "production";
@@ -42,6 +45,12 @@ export function financeTabs(env = process.env) {
   return FINANCE_TABS.filter((tab) => (production ? tab.live : tab.shipped));
 }
 
+function under(pathname, prefix) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 export function isGatedPath(pathname) {
-  return GATED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  if (pathname === "/api" || pathname.startsWith("/api/")) return false;
+  if (GATED_FINANCE.some((prefix) => under(pathname, prefix))) return true;
+  return !LIVE_PREFIXES.some((prefix) => under(pathname, prefix));
 }
