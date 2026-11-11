@@ -785,6 +785,18 @@ export default function TasksPage() {
           formId="task-form"
           saveLabel={saving ? "Saving…" : "Save"}
           saveDisabled={offline || saving}
+          footer={
+            !wide && sheet === "edit" ? (
+              <button
+                type="button"
+                className="flex min-h-11 w-full items-center px-1 text-left text-body font-medium text-muted disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                disabled={offline}
+              >
+                Delete
+              </button>
+            ) : null
+          }
           aside={
             wide && sheet === "edit" ? (
               <button
@@ -933,16 +945,6 @@ export default function TasksPage() {
               <p role="alert" className="text-meta font-medium text-finance-dining">
                 {formError}
               </p>
-            ) : null}
-            {!wide && sheet === "edit" ? (
-              <button
-                type="button"
-                className="min-h-11 min-w-11 px-1 text-left text-body font-medium text-muted disabled:opacity-50"
-                onClick={() => setConfirmDelete(true)}
-                disabled={offline}
-              >
-                Delete
-              </button>
             ) : null}
           </form>
         </Sheet>
