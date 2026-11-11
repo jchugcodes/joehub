@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   // for the routes that serve or render the synthetic rows.
   outputFileTracingIncludes: {
     "/api/finance/accounts": ["./lib/fixtures.json"],
+    "/api/finance/accounts/[id]": ["./lib/fixtures.json"],
     "/api/finance/transactions": ["./lib/fixtures.json"],
     "/api/finance/transactions/[id]": ["./lib/fixtures.json"],
     "/api/finance/transactions/[id]/reset-ledger": ["./lib/fixtures.json"],

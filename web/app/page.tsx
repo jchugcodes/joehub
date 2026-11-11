@@ -59,7 +59,7 @@ export default async function HomePage() {
           <>
             <div className="mt-1 flex items-end justify-between">
               <div>
-                <p className="text-ui-28 font-extrabold tnum">{money(overview.netWorthCents)}</p>
+                <p className="text-ui-28 font-extrabold tnum">{money(overview.netWorthCents, true)}</p>
                 {overview.chart?.caption ? <p className="text-ui-13 font-semibold text-finance-primary">{overview.chart.caption}</p> : null}
               </div>
               <Sparkline compact />

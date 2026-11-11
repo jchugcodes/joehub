@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { categoriesFromCaps, categoryView, createTransaction, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchTransaction, presentTransaction, publicCategories, resetLedger, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, categoriesFromCaps, categoryView, createAccount, createTransaction, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
@@ -219,11 +219,34 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     return null;
   }
 
+  async function ensureAccountSeed() {
+    if (!allowSeed) return;
+    const flagKey = k("joehub:finance:seeded:v2");
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const account of SEED_ACCOUNTS) {
+      const key = k(`joehub:finance:account:${account.id}`);
+      const created = await command(["SET", key, JSON.stringify(account), "NX"]);
+      if (created === "OK" || (await command(["GET", key])) != null) {
+        await command(["ZADD", k("joehub:finance:accounts:index"), String(account.createdAt), account.id]);
+      }
+    }
+    for (const link of SEED_ACCOUNT_LINKS) {
+      const key = k(`joehub:finance:txn:${link.id}`);
+      const existing = await readJson(key);
+      if (!existing || existing.accountId) continue;
+      await command(["SET", key, JSON.stringify({ ...existing, accountId: link.accountId })]);
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
   async function ensureFinance() {
     if (!allowSeed) return;
     const flagKey = k("joehub:finance:seeded");
     const raw = await command(["GET", flagKey]);
-    if (raw === "1") return;
+    if (raw === "1") {
+      await ensureAccountSeed();
+      return;
+    }
     const legacy = legacyFinance(raw);
     const transactions = legacy ? legacy.transactions : SEED_TRANSACTIONS;
     const caps = legacy && legacy.caps && typeof legacy.caps === "object" ? legacy.caps : defaultCaps();
@@ -245,6 +268,21 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
     if (legacy) await command(["SET", flagKey, "1"]);
     else await command(["SET", flagKey, "1", "NX"]);
+    await ensureAccountSeed();
+  }
+
+  async function listManualAccounts() {
+    const ids = (await command(["ZRANGEBYSCORE", k("joehub:finance:accounts:index"), "0", "9007199254740991"])) || [];
+    const accounts = [];
+    for (const id of ids) {
+      const account = await readJson(k(`joehub:finance:account:${id}`));
+      if (account) accounts.push(account);
+    }
+    return accounts;
+  }
+
+  function accountIdOk(id) {
+    return /^acct-[A-Za-z0-9._:-]{1,70}$/.test(String(id || ""));
   }
 
   async function ensureGrocerySeeded() {
@@ -554,6 +592,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const snapshot = await readJson(k("joehub:finance:snapshots"));
       const accounts = await readJson(k("joehub:finance:accounts"));
       const goals = await readJson(k("joehub:finance:goals"));
+      const manualAccounts = await listManualAccounts();
       const categories = normalizeCategories(storedCategories, storedCategories ? null : storedCaps);
       const caps = storedCaps && typeof storedCaps === "object" && !Array.isArray(storedCaps) ? storedCaps : defaultCaps(categories);
       if ((!storedCaps && !storedCategories) || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
@@ -563,11 +602,18 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         const row = await readJson(k(`joehub:finance:txn:${id}`));
         if (row) transactions.push(row);
       }
-      return { transactions, caps, categories, planCents: plan.cents, snapshot, accounts, goals };
+      return { transactions, caps, categories, planCents: plan.cents, snapshot, accounts, goals, manualAccounts };
     },
     async financeOverview(now, week, range) {
       const state = await this.financeBundle();
-      return overview(state.transactions, now, week, range, state.caps, { planCents: state.planCents, snapshot: state.snapshot, categories: state.categories });
+      const rolled = state.manualAccounts.length ? rollUpAccounts(state.manualAccounts) : null;
+      const netWorthCents = rolled ? rolled.netWorthCents : state.snapshot.netWorthCents;
+      return overview(state.transactions, now, week, range, state.caps, {
+        planCents: state.planCents,
+        snapshot: state.snapshot,
+        categories: state.categories,
+        netWorthCents,
+      });
     },
     async financeCategory(now, week, category) {
       const state = await this.financeBundle();
@@ -588,14 +634,62 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (idemKey) await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
       return result;
     },
-    async financeAccounts() {
-      return (await this.financeBundle()).accounts;
+    async financeAccounts(now = Date.now(), options = {}) {
+      await ensureFinance();
+      const manualAccounts = await listManualAccounts();
+      const legacy = (await readJson(k("joehub:finance:accounts"))) || ACCOUNTS;
+      return accountsSnapshot(manualAccounts, legacy, now, options);
+    },
+    async financeAccount(id, now = Date.now()) {
+      await ensureFinance();
+      if (!accountIdOk(id)) return { status: 404, body: { detail: "That account is not here." } };
+      const account = await readJson(k(`joehub:finance:account:${id}`));
+      return account ? { status: 200, body: presentAccount(account, now) } : { status: 404, body: { detail: "That account is not here." } };
+    },
+    async financeCreateAccount(body, now = Date.now(), key = "") {
+      await ensureFinance();
+      if (key) {
+        const prior = await readJson(k(`joehub:finance:account:idem:${key}`));
+        if (prior) return prior;
+      }
+      const existing = await listManualAccounts();
+      const seq = existing.filter((account) => String(account.id).startsWith("acct-") && String(account.id).includes("-")).length + 1;
+      const result = createAccount(existing, body, now, seq);
+      if (result.status === 201) {
+        await command(["SET", k(`joehub:finance:account:${result.account.id}`), JSON.stringify(result.account)]);
+        await command(["ZADD", k("joehub:finance:accounts:index"), String(result.account.createdAt), result.account.id]);
+      }
+      const stored = { status: result.status, body: result.body };
+      if (key && result.status === 201) await command(["SET", k(`joehub:finance:account:idem:${key}`), JSON.stringify(stored), "EX", "86400"]);
+      return stored;
+    },
+    async financePatchAccount(id, body, now = Date.now()) {
+      await ensureFinance();
+      const existing = await listManualAccounts();
+      const result = patchAccount(existing, id, body, now);
+      if (result.status === 200) await command(["SET", k(`joehub:finance:account:${id}`), JSON.stringify(result.account)]);
+      return { status: result.status, body: result.body };
+    },
+    async financeDeleteAccount(id) {
+      await ensureFinance();
+      const account = accountIdOk(id) ? await readJson(k(`joehub:finance:account:${id}`)) : null;
+      const rows = await this.financeRows();
+      const result = removeAccount(account ? [account] : [], id, rows);
+      if (result.status !== 200) return { status: result.status, body: result.body };
+      await command(["DEL", k(`joehub:finance:account:${id}`)]);
+      await command(["ZREM", k("joehub:finance:accounts:index"), id]);
+      return { status: result.status, body: result.body };
     },
     async financeGoals() {
       return (await this.financeBundle()).goals;
     },
-    async financeTransactions(now = Date.now(), week = "") {
-      return transactionsForWeek(await this.financeRows(), now, week);
+    async financeTransactions(now = Date.now(), week = "", accountId = "") {
+      await ensureFinance();
+      if (accountId && !accountIdOk(accountId)) return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
+      if (accountId && !(await readJson(k(`joehub:finance:account:${accountId}`)))) {
+        return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
+      }
+      return transactionsForWeek(await this.financeRows(), now, week, accountId);
     },
     async financeTransaction(id) {
       await ensureFinance();
@@ -611,12 +705,13 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       }
       const existing = await this.financeRows();
       const state = await this.financeBundle();
+      const known = new Set((await listManualAccounts()).map((account) => account.id));
       const source = readOptionalSourceId(body || {});
       if (source.ok && source.sourceId) {
         const existingId = await idForSource("joehub:finance:txn:bysource:", source.sourceId);
         if (existingId) {
           const prior = existing.find((row) => row.id === existingId);
-          const updated = patchTransaction(existing, existingId, body, now, state.categories);
+          const updated = patchTransaction(existing, existingId, body, now, state.categories, known);
           if (updated.status === 200) {
             const next = updated.rows.find((row) => row.id === existingId);
             await command(["SET", k(`joehub:finance:txn:${existingId}`), JSON.stringify(next)]);
@@ -627,7 +722,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         }
       }
       const seq = existing.filter((row) => String(row.id).startsWith("fin-manual-")).length + 1;
-      const result = createTransaction(existing, body, now, seq, state.categories);
+      const result = createTransaction(existing, body, now, seq, state.categories, known);
       if (result.status === 201) {
         const created = result.rows[0];
         await command(["SET", k(`joehub:finance:txn:${created.id}`), JSON.stringify(created)]);
@@ -643,8 +738,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
       const existing = await this.financeRows();
       const state = await this.financeBundle();
+      const known = new Set(state.manualAccounts.map((account) => account.id));
       const prior = existing.find((row) => row.id === id);
-      const result = patchTransaction(existing, id, body, now, state.categories);
+      const result = patchTransaction(existing, id, body, now, state.categories, known);
       if (result.status === 200) {
         const next = result.rows.find((row) => row.id === id);
         await command(["SET", k(`joehub:finance:txn:${id}`), JSON.stringify(next)]);
