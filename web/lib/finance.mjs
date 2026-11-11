@@ -28,6 +28,7 @@ function txn(id, payee, date, category, type, amountCents, extra = {}) {
     source: extra.source || "manual",
     createdAt: extra.createdAt,
     updatedAt: extra.updatedAt || extra.createdAt,
+    ...(extra.accountId ? { accountId: extra.accountId } : {}),
     ...(extra.correction ? { correction: extra.correction } : {}),
     ...(extra.ledger ? { ledger: extra.ledger } : {}),
   };
@@ -36,15 +37,15 @@ function txn(id, payee, date, category, type, amountCents, extra = {}) {
 const T0 = 1_762_800_000_000;
 
 export const SEED_TRANSACTIONS = [
-  txn("fin-payroll", "Payroll (example)", "2026-11-09", null, "income", 235_000, { createdAt: T0 + 1, source: "ledger" }),
-  txn("fin-pizza", "Joe's Pizza", "2026-11-10", "dining-out", "expense", -3240, { createdAt: T0 + 20 }),
+  txn("fin-payroll", "Payroll (example)", "2026-11-09", null, "income", 235_000, { createdAt: T0 + 1, source: "ledger", accountId: "acct-checking" }),
+  txn("fin-pizza", "Joe's Pizza", "2026-11-10", "dining-out", "expense", -3240, { createdAt: T0 + 20, accountId: "acct-checking" }),
   txn("fin-sweetgreen", "Sweetgreen", "2026-11-09", "dining-out", "expense", -2860, { createdAt: T0 + 11 }),
   txn("fin-deli", "Corner Deli", "2026-11-09", "dining-out", "expense", -2450, { createdAt: T0 + 12 }),
   txn("fin-cafe", "Cafe Norte (example)", "2026-11-10", "dining-out", "expense", -2100, { createdAt: T0 + 21 }),
-  txn("fin-refund", "Example refund — Joe's Pizza", "2026-11-10", "dining-out", "refund", 1450, { createdAt: T0 + 22 }),
-  txn("fin-northside", "Northside Market", "2026-11-10", "groceries", "expense", -6188, { createdAt: T0 + 23 }),
-  txn("fin-trader", "Trader Joe's", "2026-11-09", "groceries", "expense", -4612, { createdAt: T0 + 13 }),
-  txn("fin-bus", "City Bus pass", "2026-11-09", "transport", "expense", -2500, { createdAt: T0 + 14 }),
+  txn("fin-refund", "Example refund — Joe's Pizza", "2026-11-10", "dining-out", "refund", 1450, { createdAt: T0 + 22, accountId: "acct-checking" }),
+  txn("fin-northside", "Northside Market", "2026-11-10", "groceries", "expense", -6188, { createdAt: T0 + 23, accountId: "acct-checking" }),
+  txn("fin-trader", "Trader Joe's", "2026-11-09", "groceries", "expense", -4612, { createdAt: T0 + 13, accountId: "acct-checking" }),
+  txn("fin-bus", "City Bus pass", "2026-11-09", "transport", "expense", -2500, { createdAt: T0 + 14, accountId: "acct-checking" }),
   txn("fin-shell", "Shell (example)", "2026-11-09", "transport", "expense", -2218, {
     createdAt: T0 + 15,
     source: "ledger",
@@ -52,12 +53,13 @@ export const SEED_TRANSACTIONS = [
     ledger: {
       original: { payee: "Shell (example)", amountCents: -2218, category: "shopping", importedAt: "2026-11-09T13:14:00.000Z" },
     },
+    accountId: "acct-card",
   }),
   txn("fin-stream", "Streaming Club (example)", "2026-11-09", "subscriptions", "expense", -4675, { createdAt: T0 + 17 }),
   txn("fin-harbor", "Harbor Supply Co.", "2026-11-10", "shopping", "expense", -1800, { createdAt: T0 + 24 }),
   txn("fin-power", "City Power (example)", "2026-11-09", "utilities", "expense", -6410, { createdAt: T0 + 18 }),
   txn("fin-vendor", "SQ *DEMO VENDOR", "2026-11-10", null, "expense", -940, { createdAt: T0 + 25 }),
-  txn("fin-transfer", "Transfer to Savings (example)", "2026-11-09", null, "transfer", -20_000, { createdAt: T0 + 19 }),
+  txn("fin-transfer", "Transfer to Savings (example)", "2026-11-09", null, "transfer", -20_000, { createdAt: T0 + 19, accountId: "acct-savings" }),
   txn("fin-span-dining", "Example bistro", "2026-11-01", "dining-out", "expense", -7400, { createdAt: T0 - 80 }),
   txn("fin-span-groceries", "Example market", "2026-11-01", "groceries", "expense", -8840, { createdAt: T0 - 79 }),
   txn("fin-span-transport", "Example ride", "2026-11-01", "transport", "expense", -4000, { createdAt: T0 - 78 }),
@@ -86,6 +88,127 @@ export const ACCOUNTS = {
     { name: "Example card", group: "Liability", amountCents: 40_000 },
   ],
 };
+
+export const ACCOUNT_TYPES = ["checking", "savings", "credit card", "cash", "investment", "brokerage", "loan", "other"];
+const LIABILITY_TYPES = new Set(["credit card", "loan"]);
+const ACCOUNT_GROUPS = ["Checking", "Savings", "Credit cards", "Loans", "Brokerage", "Other"];
+const SNAPSHOT_AT = Date.parse("2026-11-11T11:42:00.000Z");
+const STALE_AT = Date.parse("2026-11-08T14:14:00.000Z");
+const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+
+function seedAccount(fields) {
+  return {
+    source: "manual",
+    institution: "",
+    hiddenFromNetWorth: false,
+    closed: false,
+    balanceAsOf: SNAPSHOT_AT,
+    createdAt: SNAPSHOT_AT,
+    updatedAt: SNAPSHOT_AT,
+    ...fields,
+  };
+}
+
+/** Synthetic accounts. Hidden balances stay out of the roll-up, so net worth matches Finance. */
+export const SEED_ACCOUNTS = [
+  seedAccount({ id: "acct-checking", name: "Everyday checking", type: "checking", source: "ledger", institution: "Example CU", balanceCents: 247_236, balanceAsOf: STALE_AT, createdAt: STALE_AT }),
+  seedAccount({ id: "acct-savings", name: "Emergency savings", type: "savings", source: "ledger", institution: "Example CU", balanceCents: 840_000 }),
+  seedAccount({ id: "acct-cash", name: "Cash reserve", type: "savings", source: "manual", balanceCents: 160_000 }),
+  seedAccount({ id: "acct-card", name: "Everyday card", type: "credit card", source: "ledger", balanceCents: 40_000 }),
+  seedAccount({ id: "acct-loan", name: "Auto loan", type: "loan", source: "ledger", institution: "Example Auto", balanceCents: 760_000 }),
+  seedAccount({ id: "acct-brokerage", name: "Brokerage", type: "brokerage", source: "ledger", institution: "Example Brokerage", balanceCents: 1_400_000 }),
+  seedAccount({ id: "acct-old", name: "Old checking", type: "checking", source: "manual", balanceCents: 25_000, hiddenFromNetWorth: true }),
+];
+
+/** Seed transactions that gain an accountId. Applied once, and only when the field is missing. */
+export const SEED_ACCOUNT_LINKS = [
+  { id: "fin-payroll", accountId: "acct-checking" },
+  { id: "fin-pizza", accountId: "acct-checking" },
+  { id: "fin-refund", accountId: "acct-checking" },
+  { id: "fin-northside", accountId: "acct-checking" },
+  { id: "fin-trader", accountId: "acct-checking" },
+  { id: "fin-bus", accountId: "acct-checking" },
+];
+
+export function accountGroup(type) {
+  if (type === "checking") return "Checking";
+  if (type === "savings" || type === "cash") return "Savings";
+  if (type === "credit card") return "Credit cards";
+  if (type === "loan") return "Loans";
+  if (type === "investment" || type === "brokerage") return "Brokerage";
+  return "Other";
+}
+
+export function accountInRollup(account) {
+  return Boolean(account) && !account.hiddenFromNetWorth && !account.closed;
+}
+
+/** Credit cards and loans count against net worth. Hidden and closed accounts do not. */
+export function rollUpAccounts(accounts) {
+  let assetsCents = 0;
+  let liabilitiesCents = 0;
+  for (const account of accounts) {
+    if (!accountInRollup(account)) continue;
+    const cents = Number(account.balanceCents) || 0;
+    if (LIABILITY_TYPES.has(account.type)) liabilitiesCents += cents;
+    else assetsCents += cents;
+  }
+  return { assetsCents, liabilitiesCents, netWorthCents: assetsCents - liabilitiesCents };
+}
+
+export function accountIsStale(account, now = Date.now()) {
+  if (!account || account.source !== "ledger" || !Number.isInteger(account.balanceAsOf)) return false;
+  return detroitYmd(account.balanceAsOf) < detroitYmd(now);
+}
+
+export function presentAccount(account, now = Date.now()) {
+  const shown = {
+    id: account.id,
+    name: account.name,
+    type: account.type,
+    source: account.source === "ledger" ? "ledger" : "manual",
+    balanceCents: account.balanceCents,
+    createdAt: new Date(account.createdAt).toISOString(),
+    updatedAt: new Date(account.updatedAt).toISOString(),
+    balanceAsOf: Number.isInteger(account.balanceAsOf) ? new Date(account.balanceAsOf).toISOString() : null,
+    hiddenFromNetWorth: Boolean(account.hiddenFromNetWorth),
+    closed: Boolean(account.closed),
+    stale: accountIsStale(account, now),
+    group: account.hiddenFromNetWorth ? "Hidden" : accountGroup(account.type),
+    amountCents: account.balanceCents,
+  };
+  if (account.institution) shown.institution = account.institution;
+  if (typeof account.mask === "string" && /^\d{4}$/.test(account.mask)) shown.mask = account.mask;
+  if (typeof account.sourceId === "string" && account.sourceId) shown.sourceId = account.sourceId;
+  return shown;
+}
+
+/**
+ * Manual accounts replace the snapshot roll-up. With none saved, the previous
+ * snapshot (and its net-worth figure) stays in place.
+ */
+export function accountsSnapshot(accounts, fallback = ACCOUNTS, now = Date.now(), options = {}) {
+  const visible = accounts.filter((account) => options.includeClosed || !account.closed);
+  if (!accounts.length) {
+    return { netWorthCents: null, assetsCents: null, liabilitiesCents: null, updatedAt: null, accounts: [], empty: true };
+  }
+  const rolled = rollUpAccounts(visible);
+  const newest = visible.reduce((max, account) => Math.max(max, account.balanceAsOf || account.updatedAt || 0), 0);
+  const groups = [];
+  for (const name of [...ACCOUNT_GROUPS, "Hidden"]) {
+    const rows = visible.filter((account) => (account.hiddenFromNetWorth ? "Hidden" : accountGroup(account.type)) === name);
+    if (rows.length) groups.push({ name, totalCents: rows.reduce((sum, account) => sum + account.balanceCents, 0) });
+  }
+  return {
+    netWorthCents: rolled.netWorthCents,
+    assetsCents: rolled.assetsCents,
+    liabilitiesCents: rolled.liabilitiesCents,
+    updatedAt: new Date(newest || Date.parse(fallback.updatedAt)).toISOString(),
+    empty: visible.length === 0,
+    groups,
+    accounts: visible.map((account) => presentAccount(account, now)),
+  };
+}
 
 export const GOALS = [
   { slug: "student-loan-payoff", name: "Student loan payoff", value: 62, amount: "$12,400", target: "$20,000", note: "On track" },
@@ -364,7 +487,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       daysLeft: daysLeft(today, start),
       previousWeek: addDays(start, -7),
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
-      netWorthCents: snapshot.netWorthCents,
+      netWorthCents: Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents,
       chart: chartFor(txns, today, chosen, snapshot),
       month: monthProgress(txns, today, planCents),
       caps: capsForWeek(txns, start, caps),
@@ -444,6 +567,7 @@ export function presentTransaction(row) {
     source: row.source || "manual",
     meta: recentMeta(shown),
     corrected: shown.corrected,
+    accountId: shown.accountId || null,
     uncategorized: shown.type === "expense" && !shown.category,
     original: row.ledger && row.ledger.original ? row.ledger.original : null,
     latest: row.ledger && row.ledger.latest ? row.ledger.latest : null,
@@ -451,10 +575,15 @@ export function presentTransaction(row) {
   };
 }
 
-export function transactionsForWeek(rows, now = Date.now(), week = "") {
+export function transactionsForWeek(rows, now = Date.now(), week = "", accountId = "") {
   const today = detroitYmd(now);
   const start = week && week.length === 10 ? weekStart(week) : weekStart(today);
   if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
+  const linked = accountId ? rowsInWeek(rows, start).filter((row) => (row.accountId || null) === accountId) : rowsInWeek(rows, start);
+  if (accountId) {
+    const order = new Map(RECENT_IDS.map((id, index) => [id, index]));
+    linked.sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99));
+  }
   return {
     status: 200,
     body: {
@@ -464,7 +593,8 @@ export function transactionsForWeek(rows, now = Date.now(), week = "") {
       today,
       previousWeek: addDays(start, -7),
       nextWeek: addDays(start, 7) <= weekStart(today) ? addDays(start, 7) : null,
-      rows: rowsInWeek(rows, start).map((row) => presentTransaction(rows.find((item) => item.id === row.id) || row)),
+      accountId: accountId || null,
+      rows: linked.map((row) => presentTransaction(rows.find((item) => item.id === row.id) || row)),
     },
   };
 }
@@ -486,12 +616,32 @@ function readDraft(body, shown = {}) {
     if (!resolved) return { ok: false, detail: "Choose a category.", field: "category" };
     category = resolved.slug;
   }
-  return { ok: true, draft: { payee, date, type, amountCents, category } };
+  const account = readAccountId(body, shown);
+  if (!account.ok) return account;
+  return { ok: true, draft: { payee, date, type, amountCents, category, accountId: account.accountId } };
 }
 
-export function createTransaction(rows, body, now = Date.now(), seq = 1) {
+function readAccountId(body, shown) {
+  if (!(body && Object.prototype.hasOwnProperty.call(body, "accountId"))) {
+    return { ok: true, accountId: shown.accountId || null };
+  }
+  if (body.accountId == null || body.accountId === "") return { ok: true, accountId: null };
+  const accountId = String(body.accountId);
+  if (!/^[A-Za-z0-9._:-]{1,80}$/.test(accountId)) return { ok: false, detail: "Choose an account.", field: "accountId" };
+  return { ok: true, accountId };
+}
+
+function knownAccount(accountId, knownAccountIds) {
+  if (!accountId || knownAccountIds == null) return { ok: true };
+  if (knownAccountIds.has(accountId)) return { ok: true };
+  return { ok: false, detail: "Choose an account.", field: "accountId" };
+}
+
+export function createTransaction(rows, body, now = Date.now(), seq = 1, knownAccountIds = null) {
   const parsed = readDraft(body, { type: "expense", category: null, amountCents: 0 });
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
+  const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
+  if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
   const row = {
     id: `fin-manual-${now}-${seq}`,
     source: "manual",
@@ -501,16 +651,131 @@ export function createTransaction(rows, body, now = Date.now(), seq = 1) {
   return { status: 201, body: presentTransaction(row), rows: [row, ...rows] };
 }
 
-export function patchTransaction(rows, id, body, now = Date.now()) {
+export function patchTransaction(rows, id, body, now = Date.now(), knownAccountIds = null) {
   const index = rows.findIndex((row) => row.id === id);
   if (index < 0) return { status: 404, body: { detail: "That transaction is not here." }, rows };
   const current = rows[index];
   const parsed = readDraft(body, effective(current));
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
-  const next = current.source === "ledger" ? { ...current, correction: { ...parsed.draft, updatedAt: now } } : { ...current, ...parsed.draft, updatedAt: now };
+  const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
+  if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
+  const { accountId, ...fields } = parsed.draft;
+  const next = current.source === "ledger"
+    ? { ...current, accountId, correction: { ...fields, updatedAt: now } }
+    : { ...current, ...fields, accountId, updatedAt: now };
   const copy = rows.slice();
   copy[index] = next;
   return { status: 200, body: presentTransaction(next), rows: copy };
+}
+
+const ACCOUNT_ID = /^acct-[A-Za-z0-9._:-]{1,70}$/;
+
+function cleanAccountName(value) {
+  const name = String(value || "").trim().replace(/\s+/g, " ");
+  return name.length >= 1 && name.length <= 80 ? name : "";
+}
+
+function cleanInstitution(value) {
+  if (value == null || value === "") return "";
+  if (typeof value !== "string") return null;
+  const text = value.trim().replace(/\s+/g, " ");
+  return text.length <= 80 ? text : null;
+}
+
+export function parseAccount(body, current = {}) {
+  const source = body && typeof body === "object" ? body : null;
+  if (!source) return { ok: false, detail: "Enter a name.", field: "name" };
+  const name = cleanAccountName(Object.prototype.hasOwnProperty.call(source, "name") ? source.name : current.name);
+  if (!name) return { ok: false, detail: "Enter a name.", field: "name" };
+  const type = String(Object.prototype.hasOwnProperty.call(source, "type") ? source.type : current.type || "");
+  if (!ACCOUNT_TYPES.includes(type)) return { ok: false, detail: "Choose a type.", field: "type" };
+  const rawBalance = Object.prototype.hasOwnProperty.call(source, "balanceCents") ? source.balanceCents : current.balanceCents;
+  if (!Number.isInteger(rawBalance) || Math.abs(rawBalance) > 100_000_000) {
+    return { ok: false, detail: "Enter a balance.", field: "balance" };
+  }
+  const institution = cleanInstitution(Object.prototype.hasOwnProperty.call(source, "institution") ? source.institution : current.institution);
+  if (institution == null) return { ok: false, detail: "Institution is too long.", field: "institution" };
+  let hiddenFromNetWorth = Boolean(current.hiddenFromNetWorth);
+  if (Object.prototype.hasOwnProperty.call(source, "hiddenFromNetWorth")) {
+    if (typeof source.hiddenFromNetWorth !== "boolean") return { ok: false, detail: "Choose yes or no.", field: "hiddenFromNetWorth" };
+    hiddenFromNetWorth = source.hiddenFromNetWorth;
+  }
+  let closed = Boolean(current.closed);
+  if (Object.prototype.hasOwnProperty.call(source, "closed")) {
+    if (typeof source.closed !== "boolean") return { ok: false, detail: "Choose yes or no.", field: "closed" };
+    closed = source.closed;
+  }
+  let mask = typeof current.mask === "string" ? current.mask : "";
+  if (Object.prototype.hasOwnProperty.call(source, "mask")) {
+    if (source.mask == null || source.mask === "") mask = "";
+    else if (typeof source.mask !== "string" || !/^\d{4}$/.test(source.mask)) return { ok: false, detail: "Use the last 4 digits.", field: "mask" };
+    else mask = source.mask;
+  }
+  let sourceId = typeof current.sourceId === "string" ? current.sourceId : "";
+  if (Object.prototype.hasOwnProperty.call(source, "sourceId")) {
+    if (source.sourceId == null || source.sourceId === "") sourceId = "";
+    else if (typeof source.sourceId !== "string" || !SOURCE_ID.test(source.sourceId.trim())) {
+      return { ok: false, detail: "Use a source id like notion:page-id.", field: "sourceId" };
+    } else sourceId = source.sourceId.trim();
+  }
+  return { ok: true, draft: { name, type, balanceCents: rawBalance, institution, hiddenFromNetWorth, closed, mask, sourceId } };
+}
+
+function applyAccountDraft(account, draft, now) {
+  const next = { ...account, ...draft, updatedAt: now };
+  if (!next.institution) delete next.institution;
+  if (!next.mask) delete next.mask;
+  if (!next.sourceId) delete next.sourceId;
+  if (draft.balanceCents !== account.balanceCents) next.balanceAsOf = now;
+  return next;
+}
+
+export function createAccount(accounts, body, now = Date.now(), seq = 1) {
+  const parsed = parseAccount(body);
+  if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, accounts };
+  const account = applyAccountDraft(
+    { id: `acct-${now}-${seq}`, source: "manual", createdAt: now, updatedAt: now, balanceAsOf: now, hiddenFromNetWorth: false, closed: false },
+    parsed.draft,
+    now,
+  );
+  account.balanceAsOf = now;
+  return { status: 201, body: presentAccount(account, now), accounts: [...accounts, account], account };
+}
+
+export function patchAccount(accounts, id, body, now = Date.now()) {
+  if (!ACCOUNT_ID.test(String(id || ""))) return { status: 404, body: { detail: "That account is not here." }, accounts };
+  const index = accounts.findIndex((account) => account.id === id);
+  if (index < 0) return { status: 404, body: { detail: "That account is not here." }, accounts };
+  const current = accounts[index];
+  if (current.source === "ledger") {
+    const keys = Object.keys(body || {});
+    if (keys.some((key) => key !== "hiddenFromNetWorth")) {
+      return { status: 403, body: { detail: "This account is updated by Ledger." }, accounts };
+    }
+  }
+  const parsed = parseAccount(body, current);
+  if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, accounts };
+  const next = applyAccountDraft(current, parsed.draft, now);
+  if (current.source === "ledger") {
+    next.name = current.name;
+    next.type = current.type;
+    next.balanceCents = current.balanceCents;
+    next.institution = current.institution;
+    next.balanceAsOf = current.balanceAsOf;
+    next.source = "ledger";
+  }
+  const copy = accounts.slice();
+  copy[index] = next;
+  return { status: 200, body: presentAccount(next, now), accounts: copy, account: next };
+}
+
+export function removeAccount(accounts, id, rows = []) {
+  if (!ACCOUNT_ID.test(String(id || ""))) return { status: 404, body: { detail: "That account is not here." }, accounts };
+  const current = accounts.find((account) => account.id === id);
+  if (!current) return { status: 404, body: { detail: "That account is not here." }, accounts };
+  if (current.source === "ledger") return { status: 403, body: { detail: "This account is updated by Ledger." }, accounts };
+  if (rows.some((row) => row.accountId === id)) return { status: 409, body: { detail: "This account still has transactions." }, accounts };
+  return { status: 200, body: { deleted: true, id }, accounts: accounts.filter((account) => account.id !== id) };
 }
 
 export function simulateLedgerRefresh(rows, now = Date.now()) {
@@ -555,20 +820,58 @@ export function publicTransactions(txns) {
 }
 
 export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
-  let rows = txns.map((row) => structuredClone(row));
+  let rows = txns.map((row) => {
+    const copy = structuredClone(row);
+    const link = SEED_ACCOUNT_LINKS.find((item) => item.id === copy.id);
+    if (link && !copy.accountId) copy.accountId = link.accountId;
+    return copy;
+  });
   let seq = 0;
   let caps = defaultCaps();
   const idem = new Map();
   const planCents = PLAN_CENTS;
   const snapshot = seedSnapshots();
-  const accounts = structuredClone(ACCOUNTS);
+  const legacyAccounts = structuredClone(ACCOUNTS);
+  let manualAccounts = structuredClone(SEED_ACCOUNTS);
+  let accountSeq = 0;
   const goals = structuredClone(GOALS);
-  const context = () => ({ planCents, snapshot, netWorthCents: snapshot.netWorthCents });
+  const knownIds = () => new Set(manualAccounts.map((account) => account.id));
+  const context = () => ({
+    planCents,
+    snapshot,
+    netWorthCents: manualAccounts.length ? rollUpAccounts(manualAccounts).netWorthCents : snapshot.netWorthCents,
+  });
   store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps, context());
   store.financeCategory = (now, week, category) => categoryView(rows, now, week, category, caps);
-  store.financeAccounts = async () => structuredClone(accounts);
+  store.financeAccounts = async (now = Date.now(), options = {}) => accountsSnapshot(manualAccounts, legacyAccounts, now, options);
+  store.financeAccount = async (id, now = Date.now()) => {
+    const account = manualAccounts.find((item) => item.id === id);
+    return account ? { status: 200, body: presentAccount(account, now) } : { status: 404, body: { detail: "That account is not here." } };
+  };
+  store.financeCreateAccount = async (body, now = Date.now(), key = "") => {
+    if (key && idem.has(`account:${key}`)) return idem.get(`account:${key}`);
+    accountSeq += 1;
+    const result = createAccount(manualAccounts, body, now, accountSeq);
+    if (result.status === 201) manualAccounts = result.accounts;
+    const stored = { status: result.status, body: result.body };
+    if (key && result.status === 201) idem.set(`account:${key}`, stored);
+    return stored;
+  };
+  store.financePatchAccount = async (id, body, now = Date.now()) => {
+    const result = patchAccount(manualAccounts, id, body, now);
+    if (result.status === 200) manualAccounts = result.accounts;
+    return { status: result.status, body: result.body };
+  };
+  store.financeDeleteAccount = async (id) => {
+    const result = removeAccount(manualAccounts, id, rows);
+    if (result.status === 200) manualAccounts = result.accounts;
+    return { status: result.status, body: result.body };
+  };
   store.financeGoals = async () => structuredClone(goals);
-  store.financeTransactions = async (now = Date.now(), week = "") => transactionsForWeek(rows, now, week);
+  store.financeTransactions = async (now = Date.now(), week = "", accountId = "") => {
+    if (accountId && !knownIds().has(accountId)) return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
+    return transactionsForWeek(rows, now, week, accountId);
+  };
   store.financeTransaction = async (id) => {
     const row = rows.find((item) => item.id === id);
     return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
@@ -576,14 +879,14 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   store.financeCreateTransaction = async (body, now = Date.now(), key = "") => {
     if (key && idem.has(`create:${key}`)) return idem.get(`create:${key}`);
     seq += 1;
-    const result = createTransaction(rows, body, now, seq);
+    const result = createTransaction(rows, body, now, seq, knownIds());
     if (result.status === 201) rows = result.rows;
     const stored = { status: result.status, body: result.body };
     if (key && result.status === 201) idem.set(`create:${key}`, stored);
     return stored;
   };
   store.financePatchTransaction = async (id, body, now = Date.now()) => {
-    const result = patchTransaction(rows, id, body, now);
+    const result = patchTransaction(rows, id, body, now, knownIds());
     if (result.status === 200) rows = result.rows;
     return { status: result.status, body: result.body };
   };
