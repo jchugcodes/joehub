@@ -4,7 +4,7 @@ import { decide } from "./lib/gate.mjs";
 export async function middleware(request: Request) {
   const decision = await decide(request, process.env, Date.now());
   if (decision.type === "next") return NextResponse.next();
-  if (decision.type === "redirect" && "location" in decision) {
+  if (decision.type === "redirect" && "location" in decision && typeof decision.location === "string") {
     return NextResponse.redirect(new URL(decision.location, request.url));
   }
   const status = "status" in decision && typeof decision.status === "number" ? decision.status : 503;

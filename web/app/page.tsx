@@ -3,6 +3,7 @@ import { Ring, Sparkline } from "../components/Charts";
 import { home } from "../lib/design-fixtures";
 import { detroitHeading } from "../lib/detroit-date.mjs";
 import { money } from "../lib/finance.mjs";
+import { productionNav } from "../lib/live-pages.mjs";
 import { store } from "../lib/store.mjs";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ export default async function HomePage() {
   const blocked = open.filter((task) => task.status === "Blocked").length;
   const dueToday = open.filter((task) => task.dueDate === today);
   const highlight = dueToday[0] || open[0] || null;
+  const live = productionNav();
   return (
     <div>
       <header className="flex items-center justify-between px-5 pt-2">
@@ -60,9 +62,9 @@ export default async function HomePage() {
             <div className="mt-1 flex items-end justify-between">
               <div>
                 <p className="text-ui-28 font-extrabold tnum">{money(overview.netWorthCents, true)}</p>
-                {overview.chart?.caption ? <p className="text-ui-13 font-semibold text-finance-primary">{overview.chart.caption}</p> : null}
+                {!live && overview.chart?.caption ? <p className="text-ui-13 font-semibold text-finance-primary">{overview.chart.caption}</p> : null}
               </div>
-              <Sparkline compact />
+              {live ? null : <Sparkline compact />}
             </div>
             <div
               className="mt-3 h-2 overflow-hidden rounded-full bg-line"
@@ -82,7 +84,7 @@ export default async function HomePage() {
         ) : null}
       </Link>
 
-      <Link href="/jobs" className="block card p-4">
+      {live ? null : <Link href="/jobs" className="block card p-4">
         <div className="flex items-center justify-between text-ui-13 font-bold text-jobs">
           <span>JOBS</span>
           <span aria-hidden className="text-inactive">›</span>
@@ -102,9 +104,9 @@ export default async function HomePage() {
           ))}
         </ul>
         <p className="mt-3 rounded-xl bg-jobs/[0.12] p-2.5 text-ui-13">{home.nextEvent}</p>
-      </Link>
+      </Link>}
 
-      <section className="card p-4">
+      {live ? null : <section className="card p-4">
         <div className="flex items-center justify-between text-ui-13 font-bold text-journal">
           <span>JOURNAL</span>
           <Link href="/journal" className="text-inactive" aria-label="Open journal">
@@ -119,7 +121,7 @@ export default async function HomePage() {
         >
           Log tonight&apos;s wins
         </Link>
-      </section>
+      </section>}
 
       <Link href="/tasks" className="tasks-type block card border-[1.5px] border-ink p-4 shadow-[0_0_0_3px_rgba(31,42,36,0.08)]">
         <div className="flex items-center justify-between text-meta font-medium text-ink">
@@ -140,7 +142,7 @@ export default async function HomePage() {
         <span className="mt-3 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-white">Open tasks</span>
       </Link>
 
-      <section className="card p-4" aria-labelledby="goals-heading">
+      {live ? null : <section className="card p-4" aria-labelledby="goals-heading">
         <h2 id="goals-heading" className="mb-2 text-ui-13 font-bold mut">
           GOALS
         </h2>
@@ -152,7 +154,7 @@ export default async function HomePage() {
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
       <p className="mb-28 mt-3 text-center text-ui-9.5 text-inactive">EXAMPLE DATA · design mockup · not real accounts</p>
       </div>
     </div>

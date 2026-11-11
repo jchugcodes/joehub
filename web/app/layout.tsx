@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Suspense } from "react";
 import { AppShell } from "../components/AppShell";
+import { LivePagesProvider } from "../components/LivePages";
+import { productionNav } from "../lib/live-pages.mjs";
 import "./globals.css";
 
 /** Same bytes as sources/fonts/DM-Sans-variable.ttf (SHA-256 8cd08d97…). next/font/local serves that file. */
@@ -30,7 +32,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${dmSans.variable} ${outfit.variable}`}>
       <body className="font-sans">
         <Suspense fallback={<main className="p-4">Loading joehub</main>}>
-          <AppShell>{children}</AppShell>
+          <LivePagesProvider production={productionNav()}>
+            <AppShell>{children}</AppShell>
+          </LivePagesProvider>
         </Suspense>
       </body>
     </html>
