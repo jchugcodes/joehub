@@ -637,6 +637,27 @@ export async function handleFinanceGoals(headers, env, store, limiter, now, ip) 
   }
 }
 
+export async function handleFinanceBudgets(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, body: { detail: "Enter an amount.", field: "dining-out" } };
+  }
+  try {
+    if (!store || typeof store.financeSaveBudgets !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeSaveBudgets(body, idem.key);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinanceCaps(headers, env, store, limiter, now, ip, request) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

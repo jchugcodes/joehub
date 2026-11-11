@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
+import { Sheet } from "./Sheet";
 
 type Item = {
   slug: string;
@@ -62,6 +63,18 @@ function signed(cents: number) {
   return text;
 }
 
+function dollars(cents: number) {
+  return (cents / 100).toFixed(2).replace(/\.00$/, "");
+}
+
+function parseBudget(value: string) {
+  const text = value.trim();
+  if (text === "") return { ok: true as const, cents: null };
+  if (text.startsWith("-") || text.startsWith("−")) return { ok: false as const, cents: null, detail: "Can’t be negative." };
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return { ok: false as const, cents: null, detail: "Enter an amount." };
+  return { ok: true as const, cents: Math.round(Number(text) * 100) };
+}
+
 function toneColor(item: { tone: string; color: string }) {
   if (item.tone === "over") return "#E07A5F";
   if (item.tone === "category") return item.color;
@@ -78,6 +91,13 @@ export function FinanceCategory({ slug }: { slug?: string }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
   const [message, setMessage] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [budgetError, setBudgetError] = useState("");
+  const [budgetField, setBudgetField] = useState("");
+  const [saving, setSaving] = useState(false);
+  const idempotency = useRef("");
 
   useEffect(() => {
     const onResize = () => setWide(window.innerWidth >= 1024);
@@ -104,7 +124,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     return () => {
       gone = true;
     };
-  }, [period, search]);
+  }, [period, search, revision]);
 
   useEffect(() => {
     if (!slug) {
@@ -156,6 +176,49 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     if (search.get("week")) backParams.set("week", search.get("week") || "");
   }
   const backHref = fromOverview ? `/finance?${backParams.toString()}` : `/finance/categories?${backParams.toString()}`;
+  const budgetRows = (snapshot?.categories || []).filter((item) => item.slug !== "uncategorized");
+
+  async function saveBudgets(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    const budgets: Record<string, number | null> = {};
+    for (const item of budgetRows) {
+      const parsed = parseBudget(fields[item.slug] ?? "");
+      if (!parsed.ok) {
+        setBudgetError(parsed.detail);
+        setBudgetField(item.slug);
+        document.getElementById(`budget-${item.slug}`)?.focus();
+        return;
+      }
+      budgets[item.slug] = parsed.cents;
+    }
+    setSaving(true);
+    setBudgetError("");
+    try {
+      const response = await fetch("/api/finance/budgets", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": idempotency.current || (idempotency.current = crypto.randomUUID()),
+        },
+        body: JSON.stringify({ budgets }),
+      });
+      const body = (await response.json()) as { detail?: string; field?: string };
+      if (!response.ok) {
+        setBudgetError(body.detail || "Couldn’t save.");
+        setBudgetField(body.field || "");
+        if (body.field) document.getElementById(`budget-${body.field}`)?.focus();
+        return;
+      }
+      idempotency.current = "";
+      setEditing(false);
+      setRevision((value) => value + 1);
+    } catch {
+      setBudgetError("Couldn’t save.");
+    } finally {
+      setSaving(false);
+    }
+  }
   const showList = !fromOverview && (!slug || wide);
   const showDetail = Boolean(slug);
   const ready = showList ? Boolean(snapshot) && (!showDetail || Boolean(category)) : Boolean(category);
@@ -169,9 +232,30 @@ export function FinanceCategory({ slug }: { slug?: string }) {
               <p className="text-meta text-muted">joehub</p>
               <h1 className="text-title font-medium">Finance</h1>
             </div>
-            <Link href={capsHref} className="mb-1 min-h-11 text-body font-medium text-finance-primary">
-              Edit caps
-            </Link>
+            {period === "month" ? (
+              <button
+                type="button"
+                className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary disabled:opacity-40"
+                disabled={!snapshot}
+                onClick={() => {
+                  const next: Record<string, string> = {};
+                  for (const item of snapshot?.categories || []) {
+                    if (item.slug === "uncategorized") continue;
+                    next[item.slug] = item.capCents == null ? "" : dollars(item.capCents);
+                  }
+                  setFields(next);
+                  setBudgetError("");
+                  setBudgetField("");
+                  setEditing(true);
+                }}
+              >
+                Edit budgets
+              </button>
+            ) : (
+              <Link href={capsHref} className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary">
+                Edit caps
+              </Link>
+            )}
           </header>
           <div className="mt-3">
             <FinanceTabs />
@@ -236,10 +320,49 @@ export function FinanceCategory({ slug }: { slug?: string }) {
       {showDetail ? (
         <Detail category={category} message={message} wide={wide && !fromOverview} backHref={backHref} backLabel={fromOverview ? "Back to overview" : "Back"} period={period} asOf={search.get("asOf") || ""} />
       ) : null}
-      {showList && wide && !slug ? (
+      {showList && wide && !slug && !editing ? (
         <aside className="card mt-4 w-[420px] shrink-0 p-5" style={{ minHeight: 520 }}>
           <p className="pt-8 text-center text-body text-muted">Select a category</p>
         </aside>
+      ) : null}
+      {editing && period === "month" ? (
+        <Sheet
+          title="Monthly budgets"
+          dock={wide ? "panel" : "sheet"}
+          formId="budget-form"
+          onClose={() => setEditing(false)}
+          saveDisabled={saving}
+          actions={wide ? (
+            <>
+              <button type="button" onClick={() => setEditing(false)} className="inline-flex min-h-11 items-center px-3 text-body text-muted">Cancel</button>
+              <button type="submit" form="budget-form" disabled={saving} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">Save</button>
+            </>
+          ) : null}
+        >
+          <form id="budget-form" onSubmit={saveBudgets}>
+            <p className="text-meta text-muted">Estimates come from the weekly cap. Saving them is the monthly plan.</p>
+            {budgetError ? <p className="mt-3 text-body text-finance-dining">{budgetError}</p> : null}
+            <div className="mt-4 space-y-3">
+              {budgetRows.map((item) => (
+                <label key={item.slug} className="block" htmlFor={`budget-${item.slug}`}>
+                  <span className="text-meta text-muted">{item.name}{item.estimate ? " · estimate" : ""}</span>
+                  <input
+                    id={`budget-${item.slug}`}
+                    inputMode="decimal"
+                    enterKeyHint="done"
+                    value={fields[item.slug] ?? ""}
+                    aria-invalid={budgetField === item.slug}
+                    className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base"
+                    onChange={(event) => {
+                      setFields((current) => ({ ...current, [item.slug]: event.target.value }));
+                      setBudgetField("");
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          </form>
+        </Sheet>
       ) : null}
     </main>
   );

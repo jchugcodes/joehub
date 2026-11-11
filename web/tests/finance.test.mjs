@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, patchTransaction, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, parseMonthlyBudgets, patchTransaction, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
@@ -313,4 +313,30 @@ test("a ledger refresh keeps the Shell correction until a confirmed reset", () =
   assert.equal(capsForWeek(reset.rows, "2026-11-09").find((cap) => cap.slug === "shopping").spentCents, 4218);
   assert.equal(resetLedger(SEED_TRANSACTIONS, "fin-pizza").status, 400);
   assert.equal(resetLedger(SEED_TRANSACTIONS, "missing").status, 404);
+});
+
+test("saving monthly budgets confirms the estimates and leaves blanks empty", async () => {
+  const budgets = {
+    "dining-out": 34667,
+    groceries: 52000,
+    transport: 26000,
+    subscriptions: 23833,
+    shopping: 32500,
+    utilities: null,
+  };
+  const blank = parseMonthlyBudgets({ ...budgets, "dining-out": null, groceries: null, transport: null, subscriptions: null, shopping: null });
+  assert.equal(blank.ok, true);
+  assert.equal(parseMonthlyBudgets({ ...budgets, dining: -1, "dining-out": -1 }).ok, false);
+  const store = {};
+  installMemoryFinance(store);
+  assert.equal(store.financeCategories(NOW, "month").estimates, true);
+  const saved = await store.financeSaveBudgets({ budgets });
+  assert.equal(saved.status, 200);
+  const after = store.financeCategories(NOW, "month");
+  assert.equal(after.estimates, false);
+  assert.equal(after.categories.find((item) => item.slug === "utilities").capCents, null);
+  assert.equal(after.categories.find((item) => item.slug === "dining-out").estimate, false);
+  const view = store.financeOverview(NOW, "", "YTD");
+  assert.equal(view.body.month.saved, true);
+  assert.equal(view.body.month.planCents, 169000);
 });

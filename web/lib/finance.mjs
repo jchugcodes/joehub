@@ -588,6 +588,39 @@ function spentFor(rows, slug) {
   return rows.reduce((sum, row) => (row.category === slug ? sum + spendCents(row) : sum), 0);
 }
 
+export function parseMonthlyBudgets(input, categories = CATEGORIES) {
+  const listed = CATEGORY_PAGE_ORDER.map((slug) => categories.find((item) => item.slug === slug)).filter(Boolean);
+  const first = listed[0] || categories[0];
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, field: first.slug, detail: "Enter an amount." };
+  }
+  const budgets = {};
+  for (const category of listed) {
+    if (!Object.prototype.hasOwnProperty.call(input, category.slug)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    const raw = input[category.slug];
+    if (raw === "" || raw == null) {
+      budgets[category.slug] = null;
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isInteger(raw)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    if (raw < 0) return { ok: false, field: category.slug, detail: "Can’t be negative." };
+    budgets[category.slug] = raw;
+  }
+  return { ok: true, budgets };
+}
+
+export function applyMonthlyBudgets(categories, budgets) {
+  return categories.map((category) => (
+    Object.prototype.hasOwnProperty.call(budgets, category.slug)
+      ? { ...category, monthlyCapCents: budgets[category.slug] }
+      : category
+  ));
+}
+
 export function defaultCaps(categories = CATEGORIES) {
   return Object.fromEntries(categories.filter((item) => Number.isInteger(item.weeklyCapCents)).map((item) => [item.slug, item.weeklyCapCents]));
 }
@@ -1317,6 +1350,8 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   let bills = structuredClone(SEED_BILLS);
   let billSeq = 0;
   let caps = defaultCaps();
+  let categoryRows = SEED_CATEGORIES.map((category) => ({ ...category }));
+  let budgetsSaved = false;
   const idem = new Map();
   const planCents = process.env.JOEHUB_MONTHLY_PLAN === "weekly-envelope" ? ENVELOPE_CENTS : PLAN_CENTS;
   const snapshot = seedSnapshots();
@@ -1328,11 +1363,23 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const context = () => ({
     planCents,
     snapshot,
+    categories: categoryRows,
+    budgetsSaved,
     netWorthCents: manualAccounts.length ? rollUpAccounts(manualAccounts).netWorthCents : snapshot.netWorthCents,
   });
   store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps, context());
-  store.financeCategory = (now, week, category, period) => categoryView(rows, now, week, category, caps, CATEGORIES, period);
-  store.financeCategories = (now, period) => categoriesSnapshot(rows, now, period, caps);
+  store.financeCategory = (now, week, category, period) => categoryView(rows, now, week, category, caps, categoryRows, period);
+  store.financeCategories = (now, period) => categoriesSnapshot(rows, now, period, caps, categoryRows, budgetsSaved);
+  store.financeSaveBudgets = async (body, key) => {
+    if (key && idem.has(`budgets:${key}`)) return idem.get(`budgets:${key}`);
+    const parsed = parseMonthlyBudgets(body && body.budgets, categoryRows);
+    if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
+    categoryRows = applyMonthlyBudgets(categoryRows, parsed.budgets);
+    budgetsSaved = true;
+    const result = { status: 200, body: { saved: true, categories: publicCategories(categoryRows) } };
+    if (key) idem.set(`budgets:${key}`, result);
+    return result;
+  };
   store.financeAccounts = async (now = Date.now(), options = {}) => accountsSnapshot(manualAccounts, legacyAccounts, now, options);
   store.financeAccount = async (id, now = Date.now()) => {
     const account = manualAccounts.find((item) => item.id === id);
