@@ -61,8 +61,17 @@
     "/api/tasks": {
       "get": {
         "operationId": "listTasks",
-        "description": "Unfinished tasks (status other than Done), including undated ones, newest first by createdAt.",
+        "description": "Unfinished tasks, newest first. With q, also include matching tasks completed in the last 7 days. Done tasks older than 7 days are deleted on this call.",
         "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Case-insensitive match on title, notes, and project."
+          }
+        ],
         "responses": {
           "200": { "description": "Unfinished tasks" },
           "401": { "description": "Authentication required" },
@@ -144,6 +153,46 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
           },
           "400": { "description": "Invalid task" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/tasks/{id}/complete": {
+      "post": {
+        "operationId": "completeTask",
+        "description": "Mark a task Done and set completedAt. It leaves the default unfinished list. Repeating this keeps the original completedAt.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Completed task",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Task not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/tasks/{id}/reopen": {
+      "post": {
+        "operationId": "reopenTask",
+        "description": "Set a Done task back to To do and clear completedAt so it returns to the default list.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reopened task",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
+          },
           "401": { "description": "Authentication required" },
           "404": { "description": "Task not found" },
           "429": { "description": "Rate limit" },

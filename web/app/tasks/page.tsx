@@ -20,6 +20,7 @@ interface Task {
   project?: string;
   createdAt: number;
   updatedAt: number;
+  completedAt?: number;
 }
 
 interface Draft {
@@ -59,6 +60,14 @@ function dueLabel(iso: string, today = detroitToday()) {
   const day = Number(iso.slice(8, 10));
   if (!month || !day) return `Due ${iso}`;
   return `Due ${MONTHS[month - 1]} ${day}`;
+}
+
+function completedLabel(ms: number) {
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+  const month = Number(ymd.slice(5, 7));
+  const day = Number(ymd.slice(8, 10));
+  if (!month || !day) return "Completed";
+  return `Completed ${MONTHS[month - 1]} ${day}`;
 }
 
 function taskMeta(task: Task, today = detroitToday()) {
@@ -115,24 +124,44 @@ export default function TasksPage() {
   const [titleError, setTitleError] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
   const savingRef = useRef(false);
+  const actingRef = useRef(false);
   const idemRef = useRef("");
   const loadGen = useRef(0);
+  const queryRef = useRef("");
+
+  const showCached = useCallback((snap: { savedAt: number; tasks: Task[] } | null) => {
+    queryRef.current = "";
+    setQuery("");
+    setActiveQuery("");
+    if (snap) {
+      setTasks(snap.tasks);
+      setSavedAt(snap.savedAt);
+      setMode("ready");
+    }
+    downRef.current = true;
+    setOffline(true);
+    setLink("offline");
+  }, []);
 
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
+    const q = queryRef.current.trim();
     try {
-      const response = await fetch("/api/tasks", { cache: "no-store" });
+      const response = await fetch(q ? `/api/tasks?q=${encodeURIComponent(q)}` : "/api/tasks", { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as unknown;
       if (!Array.isArray(body)) throw new Error("tasks");
       if (gen !== loadGen.current) return;
       const next = body as Task[];
       const at = Date.now();
-      writeCache(next, at);
+      if (!q) writeCache(next, at);
       setTasks(next);
-      setSavedAt(at);
+      if (!q) setSavedAt(at);
+      setActiveQuery(q);
       const recovered = downRef.current;
       downRef.current = false;
       setOffline(false);
@@ -140,35 +169,17 @@ export default function TasksPage() {
       setMode("ready");
     } catch {
       if (gen !== loadGen.current) return;
-      downRef.current = true;
       const snap = readCache();
-      if (snap) {
-        setTasks(snap.tasks);
-        setSavedAt(snap.savedAt);
-        setOffline(true);
-        setLink("offline");
-        setMode("ready");
-        return;
-      }
-      setOffline(true);
-      setLink("offline");
-      setMode("error");
+      showCached(snap);
+      if (!snap) setMode("error");
     }
-  }, []);
+  }, [showCached]);
 
   useEffect(() => {
     void load();
     const onFocus = () => void load();
     const onOffline = () => {
-      const snap = readCache();
-      if (snap) {
-        setTasks(snap.tasks);
-        setSavedAt(snap.savedAt);
-        setMode("ready");
-      }
-      downRef.current = true;
-      setOffline(true);
-      setLink("offline");
+      showCached(readCache());
     };
     const onOnline = () => {
       if (!downRef.current) return;
@@ -188,7 +199,7 @@ export default function TasksPage() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [load]);
+  }, [load, showCached]);
 
   useEffect(() => {
     if (!offline) return undefined;
@@ -348,9 +359,142 @@ export default function TasksPage() {
     }
   }
 
+  function rememberUnfinished(next: Task[], at: number) {
+    const open = next.filter((item) => item.status !== "Done");
+    writeCache(open, at);
+    setSavedAt(at);
+  }
+
+  async function completeTask(task: Task) {
+    if (offline || actingRef.current) return;
+    actingRef.current = true;
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/complete`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as Task | { detail?: string } | null;
+      if (response.status === 404) {
+        setGone(body && "detail" in body && body.detail ? body.detail : "This task is no longer here.");
+        void load();
+        return;
+      }
+      if (!response.ok || !body || !("id" in body)) return;
+      const nextTask = body as Task;
+      const at = Date.now();
+      const snap = readCache();
+      if (snap) writeCache(snap.tasks.map((item) => (item.id === nextTask.id ? nextTask : item)), at);
+      setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
+      setSavedAt(at);
+      if (!queryRef.current.trim()) void load();
+    } catch {
+      // The list stays as it was. Complete stays available once the network returns.
+    } finally {
+      actingRef.current = false;
+    }
+  }
+
+  async function reopenTask(task: Task) {
+    if (offline || actingRef.current) return;
+    actingRef.current = true;
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/reopen`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as Task | { detail?: string } | null;
+      if (response.status === 404) {
+        setGone(body && "detail" in body && body.detail ? body.detail : "This task is no longer here.");
+        void load();
+        return;
+      }
+      if (!response.ok || !body || !("id" in body)) return;
+      const nextTask = body as Task;
+      const snap = readCache();
+      const without = (snap?.tasks || []).filter((item) => item.id !== nextTask.id);
+      rememberUnfinished([nextTask, ...without], Date.now());
+      if (queryRef.current.trim()) {
+        setTasks((current) => current.map((item) => (item.id === nextTask.id ? nextTask : item)));
+      }
+      void load();
+    } catch {
+      // The search row stays until the network returns.
+    } finally {
+      actingRef.current = false;
+    }
+  }
+
+  function submitSearch(event: React.FormEvent) {
+    event.preventDefault();
+    if (offline) return;
+    queryRef.current = query;
+    void load();
+  }
+
+  useEffect(() => {
+    if (offline || mode === "loading") return undefined;
+    const handle = window.setTimeout(() => {
+      if (query.trim() === queryRef.current.trim()) return;
+      queryRef.current = query;
+      void load();
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [query, offline, mode, load]);
+
+  function clearSearch() {
+    if (offline) return;
+    queryRef.current = "";
+    setQuery("");
+    setActiveQuery("");
+    void load();
+  }
+
   const addDisabled = offline || mode !== "ready";
-  const showFab = !wide && !offline && mode === "ready" && tasks.length > 0;
-  const showAddBar = !showFab && !offline && (wide || (mode === "ready" && tasks.length === 0));
+  const controlsDisabled = offline || mode !== "ready";
+  const openTasks = tasks.filter((task) => task.status !== "Done");
+  const completedTasks = activeQuery ? [] : tasks.filter((task) => task.status === "Done");
+  const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
+  const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
+  function renderTask(task: Task) {
+    const done = task.status === "Done";
+    const meta = taskMeta(task);
+    return (
+      <li key={task.id} className="card flex min-w-0 items-start gap-1 p-2">
+        <button
+          type="button"
+          data-complete={done ? undefined : "true"}
+          data-reopen={done ? "true" : undefined}
+          className="grid h-11 w-11 shrink-0 place-items-center disabled:opacity-50"
+          aria-label={done ? `Reopen ${task.title}` : `Complete ${task.title}`}
+          disabled={controlsDisabled}
+          onClick={() => void (done ? reopenTask(task) : completeTask(task))}
+        >
+          <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${done ? "border-[#2E8B6A] bg-[#2E8B6A] text-white" : "border-[#C9CEC8]"}`}>
+            {done ? <Icon name="check" size={14} /> : null}
+          </span>
+        </button>
+        <div className="min-w-0 flex-1 py-2 pr-2">
+          <button type="button" className="block w-full text-left disabled:opacity-50" aria-label={`Edit ${task.title}`} disabled={offline} onClick={() => openEdit(task)}>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
+              <span data-done={done ? "true" : undefined} className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>
+                {task.status}
+              </span>
+            </div>
+            {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
+            {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
+            {done && typeof task.completedAt === "number" ? <p className="mt-1 text-meta text-muted">{completedLabel(task.completedAt)}</p> : null}
+          </button>
+          {done ? (
+            <button
+              type="button"
+              data-reopen="true"
+              className="mt-2 flex min-h-11 items-center justify-center rounded-xl border border-line px-3 text-body font-medium disabled:opacity-50"
+              aria-label={`Reopen ${task.title}`}
+              disabled={controlsDisabled}
+              onClick={() => void reopenTask(task)}
+            >
+              Reopen
+            </button>
+          ) : null}
+        </div>
+      </li>
+    );
+  }
 
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
@@ -391,6 +535,32 @@ export default function TasksPage() {
           {gone}
         </p>
       ) : null}
+      {mode === "ready" && !activeQuery && tasks.length === 0 ? null : (
+      <form className="mt-4 px-4" onSubmit={submitSearch}>
+        <label className="sr-only" htmlFor="task-search">
+          Search tasks
+        </label>
+        <div className="flex min-h-12 items-center gap-2 rounded-full border border-line bg-surface px-3">
+          <Icon name="search" size={18} className="shrink-0 text-muted" />
+          <input
+            id="task-search"
+            type="search"
+            value={query}
+            placeholder="Search tasks"
+            disabled={controlsDisabled}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-w-0 flex-1 bg-transparent py-3 text-body outline-none disabled:opacity-50"
+            autoComplete="off"
+          />
+          {query ? (
+            <button type="button" className="min-h-11 shrink-0 px-2 text-body text-muted disabled:opacity-50" onClick={clearSearch} disabled={controlsDisabled}>
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </form>
+      )}
+      {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
       {mode === "loading" ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
           Loading tasks…
@@ -411,7 +581,22 @@ export default function TasksPage() {
           </button>
         </div>
       ) : null}
-      {mode === "ready" && tasks.length === 0 ? (
+      {mode === "ready" && activeQuery && tasks.length === 0 ? (
+        <div className="px-4" data-search-empty="true">
+          <div className="card mt-4 p-4">
+            <h2 className="text-section font-medium">No tasks match this search.</h2>
+            <button
+              type="button"
+              className="mt-3 flex min-h-11 items-center text-body font-medium disabled:opacity-50"
+              onClick={clearSearch}
+              disabled={controlsDisabled}
+            >
+              Clear search
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
         <div className="px-4" data-empty="true">
           <div className="mt-10 flex flex-col items-center">
             <span className="grid h-16 w-16 place-items-center rounded-full bg-[#E4E6E2] text-ink">
@@ -423,29 +608,23 @@ export default function TasksPage() {
           </div>
         </div>
       ) : null}
-      {mode === "ready" && tasks.length > 0 ? (
+      {mode === "ready" && !activeQuery && openTasks.length > 0 ? (
         <ul aria-label="Unfinished tasks" className="mt-4 space-y-3 px-4">
-          {tasks.map((task) => {
-            const meta = taskMeta(task);
-            return (
-            <li key={task.id} className="min-w-0">
-              <button
-                type="button"
-                className="card block w-full min-w-0 p-4 text-left disabled:opacity-50"
-                aria-label={`Edit ${task.title}`}
-                disabled={offline}
-                onClick={() => openEdit(task)}
-              >
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="min-w-0 break-words text-body font-medium">{task.title}</h2>
-                <span className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>{task.status}</span>
-              </div>
-              {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
-              {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
-              </button>
-            </li>
-            );
-          })}
+          {openTasks.map((task) => renderTask(task))}
+        </ul>
+      ) : null}
+      {mode === "ready" && !activeQuery && completedTasks.length > 0 ? (
+        <section aria-label="Completed" className="mt-6" data-completed="true">
+          <h2 className="flex items-center justify-between px-5 text-meta font-medium">
+            <span>Completed</span>
+            <span className="font-medium text-muted">{completedTasks.length}</span>
+          </h2>
+          <ul className="mt-2 space-y-3 px-4">{completedTasks.map((task) => renderTask(task))}</ul>
+        </section>
+      ) : null}
+      {mode === "ready" && activeQuery && tasks.length > 0 ? (
+        <ul aria-label="Search results" className="mt-4 space-y-3 px-4">
+          {tasks.map((task) => renderTask(task))}
         </ul>
       ) : null}
       {showAddBar && !offline ? (

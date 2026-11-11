@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   return jsonResult(
-    await handleTasksGet(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)),
+    await handleTasksGet(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request), request.url),
   );
 }
 

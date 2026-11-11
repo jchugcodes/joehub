@@ -172,15 +172,46 @@ async function requireTasks(headers, env, store, limiter, now, ip) {
   }
 }
 
-export async function handleTasksGet(headers, env, store, limiter, now, ip) {
+export async function handleTasksGet(headers, env, store, limiter, now, ip, url = "") {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;
   if (gate.result) return gate.result;
   try {
+    const query = url ? new URL(url).searchParams.get("q") || "" : "";
+    if (query.trim()) {
+      if (!store || typeof store.searchTasks !== "function") return { status: 503, body: { detail: "unavailable" } };
+      return { status: 200, body: await store.searchTasks(query, now) };
+    }
     if (!store || typeof store.listUnfinishedTasks !== "function") {
       return { status: 503, body: { detail: "unavailable" } };
     }
     return { status: 200, body: await store.listUnfinishedTasks(now) };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleTaskComplete(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.completeTask !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.completeTask(id, now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleTaskReopen(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.reopenTask !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.reopenTask(id, now);
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };
@@ -229,7 +260,8 @@ export async function handleTasksPost(body, headers, env, store, limiter, now, i
     if (!store || typeof store.createTask !== "function") {
       return { status: 503, body: { detail: "unavailable" } };
     }
-    return await store.createTask(body, idem.key, now);
+    const scope = gate.session && (gate.session.id || gate.session.owner) || "";
+    return await store.createTask(body, idem.key, now, scope);
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };

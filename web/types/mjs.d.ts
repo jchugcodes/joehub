@@ -21,6 +21,8 @@ declare module "*.mjs" {
   export function handleTasksPost(...args: any[]): { status: number; body: unknown };
   export function handleTaskGet(...args: any[]): { status: number; body: unknown };
   export function handleTaskPatch(...args: any[]): { status: number; body: unknown };
+  export function handleTaskComplete(...args: any[]): { status: number; body: unknown };
+  export function handleTaskReopen(...args: any[]): { status: number; body: unknown };
   export const store: unknown;
   export const loginLimiter: { allow(key: string, now: number): boolean };
   export const apiLimiter: { allow(key: string, now: number): boolean };

@@ -21,9 +21,12 @@ function unavailableStore() {
     takeTxn: fail,
     hit: fail,
     listUnfinishedTasks: fail,
+    searchTasks: fail,
     createTask: fail,
     getTask: fail,
     patchTask: fail,
+    completeTask: fail,
+    reopenTask: fail,
   };
 }
 

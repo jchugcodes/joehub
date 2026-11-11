@@ -17,6 +17,7 @@ TASK_ID = re.compile(r"^[A-Za-z0-9-]{1,80}$")
 DETROIT = ZoneInfo("America/Detroit")
 MISSING = {"detail": "This task is no longer here."}
 IDEM_TTL_MS = 24 * 60 * 60 * 1000
+DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 
 def _calendar_date(value: str) -> bool:
@@ -159,11 +160,6 @@ class TaskStore:
         self.tasks: dict[str, dict] = {}
         self.idem: dict[str, tuple[int, dict]] = {}
 
-    def list_unfinished(self) -> list[dict]:
-        rows = [task for task in self.tasks.values() if task.get("status") != "Done"]
-        rows.sort(key=lambda task: task["createdAt"], reverse=True)
-        return rows
-
     def create(self, body: object, idem_key: str | None) -> tuple[int, dict]:
         now = self.clock()
         if idem_key:
@@ -225,6 +221,73 @@ class TaskStore:
                 updated.pop(name, None)
         updated["id"] = current["id"]
         updated["createdAt"] = current["createdAt"]
+        updated["updatedAt"] = now if now > current["updatedAt"] else current["updatedAt"] + 1
+        self.tasks[task_id] = updated
+        return 200, updated
+
+    def _purge(self, now: int) -> None:
+        stale = [
+            task_id
+            for task_id, task in self.tasks.items()
+            if task.get("status") == "Done" and task.get("completedAt", 0) < now - DONE_WINDOW_MS
+        ]
+        for task_id in stale:
+            del self.tasks[task_id]
+
+    def list_unfinished(self) -> list[dict]:
+        self._purge(self.clock())
+        rows = [task for task in self.tasks.values() if task.get("status") != "Done"]
+        rows.sort(key=lambda task: task["createdAt"], reverse=True)
+        return rows
+
+    def search(self, query: str) -> list[dict]:
+        now = self.clock()
+        self._purge(now)
+        needle = query.strip().lower()
+        window = now - DONE_WINDOW_MS
+
+        def matches(task: dict) -> bool:
+            if not needle:
+                return False
+            hay = " ".join(str(task.get(name) or "") for name in ("title", "notes", "project")).lower()
+            return needle in hay
+
+        unfinished = [task for task in self.tasks.values() if task.get("status") != "Done" and matches(task)]
+        recent = [
+            task
+            for task in self.tasks.values()
+            if task.get("status") == "Done" and task.get("completedAt", 0) >= window and matches(task)
+        ]
+        unfinished.sort(key=lambda task: task["createdAt"], reverse=True)
+        recent.sort(key=lambda task: task.get("completedAt", 0), reverse=True)
+        return unfinished + recent
+
+    def complete(self, task_id: str) -> tuple[int, dict]:
+        now = self.clock()
+        self._purge(now)
+        if not TASK_ID.fullmatch(task_id) or task_id not in self.tasks:
+            return 404, dict(MISSING)
+        current = self.tasks[task_id]
+        if current.get("status") == "Done":
+            return 200, current
+        updated = dict(current)
+        updated["status"] = "Done"
+        updated["completedAt"] = now
+        updated["updatedAt"] = now if now > current["updatedAt"] else current["updatedAt"] + 1
+        self.tasks[task_id] = updated
+        return 200, updated
+
+    def reopen(self, task_id: str) -> tuple[int, dict]:
+        now = self.clock()
+        self._purge(now)
+        if not TASK_ID.fullmatch(task_id) or task_id not in self.tasks:
+            return 404, dict(MISSING)
+        current = self.tasks[task_id]
+        if current.get("status") != "Done":
+            return 200, current
+        updated = dict(current)
+        updated["status"] = "To do"
+        updated.pop("completedAt", None)
         updated["updatedAt"] = now if now > current["updatedAt"] else current["updatedAt"] + 1
         self.tasks[task_id] = updated
         return 200, updated

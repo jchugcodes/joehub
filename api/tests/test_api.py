@@ -80,6 +80,9 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/tasks/{id}":
             assert expected == {"get", "patch"}
             continue
+        if path in {"/api/tasks/{id}/complete", "/api/tasks/{id}/reopen"}:
+            assert expected == {"post"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -466,3 +469,59 @@ def test_task_patch_persists_and_keeps_the_copy_on_failure() -> None:
     finished = client.get(f"/api/tasks/{task_id}", cookies={COOKIE_NAME: cookie})
     assert finished.json()["status"] == "Done"
     assert finished.json()["completedAt"] == done.json()["completedAt"]
+
+
+def test_complete_search_reopen_and_purge() -> None:
+    from joehub_api.tasks import DONE_WINDOW_MS, TaskStore
+
+    now = 1_800_000_000_000
+    clock = {"now": now}
+    store = TaskStore(clock=lambda: clock["now"])
+    _status, keep = store.create({"title": "Keep the sample list", "project": "Home"}, None)
+    _status, done = store.create({"title": "Finish the sample card", "notes": "Alpha note", "project": "Work"}, None)
+    clock["now"] = now + 1000
+    status, completed = store.complete(done["id"])
+    assert status == 200
+    assert completed["status"] == "Done"
+    assert completed["completedAt"] == now + 1000
+    assert store.complete("missing-task")[0] == 404
+    clock["now"] = now + 6 * 24 * 60 * 60 * 1000
+    assert all(task["id"] != done["id"] for task in store.list_unfinished())
+    found = store.search("ALPHA")
+    assert [task["id"] for task in found] == [done["id"]]
+    assert store.search("work")[0]["status"] == "Done"
+    status, reopened = store.reopen(done["id"])
+    assert status == 200
+    assert reopened["status"] == "To do"
+    assert "completedAt" not in reopened
+    assert any(task["id"] == done["id"] for task in store.list_unfinished())
+    clock["now"] = now + 2000
+    store.complete(done["id"])
+    clock["now"] = now + 2000 + DONE_WINDOW_MS + 1
+    assert store.search("alpha") == []
+    assert store.get(done["id"])[0] == 404
+    assert any(task["id"] == keep["id"] for task in store.list_unfinished())
+
+    client, _app = client_app()
+    assert client.post("/api/tasks/missing-task/complete").status_code == 401
+    assert client.post("/api/tasks/missing-task/reopen").status_code == 401
+    cookie = login(client)
+    created = client.post("/api/tasks", json={"title": "Searchable sample", "notes": "Needle"}, cookies={COOKIE_NAME: cookie})
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    finished = client.post(f"/api/tasks/{task_id}/complete", cookies={COOKIE_NAME: cookie})
+    assert finished.status_code == 200
+    assert finished.json()["status"] == "Done"
+    listed = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert all(task["id"] != task_id for task in listed.json())
+    found_http = client.get("/api/tasks", params={"q": "needle"}, cookies={COOKIE_NAME: cookie})
+    assert found_http.status_code == 200
+    assert any(task["id"] == task_id and task["status"] == "Done" for task in found_http.json())
+    reopened_http = client.post(f"/api/tasks/{task_id}/reopen", cookies={COOKIE_NAME: cookie})
+    assert reopened_http.status_code == 200
+    assert reopened_http.json()["status"] == "To do"
+    assert "completedAt" not in reopened_http.json()
+    back = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert any(task["id"] == task_id and task["status"] == "To do" for task in back.json())
+    assert client.post("/api/tasks/missing-task/complete", cookies={COOKIE_NAME: cookie}).status_code == 404
+    assert client.post("/api/tasks/missing-task/reopen", cookies={COOKIE_NAME: cookie}).status_code == 404

@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { buildSampleTasks, performCreate, performPatch, unfinishedNewestFirst } from "./tasks.mjs";
+import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
   constructor() {
@@ -62,15 +62,19 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     }
   }
 
+  async function placeSample(sample) {
+    const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+    if (created !== "OK") return;
+    const done = sample.status === "Done";
+    const index = done ? "joehub:tasks:done" : "joehub:tasks:active";
+    const score = done ? sample.completedAt : sample.createdAt;
+    await command(["ZADD", k(index), String(score), sample.id]);
+  }
+
   async function addMissingSamples(samples, version) {
     const flagKey = k(`joehub:tasks:seeded:${version}`);
     if ((await command(["GET", flagKey])) != null) return;
-    for (const sample of samples) {
-      const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
-      if (created === "OK") {
-        await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
-      }
-    }
+    for (const sample of samples) await placeSample(sample);
     await command(["SET", flagKey, "1", "NX"]);
   }
 
@@ -78,27 +82,39 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     const flagKey = k("joehub:tasks:seeded");
     const samples = buildSampleTasks(Date.now());
     if ((await command(["GET", flagKey])) == null) {
-      for (const sample of samples) {
-        const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
-        if (created === "OK") {
-          await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
-        }
-      }
+      for (const sample of samples) await placeSample(sample);
       await command(["SET", flagKey, "1", "NX"]);
     }
-    await addMissingSamples(samples, "v3");
+    await addMissingSamples(samples.filter((sample) => sample.status !== "Done"), "v3");
+    await addMissingSamples(samples.filter((sample) => sample.status === "Done"), "v4");
   }
 
   const tasks = {
     async putTask(task) {
+      const result = await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task), "NX"]);
+      if (result !== "OK") return false;
+      await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+      return true;
+    },
+    async replaceTask(task) {
       await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
       if (task.status === "Done") {
         await command(["ZREM", k("joehub:tasks:active"), task.id]);
-        await command(["ZADD", k("joehub:tasks:done"), String(task.completedAt || task.updatedAt), task.id]);
+        await command(["ZADD", k("joehub:tasks:done"), String(task.completedAt), task.id]);
         return;
       }
       await command(["ZREM", k("joehub:tasks:done"), task.id]);
       await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+    },
+    async removeTask(id) {
+      await command(["DEL", k(`joehub:task:${id}`)]);
+      await command(["ZREM", k("joehub:tasks:active"), id]);
+      await command(["ZREM", k("joehub:tasks:done"), id]);
+    },
+    async purgeDone(now) {
+      const cutoff = now - DONE_WINDOW_MS;
+      const ids = (await command(["ZRANGEBYSCORE", k("joehub:tasks:done"), "0", String(cutoff - 1)])) || [];
+      for (const id of ids) await this.removeTask(id);
     },
     async getTask(id) {
       if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return null;
@@ -227,19 +243,42 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (count === 1) await command(["EXPIRE", name, String(Math.ceil(windowMs / 1000) + 1)]);
       return count <= limit;
     },
-    async listUnfinishedTasks() {
+    async listUnfinishedTasks(now) {
       await ensureSeeded();
       const ids = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
-      const rows = [];
+      const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
+      const open = [];
       for (const id of ids) {
         const task = await readJson(k(`joehub:task:${id}`));
-        if (task && task.status !== "Done") rows.push(task);
+        if (task && task.status !== "Done") open.push(task);
       }
-      return unfinishedNewestFirst(rows);
+      const done = [];
+      for (const id of doneIds) {
+        const task = await readJson(k(`joehub:task:${id}`));
+        if (task && task.status === "Done") done.push(task);
+      }
+      return [...unfinishedNewestFirst(open), ...recentCompletedNewestFirst(done, now)];
     },
-    async createTask(raw, idemKey, now) {
+    async searchTasks(query, now) {
       await ensureSeeded();
-      return performCreate(tasks, raw, idemKey, now);
+      const activeIds = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
+      const doneIds = (await command(["ZREVRANGE", k("joehub:tasks:done"), "0", "-1"])) || [];
+      const unfinished = [];
+      for (const id of activeIds) {
+        const task = await readJson(k(`joehub:task:${id}`));
+        if (task && task.status !== "Done") unfinished.push(task);
+      }
+      const done = [];
+      for (const id of doneIds) {
+        const task = await readJson(k(`joehub:task:${id}`));
+        if (task && task.status === "Done") done.push(task);
+      }
+      done.sort((left, right) => (right.completedAt || 0) - (left.completedAt || 0));
+      return combineSearch(unfinished, done, query);
+    },
+    async createTask(raw, idemKey, now, scope) {
+      await ensureSeeded();
+      return performCreate(tasks, raw, idemKey, now, undefined, scope || "");
     },
     async getTask(id) {
       await ensureSeeded();
@@ -248,6 +287,12 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async patchTask(id, raw, now) {
       await ensureSeeded();
       return performPatch(tasks, id, raw, now);
+    },
+    async completeTask(id, now) {
+      return performComplete(tasks, id, now);
+    },
+    async reopenTask(id, now) {
+      return performReopen(tasks, id, now);
     },
   };
 }

@@ -51,6 +51,15 @@ export async function startFakeUpstash() {
       if (!zset) return 0;
       return zset.delete(String(args[2])) ? 1 : 0;
     }
+    if (op === "ZRANGEBYSCORE") {
+      const zset = zsets.get(key) || new Map();
+      const min = Number(args[2]);
+      const max = Number(args[3]);
+      return [...zset.entries()]
+        .filter(([, score]) => score >= min && score <= max)
+        .sort((left, right) => left[1] - right[1])
+        .map(([member]) => member);
+    }
     if (op === "ZREVRANGE") {
       const zset = zsets.get(key) || new Map();
       const rows = [...zset.entries()].sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1));
