@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV || process.env.VERCEL_ENV || "",
+  },
   // Screenshot runs hide the Next dev badge so it does not sit on the frames.
   ...(process.env.JOEHUB_SCREENSHOTS === "1" ? { devIndicators: false as const } : {}),
   // fixtures.mjs reads this file with a URL next to the module. The tracer

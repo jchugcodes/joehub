@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hasNetWorthHistory } from "../lib/finance.mjs";
+import { showNetWorthChart } from "../lib/live-pages.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
+import { useProductionNav } from "./LivePages";
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
 type Range = (typeof RANGES)[number];
@@ -90,6 +93,7 @@ function chartGeometry(points: number[], axis?: { min: number; max: number; zero
 }
 
 export function FinanceOverview() {
+  const production = useProductionNav();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [week, setWeek] = useState("");
   const [range, setRange] = useState<Range>("YTD");
@@ -284,8 +288,10 @@ export function FinanceOverview() {
               <span className="text-title">{dollars(overview.netWorthCents)}</span>
               <span className="text-section">.{centsPart(overview.netWorthCents)}</span>
             </p>
-            {!offline && overview.chart.caption ? <p className="mt-2 text-body text-finance-primary">{overview.chart.caption}</p> : null}
-            {!offline ? (
+            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline && overview.chart.caption && !(production && /no history imported|\(7\.5%\)/.test(overview.chart.caption)) ? (
+              <p className="mt-2 text-body text-finance-primary">{overview.chart.caption}</p>
+            ) : null}
+            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline ? (
               <div className="mt-4" data-chart={overview.chart.range} data-points={overview.chart.points.join(",")}>
                 <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
                   <path d={chartGeometry(overview.chart.points, overview.chart.axis).fill} fill="#2E8B6A" opacity="0.1" />

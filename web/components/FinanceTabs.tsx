@@ -3,14 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-
-const links = [
-  { href: "/finance", label: "Overview" },
-  { href: "/finance/categories", label: "Categories" },
-  { href: "/finance/goals", label: "Goals" },
-  { href: "/finance/accounts", label: "Accounts" },
-  { href: "/finance/bills", label: "Bills" },
-];
+import { financeTabsFor } from "../lib/live-pages.mjs";
+import { useProductionNav } from "./LivePages";
 
 function selected(pathname: string, href: string) {
   if (href === "/finance") return pathname === "/finance";
@@ -28,6 +22,7 @@ function revealTab(item: HTMLElement, scroller: HTMLElement) {
 
 export function FinanceTabs() {
   const pathname = usePathname();
+  const links = financeTabsFor(useProductionNav());
   const scrollerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const scroller = scrollerRef.current;
