@@ -38,6 +38,8 @@ const NAME_ALIASES = new Map([
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const CATEGORY_PAGE_ORDER = ["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities"];
 
 function txn(id, payee, date, category, type, amountCents, extra = {}) {
   return {
@@ -100,16 +102,18 @@ export const SEED_TRANSACTIONS = [
   }),
   txn("fin-vendor", "SQ *DEMO VENDOR", "2026-11-10", null, "expense", -940, { createdAt: T0 + 25 }),
   txn("fin-transfer", "Transfer to Savings (example)", "2026-11-09", null, "transfer", -20_000, { createdAt: T0 + 19, accountId: "acct-savings" }),
-  txn("fin-span-dining", "Example bistro", "2026-11-01", "dining-out", "expense", -7400, { createdAt: T0 - 80 }),
-  txn("fin-span-groceries", "Example market", "2026-11-01", "groceries", "expense", -8840, { createdAt: T0 - 79 }),
-  txn("fin-span-transport", "Example ride", "2026-11-01", "transport", "expense", -4000, { createdAt: T0 - 78 }),
-  txn("fin-span-subs", "Example stream", "2026-11-01", "subscriptions", "expense", -4675, { createdAt: T0 - 77 }),
-  txn("fin-span-shop", "Example shop", "2026-11-01", "shopping", "expense", -1200, { createdAt: T0 - 76 }),
-  txn("fin-early-dining", "Example lunch counter", "2026-11-02", "dining-out", "expense", -12_000, { createdAt: T0 - 70 }),
-  txn("fin-early-groceries", "Example grocery run", "2026-11-03", "groceries", "expense", -15_000, { createdAt: T0 - 69 }),
-  txn("fin-early-transport", "Example fare", "2026-11-04", "transport", "expense", -8000, { createdAt: T0 - 68 }),
-  txn("fin-early-shop", "Example outlet", "2026-11-05", "shopping", "expense", -7042, { createdAt: T0 - 67 }),
-  txn("fin-early-power", "Example utility", "2026-11-06", "utilities", "expense", -5900, { createdAt: T0 - 66 }),
+  txn("fin-sweetgreen-8", "Sweetgreen", "2026-11-08", "dining-out", "expense", -2800, { createdAt: T0 - 80 }),
+  txn("fin-pizza-7", "Joe's Pizza", "2026-11-07", "dining-out", "expense", -2200, { createdAt: T0 - 79 }),
+  txn("fin-noodles", "Harbor Noodles", "2026-11-06", "dining-out", "expense", -4100, { createdAt: T0 - 78 }),
+  txn("fin-kitchen", "Example Kitchen", "2026-11-04", "dining-out", "expense", -2880, { createdAt: T0 - 77 }),
+  txn("fin-riverside", "Riverside Cafe", "2026-11-02", "dining-out", "expense", -3620, { createdAt: T0 - 76 }),
+  txn("fin-market", "Example market", "2026-11-03", "groceries", "expense", -12_400, { createdAt: T0 - 75 }),
+  txn("fin-grocery-run", "Example grocery run", "2026-11-05", "groceries", "expense", -8000, { createdAt: T0 - 74 }),
+  txn("fin-ride", "Example ride", "2026-11-04", "transport", "expense", -4200, { createdAt: T0 - 73 }),
+  txn("fin-fare", "Example fare", "2026-11-05", "transport", "expense", -5200, { createdAt: T0 - 72 }),
+  txn("fin-shop", "Example shop", "2026-11-05", "shopping", "expense", -6000, { createdAt: T0 - 71 }),
+  txn("fin-utility", "Example utility", "2026-11-06", "utilities", "expense", -4820, { createdAt: T0 - 70 }),
+  txn("fin-hold", "Example hold", "2026-11-07", null, "expense", -17_837, { createdAt: T0 - 69 }),
   txn("fin-old", "Example 2025 shop", "2025-01-06", "shopping", "expense", -1500, { createdAt: T0 - 500 }),
 ];
 
@@ -484,16 +488,16 @@ export function envelopeTotal(categories = CATEGORIES) {
   return categories.reduce((sum, item) => (Number.isInteger(item.weeklyCapCents) ? sum + item.weeklyCapCents : sum), 0);
 }
 
-/** A monthly plan is an explicit amount, or the sum of stored monthly caps. The weekly envelope is not one. */
+/** A monthly plan is the sum of per-category monthly budgets. The weekly envelope is not one. */
 export function monthlyPlanCents(planCents, categories) {
   if (Array.isArray(categories)) {
-    const monthly = categories.filter((item) => Number.isInteger(item.monthlyCapCents));
-    if (monthly.length) {
-      const sum = monthly.reduce((total, item) => total + item.monthlyCapCents, 0);
-      return sum > 0 ? sum : null;
-    }
-    if (Number.isInteger(planCents) && planCents > 0 && planCents === envelopeTotal(categories)) return null;
+    const sum = categories.reduce((total, item) => {
+      const cents = resolvedMonthlyCents(item).cents;
+      return total + (Number.isInteger(cents) && cents > 0 ? cents : 0);
+    }, 0);
+    return sum > 0 ? sum : null;
   }
+  if (Number.isInteger(planCents) && planCents > 0 && planCents === ENVELOPE_CENTS) return null;
   return Number.isInteger(planCents) && planCents > 0 ? planCents : null;
 }
 
@@ -575,12 +579,64 @@ function rowsInWeek(txns, start) {
   return txns.map(effective).filter((row) => row.date >= start && row.date <= end);
 }
 
+function rowsInMonth(txns, today) {
+  const month = monthBounds(today);
+  return txns.map(effective).filter((row) => row.date >= month.start && row.date <= today);
+}
+
 function spentFor(rows, slug) {
   return rows.reduce((sum, row) => (row.category === slug ? sum + spendCents(row) : sum), 0);
 }
 
+export function parseMonthlyBudgets(input, categories = CATEGORIES) {
+  const listed = CATEGORY_PAGE_ORDER.map((slug) => categories.find((item) => item.slug === slug)).filter(Boolean);
+  const first = listed[0] || categories[0];
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, field: first.slug, detail: "Enter an amount." };
+  }
+  const budgets = {};
+  for (const category of listed) {
+    if (!Object.prototype.hasOwnProperty.call(input, category.slug)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    const raw = input[category.slug];
+    if (raw === "" || raw == null) {
+      budgets[category.slug] = null;
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isInteger(raw)) {
+      return { ok: false, field: category.slug, detail: "Enter an amount." };
+    }
+    if (raw < 0) return { ok: false, field: category.slug, detail: "Can’t be negative." };
+    budgets[category.slug] = raw;
+  }
+  return { ok: true, budgets };
+}
+
+export function applyMonthlyBudgets(categories, budgets) {
+  return categories.map((category) => (
+    Object.prototype.hasOwnProperty.call(budgets, category.slug)
+      ? { ...category, monthlyCapCents: budgets[category.slug] }
+      : category
+  ));
+}
+
 export function defaultCaps(categories = CATEGORIES) {
   return Object.fromEntries(categories.filter((item) => Number.isInteger(item.weeklyCapCents)).map((item) => [item.slug, item.weeklyCapCents]));
+}
+
+/** Fill a missing monthly budget from the weekly cap × 52/12, rounded to the nearest cent. Zero stays blank. */
+export function monthlyBudgetCents(weeklyCapCents) {
+  if (!Number.isInteger(weeklyCapCents) || weeklyCapCents <= 0) return null;
+  return Math.round((weeklyCapCents * 52) / 12);
+}
+
+/** Stored monthlyCapCents wins. A positive weekly cap fills a blank. The fill is an estimate until Joe saves. */
+export function resolvedMonthlyCents(category) {
+  if (!category) return { cents: null, estimate: false };
+  if (Number.isInteger(category.monthlyCapCents)) return { cents: category.monthlyCapCents, estimate: true };
+  const filled = monthlyBudgetCents(category.weeklyCapCents);
+  return filled == null ? { cents: null, estimate: false } : { cents: filled, estimate: true };
 }
 
 export const ENVELOPE_CENTS = envelopeTotal();
@@ -717,18 +773,20 @@ export function chartFor(txns, today, range, snapshot) {
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
-export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env) {
+export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env, saved = false) {
   const month = monthBounds(today);
   const spent = txns
     .map(effective)
     .filter((row) => row.date >= month.start && row.date <= today)
     .reduce((sum, row) => sum + spendCents(row), 0);
-  const budget = productionNav(env) ? null : monthlyPlanCents(planCents, categories);
+  const confirmed = saved === true;
+  const budget = productionNav(env) && !confirmed ? null : monthlyPlanCents(planCents, categories);
   return {
     label: `${formatDay(month.start)}–${Number(today.slice(8))}`,
     spentCents: spent,
     planCents: budget,
     percent: budget ? Math.round((spent / budget) * 100) : null,
+    saved: confirmed,
     day: month.day,
     days: month.days,
   };
@@ -774,7 +832,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
       netWorthCents,
       chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
-      month: monthProgress(txns, today, planCents, categories, env),
+      month: monthProgress(txns, today, planCents, categories, env, context.budgetsSaved === true),
       caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,
@@ -799,19 +857,58 @@ function resolveIn(categories, value) {
   return list.find((item) => item.name.toLowerCase() === needle) || resolveCategory(value);
 }
 
-export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(), categories = CATEGORIES) {
-  const category = resolveIn(categories, categoryValue);
-  if (!category) return { status: 404, body: { detail: "That category is not here." } };
+function periodCap(category, caps, monthMode) {
+  const hasCap = caps && Object.prototype.hasOwnProperty.call(caps, category.slug);
+  const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
+  if (!monthMode) return Number.isInteger(weeklyCapCents) ? weeklyCapCents : null;
+  return resolvedMonthlyCents({ ...category, weeklyCapCents }).cents;
+}
+
+function presentCategoryRow(row, name) {
+  return {
+    id: row.id,
+    payee: row.payee,
+    amountCents: row.amountCents,
+    date: row.date,
+    week: weekStart(row.date),
+    type: row.type,
+    source: row.source || "manual",
+    meta: `${dateLabel(row.date)} · ${name}`,
+    corrected: row.corrected,
+  };
+}
+
+function orderPeriodRows(rows, today) {
+  const current = weekStart(today);
+  const recent = new Map(RECENT_IDS.map((id, index) => [id, index]));
+  return rows.slice().sort((left, right) => {
+    const leftCurrent = weekStart(left.date) === current;
+    const rightCurrent = weekStart(right.date) === current;
+    if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1;
+    if (leftCurrent) {
+      const delta = (recent.get(left.id) ?? 99) - (recent.get(right.id) ?? 99);
+      if (delta) return delta;
+    }
+    if (left.date !== right.date) return left.date < right.date ? 1 : -1;
+    return (right.createdAt || 0) - (left.createdAt || 0);
+  });
+}
+
+export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(), categories = CATEGORIES, period = "week") {
+  const monthMode = period === "month";
   const today = detroitYmd(now);
   const start = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : weekStart(today);
-  if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
-  const rows = rowsInWeek(txns, start).filter((row) => row.category === category.slug);
-  const spent = rows.reduce((sum, row) => sum + spendCents(row), 0);
-  const hasCap = Object.prototype.hasOwnProperty.call(caps, category.slug);
-  const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
-  const inEnvelope = Number.isInteger(weeklyCapCents);
-  const capCents = inEnvelope ? weeklyCapCents : null;
-  const state = capState(spent, inEnvelope ? weeklyCapCents : 0);
+  if (!monthMode && start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
+  const uncategorized = categoryValue === "uncategorized";
+  const category = uncategorized ? { slug: "uncategorized", name: "Uncategorized", color: "#6B746E", weeklyCapCents: null } : resolveIn(categories, categoryValue);
+  if (!category) return { status: 404, body: { detail: "That category is not here." } };
+  const pool = monthMode ? rowsInMonth(txns, today) : rowsInWeek(txns, start);
+  const rows = pool.filter((row) => (uncategorized ? countsAsSpend(row) && !row.category : row.category === category.slug));
+  const ordered = monthMode ? orderPeriodRows(rows, today) : rows;
+  const spent = ordered.reduce((sum, row) => sum + spendCents(row), 0);
+  const capCents = uncategorized ? null : periodCap(category, caps, monthMode);
+  const state = capState(spent, capCents || 0);
+  const month = monthBounds(today);
   return {
     status: 200,
     body: {
@@ -819,17 +916,66 @@ export function categoryView(txns, now, week, categoryValue, caps = defaultCaps(
       capCents,
       spentCents: spent,
       ...state,
+      period: monthMode ? "month" : "week",
       weekStart: start,
-      label: weekLabel(start, today),
-      daysLeft: daysLeft(today, start),
-      rows: rows.map((row) => ({
-        id: row.id,
-        payee: row.payee,
-        amountCents: row.amountCents,
-        meta: `${dateLabel(row.date)} · ${category.name}`,
-        corrected: row.corrected,
-      })),
+      label: monthMode ? MONTH_NAMES[Number(today.slice(5, 7)) - 1] : weekLabel(start, today),
+      daysLeft: monthMode ? null : daysLeft(today, start),
+      rows: ordered.map((row) => presentCategoryRow(row, category.name)),
     },
+  };
+}
+
+export function categoriesSnapshot(txns, now, period = "month", caps = defaultCaps(), categories = CATEGORIES, saved = false) {
+  const monthMode = period !== "week";
+  const today = detroitYmd(now);
+  const month = monthBounds(today);
+  const start = weekStart(today);
+  const pool = monthMode ? rowsInMonth(txns, today) : rowsInWeek(txns, start);
+  const listed = CATEGORY_PAGE_ORDER.map((slug) => (categories || CATEGORIES).find((item) => item.slug === slug)).filter(Boolean);
+  const items = listed.map((category) => {
+    const spent = spentFor(pool, category.slug);
+    const hasCap = caps && Object.prototype.hasOwnProperty.call(caps, category.slug);
+    const weeklyCapCents = hasCap ? caps[category.slug] : category.weeklyCapCents;
+    const resolved = monthMode ? resolvedMonthlyCents({ ...category, weeklyCapCents }) : { cents: Number.isInteger(weeklyCapCents) ? weeklyCapCents : null, estimate: false };
+    const capCents = resolved.cents;
+    return {
+      slug: category.slug,
+      name: category.name,
+      color: category.color,
+      spentCents: spent,
+      capCents,
+      estimate: monthMode && saved !== true && resolved.estimate && capCents != null,
+      ...capState(spent, capCents || 0),
+    };
+  });
+  const uncategorized = pool.filter((row) => countsAsSpend(row) && !row.category).reduce((sum, row) => sum + spendCents(row), 0);
+  if (monthMode && uncategorized) {
+    items.push({
+      slug: "uncategorized",
+      name: "Uncategorized",
+      color: "#6B746E",
+      spentCents: uncategorized,
+      capCents: null,
+      state: "none",
+      percent: null,
+      fill: 0,
+      tone: "muted",
+      status: "",
+    });
+  }
+  const budgetCents = items.reduce((sum, item) => sum + (Number.isInteger(item.capCents) ? item.capCents : 0), 0);
+  const spentCents = monthMode ? pool.reduce((sum, row) => sum + spendCents(row), 0) : items.reduce((sum, item) => sum + item.spentCents, 0);
+  const estimates = monthMode && saved !== true && items.some((item) => item.estimate);
+  return {
+    period: monthMode ? "month" : "week",
+    weekStart: start,
+    label: monthMode ? MONTH_NAMES[Number(today.slice(5, 7)) - 1] : start === weekStart(today) ? "This week" : weekLabel(start, today),
+    aside: monthMode ? `Day ${month.day} of ${month.days}` : daysLeft(today, start) != null ? `${daysLeft(today, start)} days left` : "",
+    spentCents,
+    budgetCents,
+    estimates,
+    budgetLabel: monthMode ? (budgetCents ? `of ${money(budgetCents)} budgeted${estimates ? " · estimates" : ""}` : "") : `of ${money(budgetCents)} caps`,
+    categories: items,
   };
 }
 
@@ -1204,6 +1350,8 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   let bills = structuredClone(SEED_BILLS);
   let billSeq = 0;
   let caps = defaultCaps();
+  let categoryRows = SEED_CATEGORIES.map((category) => ({ ...category }));
+  let budgetsSaved = false;
   const idem = new Map();
   const planCents = process.env.JOEHUB_MONTHLY_PLAN === "weekly-envelope" ? ENVELOPE_CENTS : PLAN_CENTS;
   const snapshot = seedSnapshots();
@@ -1215,10 +1363,23 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const context = () => ({
     planCents,
     snapshot,
+    categories: categoryRows,
+    budgetsSaved,
     netWorthCents: manualAccounts.length ? rollUpAccounts(manualAccounts).netWorthCents : snapshot.netWorthCents,
   });
   store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps, context());
-  store.financeCategory = (now, week, category) => categoryView(rows, now, week, category, caps);
+  store.financeCategory = (now, week, category, period) => categoryView(rows, now, week, category, caps, categoryRows, period);
+  store.financeCategories = (now, period) => categoriesSnapshot(rows, now, period, caps, categoryRows, budgetsSaved);
+  store.financeSaveBudgets = async (body, key) => {
+    if (key && idem.has(`budgets:${key}`)) return idem.get(`budgets:${key}`);
+    const parsed = parseMonthlyBudgets(body && body.budgets, categoryRows);
+    if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
+    categoryRows = applyMonthlyBudgets(categoryRows, parsed.budgets);
+    budgetsSaved = true;
+    const result = { status: 200, body: { saved: true, categories: publicCategories(categoryRows) } };
+    if (key) idem.set(`budgets:${key}`, result);
+    return result;
+  };
   store.financeAccounts = async (now = Date.now(), options = {}) => accountsSnapshot(manualAccounts, legacyAccounts, now, options);
   store.financeAccount = async (id, now = Date.now()) => {
     const account = manualAccounts.find((item) => item.id === id);

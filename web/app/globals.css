@@ -116,7 +116,12 @@ html {
   scrollbar-width: none;
 }
 
-.finance-tab-row a[aria-current="page"] {
+/* 3px accent bar, the width of the label, covering the 1px divider. Kept inside the scroller so overflow-x does not clip it to a hairline. */
+.finance-tab-row a .finance-tab-label {
+  border-bottom: 3px solid transparent;
+}
+
+.finance-tab-row a[aria-current="page"] .finance-tab-label {
   border-bottom-color: var(--accent);
 }
 

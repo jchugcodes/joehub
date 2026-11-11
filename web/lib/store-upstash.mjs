@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { accountsSnapshot, categoriesFromCaps, categoryView, createAccount, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
@@ -700,7 +700,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const caps = storedCaps && typeof storedCaps === "object" && !Array.isArray(storedCaps) ? storedCaps : defaultCaps(categories);
       if ((!storedCaps && !storedCategories) || !plan || !Number.isInteger(plan.cents) || !snapshot || !accounts || !Array.isArray(goals)) throw new StoreError();
       const transactions = await listTransactions();
-      return { transactions, caps, categories, planCents: plan.cents, snapshot, accounts, goals, manualAccounts };
+      return { transactions, caps, categories, planCents: plan.cents, budgetsSaved: plan.budgetsSaved === true, snapshot, accounts, goals, manualAccounts };
     },
     async financeOverview(now, week, range) {
       const state = await this.financeBundle();
@@ -710,12 +710,17 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
         planCents: state.planCents,
         snapshot: state.snapshot,
         categories: state.categories,
+        budgetsSaved: state.budgetsSaved,
         netWorthCents,
       });
     },
-    async financeCategory(now, week, category) {
+    async financeCategory(now, week, category, period) {
       const state = await this.financeBundle();
-      return categoryView(state.transactions, now, week, category, state.caps, state.categories);
+      return categoryView(state.transactions, now, week, category, state.caps, state.categories, period);
+    },
+    async financeCategories(now, period) {
+      const state = await this.financeBundle();
+      return categoriesSnapshot(state.transactions, now, period, state.caps, state.categories, state.budgetsSaved);
     },
     async financeSaveCaps(body, idemKey) {
       const state = await this.financeBundle();
@@ -730,6 +735,22 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       await command(["SET", k("joehub:finance:caps"), JSON.stringify(parsed.caps)]);
       await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(categories))]);
       if (idemKey) await command(["SET", k(`joehub:finance:txn:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
+      return result;
+    },
+    async financeSaveBudgets(body, idemKey) {
+      const state = await this.financeBundle();
+      if (idemKey) {
+        const prior = await readJson(k(`joehub:finance:budget:idem:${idemKey}`));
+        if (prior) return prior;
+      }
+      const parsed = parseMonthlyBudgets(body && body.budgets, state.categories);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field } };
+      const categories = applyMonthlyBudgets(state.categories, parsed.budgets);
+      const plan = await readJson(k("joehub:finance:plan"));
+      const result = { status: 200, body: { saved: true, categories: publicCategories(categories) } };
+      await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(categories))]);
+      await command(["SET", k("joehub:finance:plan"), JSON.stringify({ ...(plan || {}), cents: state.planCents, budgetsSaved: true })]);
+      if (idemKey) await command(["SET", k(`joehub:finance:budget:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
       return result;
     },
     async financeAccounts(now = Date.now(), options = {}) {

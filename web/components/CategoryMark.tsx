@@ -7,6 +7,7 @@ const MARKS: Record<string, { icon: string; color: string }> = {
   subscriptions: { icon: "subscriptions", color: "#8E7CC3" },
   shopping: { icon: "shopping", color: "#E9B949" },
   utilities: { icon: "utilities", color: "#3A86C8" },
+  uncategorized: { icon: "clock", color: "#6B746E" },
 };
 
 export function CategoryMark({ category, type }: { category?: string | null; type?: string | null }) {

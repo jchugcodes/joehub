@@ -37,7 +37,7 @@ export function FinanceTabs() {
   }, []);
   return (
     <nav aria-label="Finance sections" data-tabs="contained" className="finance-sections flex w-full min-w-0 items-end border-b border-line">
-      <div ref={scrollerRef} className="finance-tab-row flex min-h-11 min-w-0 flex-1 items-end justify-start gap-3 overflow-x-auto pl-5 pr-1 max-[389px]:gap-1.5 min-[420px]:px-5 min-[1024px]:gap-5">
+      <div ref={scrollerRef} className="finance-tab-row -mb-px flex min-h-11 min-w-0 flex-1 items-end justify-start gap-3 overflow-x-auto pl-5 pr-1 max-[389px]:gap-1.5 min-[420px]:px-5 min-[1024px]:gap-5">
         {links.map((link) => {
           const current = selected(pathname, link.href);
           return (
@@ -52,11 +52,11 @@ export function FinanceTabs() {
                   if (scroller) revealTab(node, scroller);
                 };
               }}
-              className={`finance-type inline-flex min-h-11 min-[1024px]:min-w-11 shrink-0 scroll-mx-2 items-end justify-center border-b-[2.5px] pb-2 text-body leading-none ${
-                current ? "-mb-px border-accent font-semibold text-ink" : "border-transparent font-medium text-muted"
+              className={`finance-type inline-flex min-h-11 min-[1024px]:min-w-11 shrink-0 scroll-mx-2 items-end justify-center text-body leading-none ${
+                current ? "font-semibold text-ink" : "font-medium text-muted"
               }`}
             >
-              {link.label}
+              <span className="finance-tab-label pb-2">{link.label}</span>
             </Link>
           );
         })}
