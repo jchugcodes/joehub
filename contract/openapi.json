@@ -3,7 +3,7 @@
   "info": {
     "title": "joehub public read API",
     "version": "0.1.0",
-    "description": "Read-only synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. No raw SQL, file download, export, or domain write. Session routes are the only POST routes. The browser authenticates with the joehub_session cookie."
+    "description": "Synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. Finance, jobs, and journal routes are read-only fixtures. POST /api/tasks creates one unfinished task and honors an Idempotency-Key for about 24 hours. No raw SQL, file download, or export. The browser authenticates with the joehub_session cookie."
   },
   "servers": [
     {
@@ -56,6 +56,56 @@
         "operationId": "journalEvents",
         "security": [{ "sessionCookie": [] }],
         "responses": { "200": { "description": "Synthetic events" } }
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "operationId": "listTasks",
+        "description": "Unfinished tasks (status other than Done), including undated ones, newest first by createdAt.",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": { "description": "Unfinished tasks" },
+          "401": { "description": "Authentication required" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "post": {
+        "operationId": "createTask",
+        "description": "Create one task. Title is required. notes, dueDate (YYYY-MM-DD, America/Detroit), priority (High, Medium, Low), project, and status (To do, Doing, or Blocked; default To do) are optional. Done is rejected. The same Idempotency-Key replays this response for about 24 hours.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "notes": { "type": "string" },
+                  "dueDate": { "type": "string", "description": "Calendar date YYYY-MM-DD." },
+                  "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+                  "status": { "type": "string", "enum": ["To do", "Doing", "Blocked"] },
+                  "project": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created task, or the task already stored for this Idempotency-Key" },
+          "400": { "description": "Invalid task" },
+          "401": { "description": "Authentication required" },
+          "503": { "description": "Store unavailable" }
+        }
       }
     },
     "/api/session/login": {

@@ -1,4 +1,4 @@
-"""FastAPI app. Domain routes are GET. Session routes are the only writes."""
+"""FastAPI app. Fixture routes are GET. Session routes and POST /api/tasks are the writes."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
 from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionStore
 from joehub_api.settings import ApiSettings
+from joehub_api.tasks import TaskStore
 
 ACCESS_LOG = logging.getLogger("joehub_api.access")
 COOKIE_MAX_AGE = SESSION_DAYS * 24 * 60 * 60
@@ -49,12 +50,13 @@ def create_app(
     app = FastAPI(
         title="joehub public read API",
         version="0.1.0",
-        description="Read-only synthetic contract. Session posts are the only writes.",
+        description="Synthetic contract. Session posts and POST /api/tasks are the writes.",
         redirect_slashes=False,
     )
     app.state.settings = settings
     app.state.source = source or SyntheticReadSource(settings.read_credential)
     app.state.sessions = SessionStore(settings, clock or _utcnow)
+    app.state.tasks = TaskStore()
     app.state.login_limiter = RateLimiter(login_limit)
     app.state.api_limiter = RateLimiter(api_limit)
 
@@ -112,6 +114,23 @@ def create_app(
     @app.get("/api/journal/events", response_model=list[EventRow])
     def journal_events(request: Request) -> list[dict]:
         return rows(request, "events")
+
+    @app.get("/api/tasks")
+    def list_tasks(request: Request) -> JSONResponse:
+        require_session(request)
+        return JSONResponse(request.app.state.tasks.list_unfinished())
+
+    @app.post("/api/tasks")
+    async def create_task(request: Request) -> JSONResponse:
+        require_session(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Task must be an object"}, status_code=400)
+        header = request.headers.get("idempotency-key")
+        idem = header.strip() if isinstance(header, str) else ""
+        status, body = request.app.state.tasks.create(payload, idem or None)
+        return JSONResponse(body, status_code=status)
 
     @app.post("/api/session/login", response_model=LoginResult)
     async def session_login(request: Request, response: Response) -> LoginResult:

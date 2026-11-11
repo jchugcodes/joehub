@@ -1,3 +1,6 @@
+import { applyKeyPrefix } from "./keys.mjs";
+import { buildSampleTasks, performCreate, unfinishedNewestFirst } from "./tasks.mjs";
+
 export class StoreError extends Error {
   constructor() {
     super("store unavailable");
@@ -9,12 +12,24 @@ function ttlSeconds(expiresAt, now) {
   return Math.max(1, Math.ceil((expiresAt - now) / 1000));
 }
 
-function txnStorageKey(state, binding) {
-  if (!state || !binding) return "";
-  return `joehub:txn:${state}:${binding}`;
-}
+const PREFIX_PATTERN = /^[a-z0-9-]+:$/;
 
-export function createUpstashStore({ url, token, fetchImpl = fetch }) {
+export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "joehub:" }) {
+  if (typeof prefix !== "string" || !PREFIX_PATTERN.test(prefix)) throw new StoreError();
+
+  function k(logical) {
+    try {
+      return applyKeyPrefix(prefix, logical);
+    } catch {
+      throw new StoreError();
+    }
+  }
+
+  function txnStorageKey(state, binding) {
+    if (!state || !binding) return "";
+    return k(`joehub:txn:${state}:${binding}`);
+  }
+
   async function command(args) {
     let response;
     try {
@@ -47,12 +62,78 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
     }
   }
 
+  async function addMissingSamples(samples, version) {
+    const flagKey = k(`joehub:tasks:seeded:${version}`);
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const sample of samples) {
+      const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+      if (created === "OK") {
+        await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+      }
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
+  async function ensureSeeded() {
+    const flagKey = k("joehub:tasks:seeded");
+    const samples = buildSampleTasks(Date.now());
+    if ((await command(["GET", flagKey])) == null) {
+      for (const sample of samples) {
+        const created = await command(["SET", k(`joehub:task:${sample.id}`), JSON.stringify(sample), "NX"]);
+        if (created === "OK") {
+          await command(["ZADD", k("joehub:tasks:active"), String(sample.createdAt), sample.id]);
+        }
+      }
+      await command(["SET", flagKey, "1", "NX"]);
+    }
+    await addMissingSamples(samples, "v3");
+  }
+
+  const tasks = {
+    async putTask(task) {
+      await command(["SET", k(`joehub:task:${task.id}`), JSON.stringify(task)]);
+      await command(["ZADD", k("joehub:tasks:active"), String(task.createdAt), task.id]);
+    },
+    async readIdem(key) {
+      const parsed = await readJson(k(`joehub:task:idem:${key}`));
+      if (!parsed) return null;
+      if (parsed.status && parsed.body) return { status: parsed.status, body: parsed.body };
+      if (parsed.pending && parsed.taskId) {
+        const task = await readJson(k(`joehub:task:${parsed.taskId}`));
+        if (task) return { status: 201, body: task };
+      }
+      if (parsed.pending) return null;
+      throw new StoreError();
+    },
+    async writeIdem(key, response) {
+      await command(["SET", k(`joehub:task:idem:${key}`), JSON.stringify(response), "EX", "86400"]);
+    },
+    async noteCreated(key, response) {
+      const taskId = response && response.body ? response.body.id : "";
+      await command([
+        "SET",
+        k(`joehub:task:idem:${key}`),
+        JSON.stringify({ pending: true, taskId }),
+        "EX",
+        "86400",
+      ]);
+    },
+    async claimIdem(key) {
+      const result = await command(["SET", k(`joehub:task:idem:${key}`), JSON.stringify({ pending: true }), "NX", "EX", "30"]);
+      return result === "OK";
+    },
+    async releasePending(key) {
+      const parsed = await readJson(k(`joehub:task:idem:${key}`));
+      if (parsed && parsed.pending && !parsed.taskId) await command(["DEL", k(`joehub:task:idem:${key}`)]);
+    },
+  };
+
   return {
     async getSession(id, now) {
-      const session = await readJson(`joehub:sess:${id}`);
+      const session = await readJson(k(`joehub:sess:${id}`));
       if (!session) return null;
       if (session.revoked || now >= session.expiresAt) return null;
-      const cut = await command(["GET", `joehub:cut:${session.owner}`]);
+      const cut = await command(["GET", k(`joehub:cut:${session.owner}`)]);
       if (cut != null && session.createdAt <= Number(cut)) return null;
       return session;
     },
@@ -67,31 +148,31 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
         revoked: !!session.revoked,
         owner: session.owner,
       };
-      await command(["SET", `joehub:sess:${session.id}`, JSON.stringify(session), "EX", String(life)]);
-      await command(["SET", `joehub:device:${device.id}`, JSON.stringify(device), "EX", String(life)]);
-      await command(["SADD", `joehub:devices:${session.owner}`, device.id]);
+      await command(["SET", k(`joehub:sess:${session.id}`), JSON.stringify(session), "EX", String(life)]);
+      await command(["SET", k(`joehub:device:${device.id}`), JSON.stringify(device), "EX", String(life)]);
+      await command(["SADD", k(`joehub:devices:${session.owner}`), device.id]);
     },
     async revokeSession(id, now) {
-      const session = await readJson(`joehub:sess:${id}`);
+      const session = await readJson(k(`joehub:sess:${id}`));
       if (!session) return;
       session.revoked = true;
       const life = ttlSeconds(session.expiresAt, now);
-      await command(["SET", `joehub:sess:${id}`, JSON.stringify(session), "EX", String(life)]);
-      const device = await readJson(`joehub:device:${session.deviceId}`);
+      await command(["SET", k(`joehub:sess:${id}`), JSON.stringify(session), "EX", String(life)]);
+      const device = await readJson(k(`joehub:device:${session.deviceId}`));
       if (device) {
         device.revoked = true;
-        await command(["SET", `joehub:device:${device.id}`, JSON.stringify(device), "EX", String(life)]);
+        await command(["SET", k(`joehub:device:${device.id}`), JSON.stringify(device), "EX", String(life)]);
       }
     },
     async revokeAll(owner, now) {
-      await command(["SET", `joehub:cut:${owner}`, String(now), "EX", String(14 * 24 * 60 * 60)]);
+      await command(["SET", k(`joehub:cut:${owner}`), String(now), "EX", String(14 * 24 * 60 * 60)]);
     },
     async listDevices(owner, now) {
-      const ids = (await command(["SMEMBERS", `joehub:devices:${owner}`])) || [];
-      const cut = await command(["GET", `joehub:cut:${owner}`]);
+      const ids = (await command(["SMEMBERS", k(`joehub:devices:${owner}`)])) || [];
+      const cut = await command(["GET", k(`joehub:cut:${owner}`)]);
       const rows = [];
       for (const id of ids) {
-        const device = await readJson(`joehub:device:${id}`);
+        const device = await readJson(k(`joehub:device:${id}`));
         if (!device) continue;
         if (cut != null && device.createdAt <= Number(cut)) device.revoked = true;
         if (now >= device.expiresAt) device.revoked = true;
@@ -100,7 +181,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
       return rows;
     },
     async revokeDevice(deviceId, now) {
-      const device = await readJson(`joehub:device:${deviceId}`);
+      const device = await readJson(k(`joehub:device:${deviceId}`));
       if (!device) return false;
       await this.revokeSession(device.sessionId, now);
       return true;
@@ -131,10 +212,24 @@ export function createUpstashStore({ url, token, fetchImpl = fetch }) {
     },
     async hit(bucket, key, limit, windowMs, now) {
       const windowId = Math.floor(now / windowMs);
-      const name = `joehub:rl:${bucket}:${key}:${windowId}`;
+      const name = k(`joehub:rl:${bucket}:${key}:${windowId}`);
       const count = Number(await command(["INCR", name]));
       if (count === 1) await command(["EXPIRE", name, String(Math.ceil(windowMs / 1000) + 1)]);
       return count <= limit;
+    },
+    async listUnfinishedTasks() {
+      await ensureSeeded();
+      const ids = (await command(["ZREVRANGE", k("joehub:tasks:active"), "0", "-1"])) || [];
+      const rows = [];
+      for (const id of ids) {
+        const task = await readJson(k(`joehub:task:${id}`));
+        if (task && task.status !== "Done") rows.push(task);
+      }
+      return unfinishedNewestFirst(rows);
+    },
+    async createTask(raw, idemKey, now) {
+      await ensureSeeded();
+      return performCreate(tasks, raw, idemKey, now);
     },
   };
 }

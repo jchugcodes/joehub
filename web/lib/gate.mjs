@@ -1,4 +1,5 @@
 import { devPagesOpen, productionLike, readAuthConfig } from "./auth-config.mjs";
+import { readKeyPrefix } from "./keys.mjs";
 import { openCookie } from "./seal.mjs";
 import { createUpstashStore, StoreError } from "./store-upstash.mjs";
 
@@ -7,11 +8,14 @@ const PUBLIC = new Set(["/api/health", "/api/auth/login", "/api/auth/callback", 
 let upstash;
 
 function storeFor(env) {
+  const prefix = readKeyPrefix(env);
+  if (!prefix.ok) return null;
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
   if (!upstash) {
     upstash = createUpstashStore({
       url: env.UPSTASH_REDIS_REST_URL,
       token: env.UPSTASH_REDIS_REST_TOKEN,
+      prefix: prefix.prefix,
     });
   }
   return upstash;

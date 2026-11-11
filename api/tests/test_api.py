@@ -74,6 +74,9 @@ def test_contract_paths_match_the_app() -> None:
         assert actual == expected
         if path.startswith("/api/session"):
             continue
+        if path == "/api/tasks":
+            assert expected == {"get", "post"}
+            continue
         assert expected == {"get"}
     blob = json.dumps(live)
     for banned in ("/sql", "/export", "/download", "raw-sql"):
@@ -350,3 +353,25 @@ def test_trusted_proxy_may_use_forwarded_for() -> None:
     )
     assert first.status_code == 401
     assert second.status_code == 401
+
+
+def test_tasks_require_a_session_and_create_once() -> None:
+    client, _app = client_app()
+    assert client.get("/api/tasks").status_code == 401
+    assert client.post("/api/tasks", json={"title": "Nope"}).status_code == 401
+    cookie = login(client)
+    blank = client.post("/api/tasks", json={"title": "   "}, cookies={COOKIE_NAME: cookie})
+    assert blank.status_code == 400
+    assert blank.json()["field"] == "title"
+    headers = {"Idempotency-Key": "task-key-1"}
+    payload = {"title": "Sample task", "status": "Doing", "priority": "Low"}
+    first = client.post("/api/tasks", json=payload, headers=headers, cookies={COOKIE_NAME: cookie})
+    second = client.post("/api/tasks", json=payload, headers=headers, cookies={COOKIE_NAME: cookie})
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    listed = client.get("/api/tasks", cookies={COOKIE_NAME: cookie})
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json() if row["title"] == "Sample task"] == [first.json()["id"]]
+    done = client.post("/api/tasks", json={"title": "Finished", "status": "Done"}, cookies={COOKIE_NAME: cookie})
+    assert done.status_code == 400

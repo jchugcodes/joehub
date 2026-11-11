@@ -150,3 +150,56 @@ export async function handleRevokeAll(headers, env, store, limiter, now, ip) {
   if (result.status !== 200) return { status: result.status, body: { detail: result.error } };
   return { status: 200, body: { ok: true } };
 }
+
+function idempotencyKey(headers) {
+  const raw = typeof headers.get === "function" ? headers.get("idempotency-key") : headers["idempotency-key"];
+  if (raw == null || String(raw).trim() === "") return { ok: true, key: "" };
+  const key = String(raw).trim();
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(key)) return { ok: false };
+  return { ok: true, key };
+}
+
+async function requireTasks(headers, env, store, limiter, now, ip) {
+  const blocked = await limited(limiter, ip, now);
+  if (blocked) return { blocked };
+  try {
+    const session = await resolveStored(readCookie(headers), env, store, now);
+    if (!session) return { result: { status: 401, body: { detail: "authentication required" } } };
+    return { session };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { result: { status: 503, body: { detail: "unavailable" } } };
+    return { result: { status: 503, body: { detail: "unavailable" } } };
+  }
+}
+
+export async function handleTasksGet(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.listUnfinishedTasks !== "function") {
+      return { status: 503, body: { detail: "unavailable" } };
+    }
+    return { status: 200, body: await store.listUnfinishedTasks(now) };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleTasksPost(body, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  try {
+    if (!store || typeof store.createTask !== "function") {
+      return { status: 503, body: { detail: "unavailable" } };
+    }
+    return await store.createTask(body, idem.key, now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}

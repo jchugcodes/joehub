@@ -28,11 +28,13 @@ test("fixtures match the shared contract keys", () => {
     "JournalEntry",
     "EventRow",
     "Device",
+    "Task",
   ]) {
     const source = readFileSync(new URL("../lib/contract.ts", import.meta.url), "utf8");
     assert.match(source, new RegExp(`export interface ${name}`));
   }
   assert.ok(spec.paths["/api/finance/accounts"].get);
+  assert.ok(spec.paths["/api/tasks"]);
   assert.equal(spec.paths["/api/finance/accounts"].post, undefined);
   assert.equal(spec.paths["/finance/accounts"], undefined);
   const servers = JSON.stringify(spec.servers);
