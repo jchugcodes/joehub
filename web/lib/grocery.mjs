@@ -1,8 +1,10 @@
+import { readOptionalSourceId, readSourceId } from "./source-id.mjs";
+
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const GROCERY_NAMESPACE = "6c4e1a90-2b77-4f18-9d33-1a8e5c0b7d44";
 const ITEM_ID = /^[A-Za-z0-9-]{1,80}$/;
 const PENDING_MS = 30 * 1000;
-const CREATE_FIELDS = new Set(["name", "quantity", "notes", "section"]);
+const CREATE_FIELDS = new Set(["name", "quantity", "notes", "section", "sourceId"]);
 export const NO_SECTION = "No section";
 
 export const SAMPLE_GROCERY = [
@@ -106,8 +108,10 @@ export function validateGroceryCreate(body) {
   if (!notes.ok) return notes;
   const section = optionalText(body.section, "section", "Section must be text.", 120, "Section is too long.");
   if (!section.ok) return section;
+  const source = readOptionalSourceId(body);
+  if (!source.ok) return reject(source.field, source.detail);
 
-  return { ok: true, name, quantity: quantity.quantity, notes: notes.text, section: section.text };
+  return { ok: true, name, quantity: quantity.quantity, notes: notes.text, section: section.text, sourceId: source.sourceId };
 }
 
 function itemFrom(parsed, id, now) {
@@ -121,6 +125,7 @@ function itemFrom(parsed, id, now) {
   if (parsed.quantity) item.quantity = parsed.quantity;
   if (parsed.notes) item.notes = parsed.notes;
   if (parsed.section) item.section = parsed.section;
+  if (parsed.sourceId) item.sourceId = parsed.sourceId;
   return item;
 }
 
@@ -242,13 +247,18 @@ export function validateGroceryPatch(body) {
     if (!section.ok) return section;
     patch.section = section.text;
   }
+  if (Object.prototype.hasOwnProperty.call(body, "sourceId")) {
+    const source = readSourceId(body.sourceId);
+    if (!source.ok) return reject(source.field, source.detail);
+    patch.sourceId = source.sourceId;
+  }
   return { ok: true, patch };
 }
 
 function applyPatch(existing, patch, now) {
   const next = { ...existing, updatedAt: now };
   if (Object.prototype.hasOwnProperty.call(patch, "name")) next.name = patch.name;
-  for (const field of ["quantity", "notes", "section"]) {
+  for (const field of ["quantity", "notes", "section", "sourceId"]) {
     if (!Object.prototype.hasOwnProperty.call(patch, field)) continue;
     if (patch[field]) next[field] = patch[field];
     else delete next[field];

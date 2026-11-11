@@ -53,6 +53,7 @@ export function FinanceCaps() {
         const labels: Record<string, string> = {};
         let total = 0;
         for (const cap of body.caps) {
+          if (typeof cap.capCents !== "number") continue;
           next[cap.slug] = cap.capCents ? dollars(cap.capCents) : "";
           labels[cap.slug] = cap.name;
           total += cap.capCents;

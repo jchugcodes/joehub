@@ -35,12 +35,16 @@ type Week = {
 };
 
 const CATEGORIES = [
-  ["dining-out", "Dining Out"],
   ["groceries", "Groceries"],
-  ["transport", "Transport"],
+  ["dining-out", "Dining Out"],
+  ["transport", "Gas & Transport"],
+  ["utilities", "Bills & Utilities"],
   ["subscriptions", "Subscriptions"],
   ["shopping", "Shopping"],
-  ["utilities", "Utilities"],
+  ["health-fitness", "Health & Fitness"],
+  ["fun", "Fun"],
+  ["school", "School"],
+  ["other", "Other"],
 ];
 
 function money(cents: number) {
