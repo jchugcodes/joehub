@@ -268,7 +268,7 @@ test("complete, search, and reopen work at phone and desktop widths", { timeout:
       await waitFor(
         send,
         "document.body.innerText.includes('Hold the sample note') && !document.querySelector(\"[data-done='true']\") ? 'yes' : ''",
-        `reopened in search ${width}`,
+        `reopened ${width}`,
       );
       await waitFor(
         send,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore, login } from "../lib/sessions.mjs";
-import { handleGroceryGet, handleGroceryItemGet, handleGroceryPost } from "../lib/api.mjs";
+import { handleGroceryGet, handleGroceryItemDelete, handleGroceryItemGet, handleGroceryItemPatch, handleGroceryPost } from "../lib/api.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { createUpstashStore, StoreError } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
@@ -11,9 +11,15 @@ import {
   groupGrocery,
   installMemoryGrocery,
   itemIdForKey,
+  performCheck,
+  performClear,
   performCreate,
+  performDelete,
+  performPatch,
   SAMPLE_GROCERY,
+  sectionSuggestions,
   validateGroceryCreate,
+  validateGroceryPatch,
 } from "../lib/grocery.mjs";
 
 const devEnv = { JOEHUB_DEV_AUTH: "1", JOEHUB_SESSION_SECRET: "grocery-unit-secret-value", NODE_ENV: "development" };
@@ -149,4 +155,129 @@ test("grocery routes require a session and return 400 or 503", async () => {
   const down = { listGrocery: async () => { throw new StoreError(); }, createGrocery: async () => { throw new StoreError(); }, getGrocery: async () => { throw new StoreError(); } };
   assert.equal((await handleGroceryGet(headers, devEnv, down, limiter, now, "ip")).status, 503);
   assert.equal((await handleGroceryPost({ name: "Apples" }, headers, devEnv, {}, limiter, now, "ip")).status, 503);
+  assert.equal((await handleGroceryItemPatch(created.body.id, { name: "Pears" }, headers, devEnv, store, limiter, now, "ip")).status, 200);
+  assert.equal((await handleGroceryItemPatch(created.body.id, { name: " " }, headers, devEnv, store, limiter, now, "ip")).status, 400);
+  assert.equal((await handleGroceryItemDelete(created.body.id, headers, devEnv, store, limiter, now, "ip")).status, 200);
+  assert.equal((await handleGroceryItemDelete(created.body.id, headers, devEnv, store, limiter, now, "ip")).status, 404);
+  assert.equal((await handleGroceryItemPatch("missing-item", { name: "Gone" }, headers, devEnv, {}, limiter, now, "ip")).status, 503);
+  assert.equal((await handleGroceryItemDelete("missing-item", headers, devEnv, {}, limiter, now, "ip")).status, 503);
+});
+
+test("a patch changes name and clears optional fields, and a failed write leaves the item", async () => {
+  assert.equal(validateGroceryPatch({}).detail, "Item must include a field");
+  assert.equal(validateGroceryPatch({ checked: true }).field, "checked");
+  assert.equal(validateGroceryPatch({ name: "  " }).detail, "Enter a name.");
+  const backend = createMemoryBackend();
+  const created = await performCreate(backend, { name: "Oat milk", quantity: "1 carton", notes: "Barista style if they have it", section: "Dairy" }, "edit-1", 50, () => "item-edit-1");
+  const id = created.body.id;
+  const cleared = await performPatch(backend, id, { quantity: "", notes: "", section: "" }, 80);
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.name, "Oat milk");
+  assert.equal(cleared.body.quantity, undefined);
+  assert.equal(cleared.body.notes, undefined);
+  assert.equal(cleared.body.section, undefined);
+  assert.equal(cleared.body.createdAt, 50);
+  const renamed = await performPatch(backend, id, { name: "Whole milk", section: "Dairy" }, 90);
+  assert.equal(renamed.body.name, "Whole milk");
+  assert.equal(renamed.body.section, "Dairy");
+  const replaceItem = backend.replaceItem.bind(backend);
+  const deleteItem = backend.deleteItem.bind(backend);
+  backend.replaceItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performPatch(backend, id, { name: "Lost" }, 100));
+  const kept = await backend.getItem(id);
+  assert.equal(kept.name, "Whole milk");
+  backend.replaceItem = replaceItem;
+  backend.deleteItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performDelete(backend, id));
+  assert.equal((await backend.getItem(id)).name, "Whole milk");
+  backend.deleteItem = deleteItem;
+  const gone = await performDelete(backend, id);
+  assert.deepEqual(gone.body, { deleted: true, id });
+  assert.equal(await backend.getItem(id), null);
+  assert.equal((await performDelete(backend, id)).status, 404);
+  const other = await performCreate(backend, { name: "Oat milk" }, "edit-2", 10, () => "item-edit-2");
+  assert.equal(existingName([other.body, { id: "item-edit-2", name: "Oat milk", createdAt: 10 }], "Oat milk", "item-edit-2"), "");
+  assert.equal(sectionSuggestions([{ section: "Bakery", createdAt: 2, checked: true }, { section: "Produce", createdAt: 1 }])[0], "Produce");
+});
+
+test("check and uncheck persist, repeat, and a failed move leaves the item", async () => {
+  const store = installMemoryGrocery(createStore());
+  const now = 500;
+  const created = await store.createGrocery({ name: "Sourdough", quantity: "1 loaf", section: "Bakery" }, "check-1", now);
+  const id = created.body.id;
+  const checked = await store.checkGrocery(id, now + 10);
+  assert.equal(checked.status, 200);
+  assert.equal(checked.body.checked, true);
+  assert.equal(checked.body.checkedAt, now + 10);
+  const repeat = await store.checkGrocery(id, now + 20);
+  assert.equal(repeat.body.checkedAt, now + 10);
+  const groups = groupGrocery(await store.listGrocery());
+  assert.equal(groups.at(-1).label, "Checked");
+  assert.equal(groups.at(-1).items[0].name, "Sourdough");
+  const back = await store.uncheckGrocery(id, now + 30);
+  assert.equal(back.body.checked, false);
+  assert.equal(back.body.checkedAt, undefined);
+  assert.equal(groupGrocery(await store.listGrocery()).some((group) => group.label === "Bakery"), true);
+  assert.equal((await store.checkGrocery("missing-item", now)).status, 404);
+  assert.equal((await store.uncheckGrocery("missing-item", now)).status, 404);
+
+  const backend = createMemoryBackend();
+  const made = await performCreate(backend, { name: "Sparkling water", quantity: "8 cans" }, "check-2", now, () => "item-check-2");
+  const moveItem = backend.moveItem.bind(backend);
+  backend.moveItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performCheck(backend, made.body.id, now + 5, true));
+  assert.equal((await backend.getItem(made.body.id)).checked, false);
+  backend.moveItem = moveItem;
+
+  const fake = await startFakeUpstash();
+  try {
+    const remote = createUpstashStore({ url: fake.url, token: fake.token });
+    const item = await remote.createGrocery({ name: "Sourdough", section: "Bakery" }, "up-check", now, "owner");
+    const marked = await remote.checkGrocery(item.body.id, now + 8);
+    assert.equal(marked.body.checked, true);
+    const listed = await remote.listGrocery(now + 9);
+    assert.equal(listed.find((row) => row.id === item.body.id).checked, true);
+    const moved = fake.commands.filter((args) => args[0] === "ZADD" && String(args[1]).endsWith("grocery:items:checked") && args[3] === item.body.id);
+    const removed = fake.commands.filter((args) => args[0] === "ZREM" && String(args[1]).endsWith("grocery:items:unchecked") && args[2] === item.body.id);
+    assert.equal(moved.length, 1);
+    assert.equal(removed.length, 1);
+    await remote.uncheckGrocery(item.body.id, now + 12);
+    const restored = await remote.listGrocery(now + 13);
+    assert.equal(restored.find((row) => row.id === item.body.id).checked, false);
+  } finally {
+    fake.stop();
+  }
+});
+
+test("clear deletes only checked items, and a failed delete leaves every row", async () => {
+  const store = installMemoryGrocery(createStore());
+  const bread = await store.createGrocery({ name: "Sourdough", quantity: "1 loaf", section: "Bakery" }, "clear-1", 10);
+  await store.createGrocery({ name: "Bananas", quantity: "6", section: "Produce" }, "clear-2", 20);
+  await store.checkGrocery(bread.body.id, 30);
+  const cleared = await store.clearGrocery();
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(cleared.body, { deleted: 1, ids: [bread.body.id] });
+  assert.deepEqual((await store.listGrocery()).map((item) => item.name), ["Bananas"]);
+  const none = await store.clearGrocery();
+  assert.deepEqual(none.body, { deleted: 0, ids: [] });
+
+  const backend = createMemoryBackend();
+  const made = await performCreate(backend, { name: "Sparkling water" }, "clear-3", 40, () => "item-clear-3");
+  await performCheck(backend, made.body.id, 50, true);
+  const deleteItem = backend.deleteItem.bind(backend);
+  backend.deleteItem = async () => {
+    throw new Error("down");
+  };
+  await assert.rejects(() => performClear(backend));
+  assert.equal((await backend.getItem(made.body.id)).name, "Sparkling water");
+  backend.deleteItem = deleteItem;
+  const gone = await performClear(backend);
+  assert.deepEqual(gone.body.ids, [made.body.id]);
+  assert.equal(await backend.getItem(made.body.id), null);
 });

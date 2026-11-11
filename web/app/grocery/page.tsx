@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
 import type { GroceryItem } from "../../lib/contract";
-import { existingName, groupGrocery } from "../../lib/grocery.mjs";
+import { existingName, groupGrocery, sectionSuggestions } from "../../lib/grocery.mjs";
 
 const CACHE_DB = "joehub-grocery";
 const CACHE_STORE = "cache";
@@ -88,11 +88,16 @@ export default function GroceryPage() {
   const [link, setLink] = useState<"live" | "offline" | "reconnecting" | "back">("live");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [sheet, setSheet] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [nameError, setNameError] = useState("");
   const [quantityError, setQuantityError] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [checkNotice, setCheckNotice] = useState(false);
+  const [listError, setListError] = useState("");
   const [wide, setWide] = useState(false);
   const downRef = useRef(false);
   const savingRef = useRef(false);
@@ -200,6 +205,11 @@ export default function GroceryPage() {
   }, []);
 
   useEffect(() => {
+    if (offline) return;
+    setCheckNotice(false);
+  }, [offline]);
+
+  useEffect(() => {
     if (link !== "back") return undefined;
     const timer = window.setTimeout(() => setLink("live"), 3000);
     return () => window.clearTimeout(timer);
@@ -208,7 +218,25 @@ export default function GroceryPage() {
   function openAdd() {
     if (offline || mode !== "ready") return;
     idemRef.current = newKey();
+    setEditingId(null);
+    setConfirmDelete(false);
     setDraft(emptyDraft());
+    setNameError("");
+    setQuantityError("");
+    setFormError("");
+    setSheet(true);
+  }
+
+  function openEdit(item: GroceryItem) {
+    if (offline || mode !== "ready") return;
+    setEditingId(item.id);
+    setConfirmDelete(false);
+    setDraft({
+      name: item.name,
+      quantity: item.quantity || "",
+      notes: item.notes || "",
+      section: item.section || "",
+    });
     setNameError("");
     setQuantityError("");
     setFormError("");
@@ -217,12 +245,28 @@ export default function GroceryPage() {
 
   function cancel() {
     if (savingRef.current) return;
+    setConfirmDelete(false);
     setSheet(false);
+    setEditingId(null);
     setNameError("");
     setQuantityError("");
     setFormError("");
     setDraft(emptyDraft());
   }
+
+  useEffect(() => {
+    if (!confirmDelete && !confirmClear) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || savingRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setConfirmDelete(false);
+      setConfirmClear(false);
+      setFormError("");
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [confirmDelete, confirmClear]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -239,14 +283,21 @@ export default function GroceryPage() {
     setNameError("");
     setQuantityError("");
     setFormError("");
-    const payload: Record<string, string> = { name };
-    if (draft.quantity.trim()) payload.quantity = draft.quantity.trim();
-    if (draft.notes.trim()) payload.notes = draft.notes.trim();
-    if (draft.section.trim()) payload.section = draft.section.trim();
+    const editing = editingId;
+    const payload: Record<string, string> = editing
+      ? { name, quantity: draft.quantity.trim(), notes: draft.notes.trim(), section: draft.section.trim() }
+      : { name };
+    if (!editing) {
+      if (draft.quantity.trim()) payload.quantity = draft.quantity.trim();
+      if (draft.notes.trim()) payload.notes = draft.notes.trim();
+      if (draft.section.trim()) payload.section = draft.section.trim();
+    }
     try {
-      const response = await fetch("/api/grocery", {
-        method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": idemRef.current },
+      const response = await fetch(editing ? `/api/grocery/${editing}` : "/api/grocery", {
+        method: editing ? "PATCH" : "POST",
+        headers: editing
+          ? { "content-type": "application/json" }
+          : { "content-type": "application/json", "idempotency-key": idemRef.current },
         body: JSON.stringify(payload),
       });
       const body = (await response.json().catch(() => null)) as { detail?: string; field?: string; id?: string } | null;
@@ -260,7 +311,7 @@ export default function GroceryPage() {
         return;
       }
       if (!response.ok || !body || typeof body.id !== "string") {
-        setFormError("Couldn't save this item.");
+        setFormError(editing ? "Couldn't save these edits." : "Couldn't save this item.");
         return;
       }
       const item = body as GroceryItem;
@@ -268,10 +319,91 @@ export default function GroceryPage() {
       setItems(next);
       await writeCache(next, Date.now());
       setSheet(false);
+      setEditingId(null);
       setDraft(emptyDraft());
       void load();
     } catch {
-      setFormError("Couldn't save this item.");
+      setFormError(editing ? "Couldn't save these edits." : "Couldn't save this item.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function toggle(item: GroceryItem) {
+    if (offline || mode !== "ready") {
+      setCheckNotice(true);
+      return;
+    }
+    setListError("");
+    const path = item.checked ? "uncheck" : "check";
+    try {
+      const response = await fetch(`/api/grocery/${item.id}/${path}`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as GroceryItem | null;
+      if (!response.ok || !body || typeof body.id !== "string") {
+        setListError("Couldn't update this item.");
+        return;
+      }
+      const next = items.map((row) => (row.id === body.id ? body : row));
+      setItems(next);
+      await writeCache(next, Date.now());
+    } catch {
+      setListError("Couldn't update this item.");
+    }
+  }
+
+  async function clearChecked() {
+    if (savingRef.current || offline) {
+      if (offline) setCheckNotice(true);
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setFormError("");
+    try {
+      const response = await fetch("/api/grocery/clear-checked", { method: "POST" });
+      const body = (await response.json().catch(() => null)) as { deleted?: number; ids?: string[] } | null;
+      if (!response.ok || !body || !Array.isArray(body.ids)) {
+        setFormError("Couldn't remove checked items.");
+        return;
+      }
+      const gone = new Set(body.ids);
+      const next = items.filter((row) => !gone.has(row.id));
+      setItems(next);
+      await writeCache(next, Date.now());
+      setConfirmClear(false);
+      void load();
+    } catch {
+      setFormError("Couldn't remove checked items.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function removeItem() {
+    if (savingRef.current || offline || !editingId) return;
+    savingRef.current = true;
+    setSaving(true);
+    setFormError("");
+    const id = editingId;
+    try {
+      const response = await fetch(`/api/grocery/${id}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as { deleted?: boolean } | null;
+      if (!response.ok || !body?.deleted) {
+        setFormError("Couldn't delete this item.");
+        return;
+      }
+      const next = items.filter((row) => row.id !== id);
+      setItems(next);
+      await writeCache(next, Date.now());
+      setConfirmDelete(false);
+      setSheet(false);
+      setEditingId(null);
+      setDraft(emptyDraft());
+      void load();
+    } catch {
+      setFormError("Couldn't delete this item.");
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -279,17 +411,22 @@ export default function GroceryPage() {
   }
 
   const groups = useMemo(() => groupGrocery(items) as { label: string; items: GroceryItem[] }[], [items]);
-  const sections = useMemo(() => {
-    const seen = new Map<string, number>();
-    for (const item of items) {
-      const section = item.section?.trim();
-      if (!section) continue;
-      const at = seen.get(section);
-      if (at == null || item.createdAt < at) seen.set(section, item.createdAt);
-    }
-    return [...seen.entries()].sort((left, right) => left[1] - right[1] || (left[0] < right[0] ? -1 : 1)).map(([label]) => label);
-  }, [items]);
-  const hint = existingName(items, draft.name);
+  const sections = useMemo(() => sectionSuggestions(items) as string[], [items]);
+  const hint = existingName(items, draft.name, editingId || "");
+  const checkedItems = items
+    .filter((item) => item.checked)
+    .slice()
+    .sort((left, right) => (left.checkedAt || left.updatedAt) - (right.checkedAt || right.updatedAt) || left.createdAt - right.createdAt || (left.id < right.id ? -1 : 1));
+  const checkedCount = checkedItems.length;
+  const checkedNames =
+    checkedItems.length <= 1
+      ? checkedItems.map((item) => item.name).join("")
+      : checkedItems.length === 2
+        ? `${checkedItems[0].name} and ${checkedItems[1].name}`
+        : `${checkedItems
+            .slice(0, -1)
+            .map((item) => item.name)
+            .join(", ")}, and ${checkedItems[checkedItems.length - 1].name}`;
   const addDisabled = offline || mode !== "ready";
   const saveDisabled = offline || saving;
 
@@ -326,6 +463,36 @@ export default function GroceryPage() {
           <h1 className="text-title font-medium">Grocery</h1>
         </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
+        {checkedCount > 0 ? (
+          <div className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
+            <p className="text-body">{checkedCount} checked</p>
+            <button
+              type="button"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              aria-disabled={offline || undefined}
+              onClick={() => {
+                if (offline) {
+                  setCheckNotice(true);
+                  return;
+                }
+                setFormError("");
+                setConfirmClear(true);
+              }}
+            >
+              Remove checked
+            </button>
+          </div>
+        ) : null}
+        {checkNotice ? (
+          <p role="status" data-check-notice="true" className="relative z-30 mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body">
+            Can't check off offline
+          </p>
+        ) : null}
+        {listError ? (
+          <p role="alert" className="mx-4 mt-3 text-meta font-medium text-[#E07A5F]">
+            {listError}
+          </p>
+        ) : null}
         {mode === "ready" && items.length === 0 ? (
           <div className="mt-16 flex flex-col items-center px-5 text-center">
             <div className="grid h-16 w-16 place-items-center rounded-full bg-ink/[0.12]" aria-hidden="true">
@@ -359,10 +526,37 @@ export default function GroceryPage() {
                   {group.items.map((item: GroceryItem) => {
                     const meta = metaLine(item);
                     return (
-                      <li key={item.id} className="card min-w-0 p-3.5">
-                        <p className="break-words text-body font-medium">{item.name}</p>
-                        {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
-                        {item.notes ? <p className="mt-1 break-words text-meta text-muted">{item.notes}</p> : null}
+                      <li key={item.id} className="card flex min-w-0 items-center">
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={item.checked ? "true" : "false"}
+                          aria-label={item.checked ? `Uncheck ${item.name}` : `Check ${item.name}`}
+                          className="grid h-11 w-11 shrink-0 place-items-center"
+                          onClick={() => void toggle(item)}
+                        >
+                          {item.checked ? (
+                            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#2E8B6A] text-white" aria-hidden="true">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                <path d="M5 12.5 10 17.5 19 7.5" />
+                              </svg>
+                            </span>
+                          ) : (
+                            <span className="h-6 w-6 rounded-full border border-[#C9CEC8]" aria-hidden="true" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          data-item-id={item.id}
+                          className="min-h-11 min-w-0 flex-1 py-3.5 pr-3.5 text-left disabled:opacity-60"
+                          aria-label={`Edit ${item.name}`}
+                          disabled={offline}
+                          onClick={() => openEdit(item)}
+                        >
+                          <p className={`break-words text-body font-medium ${item.checked ? "text-muted line-through" : ""}`}>{item.name}</p>
+                          {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
+                          {item.notes ? <p className="mt-1 break-words text-meta text-muted">{item.notes}</p> : null}
+                        </button>
                       </li>
                     );
                   })}
@@ -400,14 +594,26 @@ export default function GroceryPage() {
       ) : null}
       {sheet ? (
         <Sheet
-          title="Add an item"
+          title={editingId ? "Edit item" : "Add an item"}
           onClose={cancel}
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
+          corner={
+            editingId ? (
+              <button type="button" className="min-h-11 shrink-0 px-1 text-body font-medium text-[#E07A5F] disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                Delete
+              </button>
+            ) : null
+          }
           actions={
             wide ? (
               <div className="flex gap-2">
+                {editingId ? (
+                  <button type="button" className="flex min-h-10 items-center justify-center px-2 text-body font-medium text-[#E07A5F] disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                    Delete
+                  </button>
+                ) : null}
                 <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
                   Cancel
                 </button>
@@ -512,6 +718,37 @@ export default function GroceryPage() {
             )}
           </form>
         </Sheet>
+      ) : null}
+      {confirmClear ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-clear-title" id="grocery-clear-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
+            <h2 id="grocery-clear-title" className="text-section font-medium">Remove {checkedCount} checked {checkedCount === 1 ? "item" : "items"}?</h2>
+            <p className="mt-2 text-body text-muted">{checkedNames}. This can't be undone.</p>
+            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
+            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void clearChecked()} disabled={offline || saving}>
+              Remove checked
+            </button>
+            <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={() => { setConfirmClear(false); setFormError(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {confirmDelete ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-delete-title" id="grocery-delete-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
+            <h2 id="grocery-delete-title" className="text-section font-medium">Delete this item?</h2>
+            <p className="mt-2 break-words text-body">{draft.name.trim()}</p>
+            <p className="mt-2 text-body text-muted">This can't be undone.</p>
+            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
+            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void removeItem()} disabled={offline || saving}>
+              Delete
+            </button>
+            <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={() => { setConfirmDelete(false); setFormError(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

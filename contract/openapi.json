@@ -266,6 +266,33 @@
         }
       }
     },
+    "/api/grocery/clear-checked": {
+      "post": {
+        "operationId": "clearCheckedGrocery",
+        "description": "Delete every checked item. Unchecked items stay. An empty checked set deletes nothing.",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "How many checked items were deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["deleted", "ids"],
+                  "properties": {
+                    "deleted": { "type": "integer" },
+                    "ids": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
     "/api/grocery/{id}": {
       "get": {
         "operationId": "getGroceryItem",
@@ -277,6 +304,98 @@
         "responses": {
           "200": {
             "description": "The item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "patch": {
+        "operationId": "patchGroceryItem",
+        "description": "Rename an item or change its quantity, notes, and section. An empty quantity, notes, or section clears that field. Name cannot be cleared. checked is not accepted.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "400": { "description": "Invalid item" },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteGroceryItem",
+        "description": "Permanently delete one item.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["deleted", "id"],
+                  "properties": {
+                    "deleted": { "type": "boolean" },
+                    "id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/grocery/{id}/check": {
+      "post": {
+        "operationId": "checkGroceryItem",
+        "description": "Mark one item checked. Repeating it returns the same item. The item stays on the list in the Checked group.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The checked item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/grocery/{id}/uncheck": {
+      "post": {
+        "operationId": "uncheckGroceryItem",
+        "description": "Mark one item unchecked and return it to its section. Repeating it returns the same item.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The unchecked item",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
           },
           "401": { "description": "Authentication required" },
@@ -338,6 +457,17 @@
           "createdAt": { "type": "integer" },
           "updatedAt": { "type": "integer" },
           "checkedAt": { "type": "integer" }
+        }
+      },
+      "GroceryPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "notes": { "type": "string" },
+          "section": { "type": "string" }
         }
       },
       "GroceryCreate": {

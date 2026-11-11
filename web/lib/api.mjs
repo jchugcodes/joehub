@@ -312,6 +312,66 @@ export async function handleGroceryPost(body, headers, env, store, limiter, now,
   }
 }
 
+export async function handleGroceryItemPatch(id, body, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.patchGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.patchGrocery(id, body, now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleGroceryItemDelete(id, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.deleteGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.deleteGrocery(id);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+async function handleGroceryCheck(id, headers, env, store, limiter, now, ip, method) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store[method] !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store[method](id, now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleGroceryClear(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.clearGrocery !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.clearGrocery();
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export function handleGroceryItemCheck(id, headers, env, store, limiter, now, ip) {
+  return handleGroceryCheck(id, headers, env, store, limiter, now, ip, "checkGrocery");
+}
+
+export function handleGroceryItemUncheck(id, headers, env, store, limiter, now, ip) {
+  return handleGroceryCheck(id, headers, env, store, limiter, now, ip, "uncheckGrocery");
+}
+
 export async function handleGroceryItemGet(id, headers, env, store, limiter, now, ip) {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

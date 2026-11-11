@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pointerClick, controlFinder } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -92,7 +93,7 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
     assert.equal(type.weight, "500");
     assert.equal(type.optical, "none");
     await shoot(1280, "tasks_bot_1280.png");
-    await evalPage("document.querySelector(\"[aria-label='Edit Hold for the sample reply']\").click()");
+    await pointerClick(send, (_send, expression) => evalPage(expression), controlFinder("Edit Hold for the sample reply"));
     const editBy = Date.now() + 5000;
     while (Date.now() < editBy && (await evalPage("document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : ''")) !== "yes") {
       await new Promise((resolve) => setTimeout(resolve, 150));

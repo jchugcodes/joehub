@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pressLabel } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -111,13 +112,13 @@ test("tasks can be grouped by status and project", { timeout: 180000, skip }, as
       await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
       await send("Page.navigate", { url: `${base()}/tasks` });
       await waitFor(send, "document.body && document.body.innerText.includes('Group the sample poster') ? 'yes' : ''", "list");
-      await evalPage(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Status').click(); 'yes'");
+      await pressLabel(send, evalPage, "Status");
       await waitFor(send, "document.body.innerText.includes('Doing') && document.body.innerText.includes('To do') ? 'yes' : ''", "status groups");
       const shot = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(`${ARTIFACTS}/tasks_group_status_${width}.png`, Buffer.from(shot.result.data, "base64"));
-      await evalPage(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Project').click(); 'yes'");
+      await pressLabel(send, evalPage, "Project");
       await waitFor(send, "document.body.innerText.includes('Errands') && document.body.innerText.includes('Home') ? 'yes' : ''", "project groups");
-      await evalPage(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Clear').click(); 'yes'");
+      await pressLabel(send, evalPage, "Clear");
       await waitFor(send, "[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'All')?.getAttribute('aria-pressed') === 'true' ? 'yes' : ''", "cleared");
     }
     ws.close();

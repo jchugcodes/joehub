@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
+import { pointerClick, controlFinder } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ARTIFACTS = "/opt/cursor/artifacts";
@@ -68,6 +69,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       const result = await send("Runtime.evaluate", { expression, returnByValue: true });
       return result.result?.result?.value;
     };
+    const press = (label, scope) => pointerClick(send, (_send, expression) => evalPage(expression), controlFinder(label, scope));
     const sheetDeleteReady = `(() => {
       const sheet = [...document.querySelectorAll("[role='dialog']")].find((node) => !node.closest("[role='alertdialog']"));
       if (!sheet) return "";
@@ -98,9 +100,9 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     while (Date.now() < deadline && !(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    await evalPage("document.querySelector(\"[aria-label='Edit Delete the sample bag']\").click()");
+    await press("Edit Delete the sample bag");
     await waitForSheetDelete();
-    await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete");
     while (Date.now() < deadline && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
@@ -129,20 +131,20 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     assert.equal(await evalPage("document.getElementById('delete-title') ? 'yes' : 'no'"), "no");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
     await waitForSheetDelete();
-    await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete");
     const cancelBy = Date.now() + 5000;
     while (Date.now() < cancelBy && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Cancel').click()");
+    await press("Cancel", "document.querySelector(\"[role='alertdialog']\")");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
     await waitForSheetDelete();
-    await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete");
     const confirmBy = Date.now() + 5000;
     while (Date.now() < confirmBy && !(await evalPage("document.getElementById('delete-title') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete", "document.querySelector(\"[role='alertdialog']\")");
     const goneBy = Date.now() + 10000;
     while (Date.now() < goneBy && (await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -181,15 +183,15 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     assert.equal(await evalPage("document.querySelector(\"[aria-label='Reopen Delete the finished sample']\") ? 'yes' : 'no'"), "yes");
-    await evalPage("document.querySelector(\"[aria-label='Edit Delete the finished sample']\").click()");
+    await press("Edit Delete the finished sample");
     await waitForSheetDelete();
-    await evalPage("[...document.querySelectorAll('button')].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete");
     const dialogBy = Date.now() + 5000;
     while (Date.now() < dialogBy && !(await evalPage("document.getElementById('delete-title')?.textContent === 'Delete this task?' ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     assert.equal(await evalPage("document.getElementById('delete-dialog')?.innerText.includes('permanently removed') ? 'yes' : 'no'"), "no");
-    await evalPage("[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => el.innerText.trim() === 'Delete').click()");
+    await press("Delete", "document.querySelector(\"[role='alertdialog']\")");
     const removedBy = Date.now() + 10000;
     while (Date.now() < removedBy && (await evalPage("document.body.innerText.includes('Delete the finished sample') ? 'yes' : ''"))) {
       await new Promise((resolve) => setTimeout(resolve, 150));

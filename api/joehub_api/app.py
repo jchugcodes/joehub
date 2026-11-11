@@ -51,7 +51,7 @@ def create_app(
     app = FastAPI(
         title="joehub public read API",
         version="0.1.0",
-        description="Synthetic contract. Session posts, POST /api/tasks, PATCH /api/tasks/{id}, and POST /api/grocery are the writes.",
+        description="Synthetic contract. Session posts, POST /api/tasks, PATCH /api/tasks/{id}, POST /api/grocery, and PATCH /api/grocery/{id} are the writes.",
         redirect_slashes=False,
     )
     app.state.settings = settings
@@ -189,10 +189,44 @@ def create_app(
         status, body = request.app.state.grocery.create(payload, idem or None, session.id)
         return JSONResponse(body, status_code=status)
 
+    @app.post("/api/grocery/clear-checked")
+    def clear_grocery(request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.clear_checked()
+        return JSONResponse(body, status_code=status)
+
     @app.get("/api/grocery/{id}")
     def get_grocery(id: str, request: Request) -> JSONResponse:
         require_session(request)
         status, body = request.app.state.grocery.get(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.patch("/api/grocery/{id}")
+    async def patch_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Item must be an object"}, status_code=400)
+        status, body = request.app.state.grocery.patch(id, payload)
+        return JSONResponse(body, status_code=status)
+
+    @app.delete("/api/grocery/{id}")
+    def delete_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.delete(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.post("/api/grocery/{id}/check")
+    def check_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.check(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.post("/api/grocery/{id}/uncheck")
+    def uncheck_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.uncheck(id)
         return JSONResponse(body, status_code=status)
 
     @app.post("/api/session/login", response_model=LoginResult)

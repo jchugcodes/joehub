@@ -1,5 +1,5 @@
 import { applyKeyPrefix } from "./keys.mjs";
-import { performCreate as performGroceryCreate, SAMPLE_GROCERY } from "./grocery.mjs";
+import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
 import { buildSampleTasks, combineSearch, DONE_WINDOW_MS, performComplete, performCreate, performDelete, performPatch, performReopen, recentCompletedNewestFirst, unfinishedNewestFirst } from "./tasks.mjs";
 
 export class StoreError extends Error {
@@ -194,6 +194,36 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const score = item.checked ? item.checkedAt || item.updatedAt : item.createdAt;
       const index = item.checked ? "joehub:grocery:items:checked" : "joehub:grocery:items:unchecked";
       await command(["ZADD", k(index), String(score), item.id]);
+      return true;
+    },
+    async replaceItem(item) {
+      const key = k(`joehub:grocery:item:${item.id}`);
+      if (!(await readJson(key))) return false;
+      await command(["SET", key, JSON.stringify(item)]);
+      return true;
+    },
+    async moveItem(item) {
+      const key = k(`joehub:grocery:item:${item.id}`);
+      if (!(await readJson(key))) return false;
+      await command(["SET", key, JSON.stringify(item)]);
+      const unchecked = k("joehub:grocery:items:unchecked");
+      const checked = k("joehub:grocery:items:checked");
+      if (item.checked) {
+        await command(["ZREM", unchecked, item.id]);
+        await command(["ZADD", checked, String(item.checkedAt || item.updatedAt), item.id]);
+      } else {
+        await command(["ZREM", checked, item.id]);
+        await command(["ZADD", unchecked, String(item.createdAt), item.id]);
+      }
+      return true;
+    },
+    async deleteItem(id) {
+      if (typeof id !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(id)) return false;
+      const key = k(`joehub:grocery:item:${id}`);
+      if (!(await readJson(key))) return false;
+      await command(["DEL", key]);
+      await command(["ZREM", k("joehub:grocery:items:unchecked"), id]);
+      await command(["ZREM", k("joehub:grocery:items:checked"), id]);
       return true;
     },
     async getItem(id) {
@@ -399,6 +429,26 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async getGrocery(id) {
       await ensureGrocerySeeded();
       return grocery.getItem(id);
+    },
+    async patchGrocery(id, raw, now) {
+      await ensureGrocerySeeded();
+      return performGroceryPatch(grocery, id, raw, now);
+    },
+    async deleteGrocery(id) {
+      await ensureGrocerySeeded();
+      return performGroceryDelete(grocery, id);
+    },
+    async checkGrocery(id, now) {
+      await ensureGrocerySeeded();
+      return performGroceryCheck(grocery, id, now, true);
+    },
+    async uncheckGrocery(id, now) {
+      await ensureGrocerySeeded();
+      return performGroceryCheck(grocery, id, now, false);
+    },
+    async clearGrocery() {
+      await ensureGrocerySeeded();
+      return performGroceryClear(grocery);
     },
   };
 }

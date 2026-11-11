@@ -87,8 +87,14 @@ def test_contract_paths_match_the_app() -> None:
         if path == "/api/grocery":
             assert expected == {"get", "post"}
             continue
+        if path == "/api/grocery/clear-checked":
+            assert expected == {"post"}
+            continue
         if path == "/api/grocery/{id}":
-            assert expected == {"get"}
+            assert expected == {"get", "patch", "delete"}
+            continue
+        if path in {"/api/grocery/{id}/check", "/api/grocery/{id}/uncheck"}:
+            assert expected == {"post"}
             continue
         assert expected == {"get"}
     blob = json.dumps(live)
@@ -593,3 +599,62 @@ def test_grocery_create_rejects_invalid_fields_and_replays_one_item() -> None:
     assert fetched.status_code == 200
     assert fetched.json()["section"] == "Dairy"
     assert client.get("/api/grocery/missing-item", cookies=cookies).status_code == 404
+    assert client.patch(f"/api/grocery/{first.json()['id']}", json={"name": "Nope"}).status_code == 401
+    assert client.delete(f"/api/grocery/{first.json()['id']}").status_code == 401
+    cleared = client.patch(
+        f"/api/grocery/{first.json()['id']}",
+        json={"name": "Oat milk", "quantity": "", "notes": "", "section": "Dairy"},
+        cookies=cookies,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["name"] == "Oat milk"
+    assert "quantity" not in cleared.json()
+    assert "notes" not in cleared.json()
+    blank_name = client.patch(f"/api/grocery/{first.json()['id']}", json={"name": " "}, cookies=cookies)
+    assert blank_name.status_code == 400
+    assert blank_name.json()["field"] == "name"
+    checked = client.patch(f"/api/grocery/{first.json()['id']}", json={"checked": True}, cookies=cookies)
+    assert checked.status_code == 400
+    assert checked.json()["field"] == "checked"
+    removed = client.delete(f"/api/grocery/{first.json()['id']}", cookies=cookies)
+    assert removed.status_code == 200
+    assert removed.json() == {"deleted": True, "id": first.json()["id"]}
+    assert client.delete(f"/api/grocery/{first.json()['id']}", cookies=cookies).status_code == 404
+    assert client.patch(f"/api/grocery/{first.json()['id']}", json={"name": "Gone"}, cookies=cookies).status_code == 404
+    bread = client.post("/api/grocery", json={"name": "Sourdough", "quantity": "1 loaf", "section": "Bakery"}, cookies=cookies)
+    assert bread.status_code == 201
+    assert client.post(f"/api/grocery/{bread.json()['id']}/check").status_code == 401
+    checked = client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies)
+    assert checked.status_code == 200
+    assert checked.json()["checked"] is True
+    assert "checkedAt" in checked.json()
+    again = client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies)
+    assert again.status_code == 200
+    assert again.json()["checkedAt"] == checked.json()["checkedAt"]
+    back = client.post(f"/api/grocery/{bread.json()['id']}/uncheck", cookies=cookies)
+    assert back.status_code == 200
+    assert back.json()["checked"] is False
+    assert "checkedAt" not in back.json()
+    assert client.post("/api/grocery/missing-item/check", cookies=cookies).status_code == 404
+    assert client.post("/api/grocery/missing-item/uncheck", cookies=cookies).status_code == 404
+    assert client.post("/api/grocery/clear-checked").status_code == 401
+    water = client.post("/api/grocery", json={"name": "Sparkling water", "quantity": "8 cans"}, cookies=cookies)
+    assert water.status_code == 201
+    assert client.post(f"/api/grocery/{bread.json()['id']}/check", cookies=cookies).status_code == 200
+    kept = client.post("/api/grocery", json={"name": "Bananas", "quantity": "6", "section": "Produce"}, cookies=cookies)
+    assert kept.status_code == 201
+    empty = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert empty.status_code == 200
+    assert bread.json()["id"] in empty.json()["ids"]
+    assert water.json()["id"] not in empty.json()["ids"]
+    assert kept.json()["id"] not in empty.json()["ids"]
+    names = [row["name"] for row in client.get("/api/grocery", cookies=cookies).json()]
+    assert "Sourdough" not in names
+    assert "Sparkling water" in names
+    assert "Bananas" in names
+    assert client.post(f"/api/grocery/{water.json()['id']}/check", cookies=cookies).status_code == 200
+    second = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert second.json()["ids"] == [water.json()["id"]]
+    noop = client.post("/api/grocery/clear-checked", cookies=cookies)
+    assert noop.json()["deleted"] == 0
+    assert noop.json()["ids"] == []
