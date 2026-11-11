@@ -1,7 +1,7 @@
 /**
  * Production shows only the live primary tabs and the live Finance subtabs.
  * Preview and local dev keep the full nav. Flip a Finance subtab on by setting live: true.
- * Debts stays unshipped until its page exists; then set shipped and live to true.
+ * Debts is shipped for preview. Production keeps live false and the route gated.
  */
 
 export const DEV_PRIMARY = [
@@ -25,7 +25,7 @@ export const FINANCE_TABS = [
   { href: "/finance/categories", label: "Categories", live: true, shipped: true },
   { href: "/finance/goals", label: "Goals", live: false, shipped: true },
   { href: "/finance/accounts", label: "Accounts", live: true, shipped: true },
-  { href: "/finance/debts", label: "Debts", live: false, shipped: false },
+  { href: "/finance/debts", label: "Debts", live: false, shipped: true },
   { href: "/finance/bills", label: "Bills", live: true, shipped: true },
 ];
 

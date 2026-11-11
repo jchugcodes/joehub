@@ -497,6 +497,32 @@ export async function handleFinanceDeleteAccount(id, headers, env, store, limite
   }
 }
 
+export async function handleFinanceDebts(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeDebts !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeDebts(financeWhen(now, url).now) };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceDebt(id, headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeDebt !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeDebt(id, financeWhen(now, url).now);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinanceBills(headers, env, store, limiter, now, ip, url = "") {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

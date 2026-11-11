@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { accountsSnapshot, categoriesFromCaps, categoryView, createAccount, createTransaction, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, categoriesFromCaps, categoryView, createAccount, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
@@ -240,6 +240,21 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     await command(["SET", flagKey, "1", "NX"]);
   }
 
+  async function ensureDebtSeed() {
+    if (!allowSeed) return;
+    const flagKey = k("joehub:finance:seeded:v4");
+    if ((await command(["GET", flagKey])) != null) return;
+    for (const account of SEED_ACCOUNTS) {
+      if (account.type !== "student" && account.type !== "installment") continue;
+      const key = k(`joehub:finance:account:${account.id}`);
+      const created = await command(["SET", key, JSON.stringify(account), "NX"]);
+      if (created === "OK" || (await command(["GET", key])) != null) {
+        await command(["ZADD", k("joehub:finance:accounts:index"), String(account.createdAt), account.id]);
+      }
+    }
+    await command(["SET", flagKey, "1", "NX"]);
+  }
+
   async function listBills() {
     const ids = (await command(["ZRANGEBYSCORE", k("joehub:finance:bills:index"), "0", "9007199254740991"])) || [];
     const bills = [];
@@ -329,6 +344,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     const raw = await command(["GET", flagKey]);
     if (raw === "1") {
       await ensureAccountSeed();
+      await ensureDebtSeed();
       await ensureBillSeed();
       return;
     }
@@ -354,6 +370,7 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     if (legacy) await command(["SET", flagKey, "1"]);
     else await command(["SET", flagKey, "1", "NX"]);
     await ensureAccountSeed();
+    await ensureDebtSeed();
     await ensureBillSeed();
   }
 
@@ -750,6 +767,15 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const result = patchAccount(existing, id, body, now);
       if (result.status === 200) await command(["SET", k(`joehub:finance:account:${id}`), JSON.stringify(result.account)]);
       return { status: result.status, body: result.body };
+    },
+    async financeDebts(now = Date.now()) {
+      await ensureFinance();
+      return debtsSnapshot(await listManualAccounts(), now);
+    },
+    async financeDebt(id, now = Date.now()) {
+      await ensureFinance();
+      const debt = debtById(await listManualAccounts(), id, now);
+      return debt ? { status: 200, body: debt } : { status: 404, body: { detail: "That debt is not here." } };
     },
     async financeDeleteAccount(id) {
       await ensureFinance();
