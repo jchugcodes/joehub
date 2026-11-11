@@ -193,6 +193,7 @@ export function presentAccount(account, now = Date.now()) {
     balanceAsOf: Number.isInteger(account.balanceAsOf) ? new Date(account.balanceAsOf).toISOString() : null,
     hiddenFromNetWorth: Boolean(account.hiddenFromNetWorth),
     closed: Boolean(account.closed),
+    estimate: Boolean(account.estimate),
     stale: accountIsStale(account, now),
     group: account.hiddenFromNetWorth ? "Hidden" : accountGroup(account.type),
     amountCents: account.balanceCents,
@@ -294,6 +295,35 @@ export function money(cents, digits) {
   const [whole, frac] = text.split(".");
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${sign}$${frac ? `${grouped}.${frac}` : grouped}`;
+}
+
+/** Net worth always shows cents. The minus sits in front of the dollar sign. */
+export function netWorthText(cents) {
+  return money(cents, true);
+}
+
+export function chartAxis(points) {
+  const values = (points || []).filter((value) => Number.isFinite(value));
+  if (!values.length) return { min: 0, max: 0, zero: null };
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = high - low || 1;
+  if (low < 0 && high > 0) return { min: low, max: high, zero: 0 };
+  if (low < 0 && high <= 0 && Math.abs(high) <= span * 4) return { min: low, max: 0, zero: 0 };
+  return { min: low, max: high, zero: null };
+}
+
+export function alignNetWorthSeries(points, netWorthCents) {
+  if (!Array.isArray(points) || !points.length || !Number.isInteger(netWorthCents)) return points || [];
+  const delta = netWorthCents - points[points.length - 1];
+  if (!delta) return points.slice();
+  return points.map((value) => value + delta);
+}
+
+export function collapsedRows(rows, { expanded = false, limit = 5 } = {}) {
+  const list = rows || [];
+  if (expanded || list.length <= limit) return { rows: list, more: 0 };
+  return { rows: list.slice(0, limit), more: list.length - limit };
 }
 
 export function effective(row) {
@@ -515,6 +545,20 @@ function weeklySeries(txns, from, to) {
   return [...weeks.keys()].sort().map((week) => ({ week, cents: weeks.get(week) }));
 }
 
+function presentChart(chart, netWorthCents) {
+  const next = { ...chart, points: chart.points.slice() };
+  if (next.kind === "net-worth") {
+    next.points = alignNetWorthSeries(next.points, netWorthCents);
+    const delta = next.points.length > 1 ? next.points[next.points.length - 1] - next.points[0] : 0;
+    if (delta < 0 || String(next.caption || "").includes("$-")) {
+      const sign = delta > 0 ? "+" : "";
+      next.caption = `${sign}${money(delta, true)} YTD`;
+    }
+  }
+  next.axis = chartAxis(next.points);
+  return next;
+}
+
 export function chartFor(txns, today, range, snapshot) {
   const current = weekStart(today);
   if (range === "YTD") {
@@ -566,6 +610,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
   const chosen = ["1W", "1M", "YTD", "1Y", "All"].includes(range) ? range : "YTD";
   const planCents = context.planCents ?? PLAN_CENTS;
   const snapshot = context.snapshot || seedSnapshots();
+  const netWorthCents = Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents;
   const rows = rowsInWeek(txns, start);
   const order = new Map(RECENT_IDS.map((id, index) => [id, index]));
   const recent = [...rows].sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99) || (a.date < b.date ? 1 : -1));
@@ -580,8 +625,8 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       daysLeft: daysLeft(today, start),
       previousWeek: addDays(start, -7),
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
-      netWorthCents: Number.isInteger(context.netWorthCents) ? context.netWorthCents : snapshot.netWorthCents,
-      chart: chartFor(txns, today, chosen, snapshot),
+      netWorthCents,
+      chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
       month: monthProgress(txns, today, planCents),
       caps: capsForWeek(txns, start, caps, context.categories || CATEGORIES),
       recent: recent.map((row) => ({
@@ -880,7 +925,25 @@ export function parseAccount(body, current = {}) {
       return { ok: false, detail: "Use a source id like notion:page-id.", field: "sourceId" };
     } else sourceId = source.sourceId.trim();
   }
-  return { ok: true, draft: { name, type, balanceCents: rawBalance, institution, hiddenFromNetWorth, closed, mask, sourceId } };
+  let estimate = Boolean(current.estimate);
+  if (Object.prototype.hasOwnProperty.call(source, "estimate")) {
+    if (typeof source.estimate !== "boolean") return { ok: false, detail: "Choose yes or no.", field: "estimate" };
+    estimate = source.estimate;
+  }
+  let balanceAsOf = Number.isInteger(current.balanceAsOf) ? current.balanceAsOf : null;
+  if (Object.prototype.hasOwnProperty.call(source, "balanceAsOf")) {
+    const parsed = readBalanceAsOf(source.balanceAsOf);
+    if (parsed == null) return { ok: false, detail: "Enter a date.", field: "balanceAsOf" };
+    balanceAsOf = parsed;
+  }
+  return { ok: true, draft: { name, type, balanceCents: rawBalance, institution, hiddenFromNetWorth, closed, mask, sourceId, estimate, balanceAsOf } };
+}
+
+function readBalanceAsOf(value) {
+  if (Number.isInteger(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function applyAccountDraft(account, draft, now) {
@@ -888,7 +951,9 @@ function applyAccountDraft(account, draft, now) {
   if (!next.institution) delete next.institution;
   if (!next.mask) delete next.mask;
   if (!next.sourceId) delete next.sourceId;
-  if (draft.balanceCents !== account.balanceCents) next.balanceAsOf = now;
+  if (!next.estimate) delete next.estimate;
+  if (!Number.isInteger(next.balanceAsOf)) delete next.balanceAsOf;
+  if (draft.balanceCents !== account.balanceCents && !Number.isInteger(draft.balanceAsOf)) next.balanceAsOf = now;
   return next;
 }
 
@@ -900,7 +965,7 @@ export function createAccount(accounts, body, now = Date.now(), seq = 1) {
     parsed.draft,
     now,
   );
-  account.balanceAsOf = now;
+  if (!Number.isInteger(account.balanceAsOf)) account.balanceAsOf = now;
   return { status: 201, body: presentAccount(account, now), accounts: [...accounts, account], account };
 }
 

@@ -15,6 +15,7 @@ type Account = {
   balanceCents: number;
   institution?: string;
   hiddenFromNetWorth: boolean;
+  estimate?: boolean;
   stale: boolean;
   group: string;
   balanceAsOf: string | null;
@@ -47,8 +48,18 @@ function money(cents: number) {
   const abs = Math.abs(cents);
   const text = (abs / 100).toFixed(2);
   const [whole, frac] = text.split(".");
-  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
+  return `${cents < 0 ? "−" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
 }
+
+function wholeDollars(cents: number) {
+  return `${cents < 0 ? "−" : ""}$${Math.trunc(Math.abs(cents) / 100).toLocaleString("en-US")}`;
+}
+
+function asOfDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Detroit", month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+const COLLAPSE_AT = 5;
 
 function signed(cents: number) {
   return `${cents < 0 ? "−" : "+"}${money(cents)}`;
@@ -117,6 +128,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const previewEmpty = search.get("view") === "empty";
   const previewLink = search.get("link") || "";
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<Txn[]>([]);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -449,10 +461,13 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     <div className="min-w-0">
       <p className="text-title font-medium tabular-nums">{money(selected.balanceCents)}</p>
       <p className="mt-1 text-meta text-muted">{sourceLine(selected)}</p>
-      {selected.stale && selected.balanceAsOf ? (
+      {selected.estimate || selected.stale || (selected.type === "loan" && selected.balanceAsOf) ? (
         <p className="mt-2">
-          <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span>
-          <span className="ml-2 text-meta text-muted">{stamp(selected.balanceAsOf)}</span>
+          {selected.estimate ? <span className="mr-2 rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}
+          {selected.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
+          {selected.balanceAsOf && (selected.stale || selected.type === "loan") ? (
+            <span className="ml-2 text-meta text-muted">{selected.type === "loan" && !selected.stale ? `As of ${asOfDate(selected.balanceAsOf)}` : stamp(selected.balanceAsOf)}</span>
+          ) : null}
         </p>
       ) : null}
       <div className="mt-4 flex min-h-14 items-center justify-between gap-3 rounded-[20px] border border-line bg-surface px-4">
@@ -559,8 +574,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             {snapshot && !empty && net ? (
               <section className={`${wide ? "" : "mx-4"} rounded-[20px] border border-line bg-surface p-4`}>
                 <p className="text-meta text-muted">Net worth</p>
-                <p className="mt-1 font-medium tabular-nums">
-                  <span className="text-title">${Math.floor(net.netWorthCents! / 100).toLocaleString("en-US")}</span>
+                <p className="mt-1 font-medium tabular-nums" data-net-worth={net.netWorthCents}>
+                  <span className="text-title">{wholeDollars(net.netWorthCents!)}</span>
                   <span className="text-section">.{String(Math.abs(net.netWorthCents!) % 100).padStart(2, "0")}</span>
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -577,14 +592,20 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               </section>
             ) : null}
             {snapshot && !empty
-              ? groups().map((group) => (
+              ? groups().map((group) => {
+                  const holdsSelection = group.rows.some((account, index) => account.id === selectedId && index >= COLLAPSE_AT);
+                  const expanded = Boolean(openGroups[group.name]) || holdsSelection;
+                  const hidden = !expanded && group.rows.length > COLLAPSE_AT ? group.rows.length - COLLAPSE_AT : 0;
+                  const visible = hidden ? group.rows.slice(0, COLLAPSE_AT) : group.rows;
+                  const moreLabel = group.name === "Loans" ? "loans" : group.name === "Credit cards" ? "cards" : "accounts";
+                  return (
                   <section key={group.name}>
                     <div className={`mt-5 flex items-baseline justify-between ${wide ? "" : "px-5"}`}>
                       <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : ""}`}>{group.name}</h2>
                       <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : ""}`}>{money(group.total)}</p>
                     </div>
                     <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                      {group.rows.map((account) => {
+                      {visible.map((account) => {
                         const current = account.id === selectedId;
                         return (
                           <li key={account.id} className={account.hiddenFromNetWorth ? "opacity-60" : ""}>
@@ -597,18 +618,34 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-body font-medium">
                                   {account.name}{" "}
+                                  {account.estimate ? <span className="rounded bg-line px-1.5 py-0.5 text-meta font-medium text-muted">est.</span> : null}{" "}
                                   {account.stale ? <span className="rounded bg-finance-dining/10 px-1.5 py-0.5 text-meta font-medium text-finance-dining">Stale</span> : null}
                                 </span>
-                                <span className="mt-0.5 block text-meta text-muted">{sourceLine(account)}</span>
+                                <span className="mt-0.5 block text-meta text-muted">
+                                  {sourceLine(account)}
+                                  {account.type === "loan" && account.balanceAsOf ? ` · as of ${asOfDate(account.balanceAsOf)}` : ""}
+                                </span>
                               </span>
                               <span className="shrink-0 text-body font-medium tabular-nums">{money(account.balanceCents)}</span>
                             </Link>
                           </li>
                         );
                       })}
+                      {hidden ? (
+                        <li>
+                          <button
+                            type="button"
+                            className="flex min-h-11 w-full items-center px-4 text-left text-body font-medium text-muted"
+                            onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: true }))}
+                          >
+                            {hidden} more {moreLabel}
+                          </button>
+                        </li>
+                      ) : null}
                     </ul>
                   </section>
-                ))
+                  );
+                })
               : null}
           </div>
         ) : (

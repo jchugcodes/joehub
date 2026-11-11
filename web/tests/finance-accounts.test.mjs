@@ -16,11 +16,19 @@ import {
 import {
   ACCOUNTS,
   accountsSnapshot,
+  chartAxis,
+  collapsedRows,
+  createAccount,
   installMemoryFinance,
+  money,
+  netWorthText,
   NET_WORTH_CENTS,
+  overview,
   parseAccount,
   rollUpAccounts,
   SEED_ACCOUNTS,
+  SEED_TRANSACTIONS,
+  seedSnapshots,
 } from "../lib/finance.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
@@ -301,4 +309,44 @@ test("production does not write the account seed", async () => {
   } finally {
     await fake.stop();
   }
+});
+
+test("a negative net worth keeps the minus in front of the dollar sign", () => {
+  const loans = [
+    { type: "loan", balanceCents: 12_900_536, hiddenFromNetWorth: false, closed: false },
+    ...Array.from({ length: 5 }, () => ({ type: "loan", balanceCents: 100_000, hiddenFromNetWorth: false, closed: false })),
+  ];
+  const rolled = rollUpAccounts([...SEED_ACCOUNTS, ...loans]);
+  assert.equal(rolled.netWorthCents, -11_553_300);
+  assert.equal(netWorthText(rolled.netWorthCents), "−$115,533.00");
+  assert.equal(money(rolled.netWorthCents, true).includes("$-"), false);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: rolled.netWorthCents, snapshot: seedSnapshots() });
+  assert.equal(view.body.netWorthCents, -11_553_300);
+  assert.equal(view.body.chart.points.at(-1), -11_553_300);
+  assert.ok(Math.min(...view.body.chart.points) < 0);
+  assert.equal(view.body.chart.axis.max < 0, true);
+  assert.equal(view.body.chart.axis.zero, null);
+  assert.equal(String(view.body.chart.caption).includes("$-"), false);
+  assert.equal(chartAxis([-100, 40]).zero, 0);
+  assert.equal(chartAxis([-500, -100]).max, 0);
+  const listed = collapsedRows(loans);
+  assert.equal(listed.rows.length, 5);
+  assert.equal(listed.more, 1);
+  assert.equal(collapsedRows(loans, { expanded: true }).more, 0);
+});
+
+test("a loan can be marked as an estimate and keep an as-of date", () => {
+  const created = createAccount([], {
+    name: "Student loan",
+    type: "loan",
+    balanceCents: 12_900_536,
+    estimate: true,
+    balanceAsOf: "2026-11-01T16:00:00.000Z",
+  }, NOW, 1);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.estimate, true);
+  assert.equal(created.body.type, "loan");
+  assert.equal(created.body.balanceAsOf, "2026-11-01T16:00:00.000Z");
+  assert.equal(parseAccount({ name: "Student loan", type: "loan", balanceCents: 1, estimate: "yes" }).ok, false);
+  assert.equal(parseAccount({ name: "Student loan", type: "loan", balanceCents: 1, balanceAsOf: "nope" }).ok, false);
 });

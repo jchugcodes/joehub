@@ -32,7 +32,7 @@ type Overview = {
   previousWeek: string;
   nextWeek: string | null;
   netWorthCents: number;
-  chart: { range: string; kind: string; caption: string; points: number[] };
+  chart: { range: string; kind: string; caption: string; points: number[]; axis?: { min: number; max: number; zero: number | null } };
   month: { label: string; spentCents: number; planCents: number; percent: number; day: number; days: number };
   caps: Cap[];
   recent: Recent[];
@@ -43,7 +43,7 @@ const CACHE = "joehub.finance.overview";
 
 function dollars(cents: number) {
   const whole = Math.trunc(Math.abs(cents) / 100);
-  return `$${whole.toLocaleString("en-US")}`;
+  return `${cents < 0 ? "−" : ""}$${whole.toLocaleString("en-US")}`;
 }
 
 function centsPart(cents: number) {
@@ -70,21 +70,23 @@ function stamp(ms: number) {
   }).format(ms);
 }
 
-function chartGeometry(points: number[]) {
-  if (!points.length) return { line: "", fill: "" };
+function chartGeometry(points: number[], axis?: { min: number; max: number; zero: number | null }) {
+  if (!points.length) return { line: "", fill: "", zeroY: null as number | null };
   const width = 360;
   const height = 120;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
+  const min = axis ? axis.min : Math.min(...points);
+  const max = axis ? axis.max : Math.max(...points);
   const span = max - min || 1;
-  const line = points
-    .map((value, index) => {
-      const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-      const y = height - 8 - ((value - min) / span) * (height - 16);
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return { line, fill: `${line} L${width} ${height} L0 ${height} Z` };
+  const yOf = (value: number) => height - 8 - ((value - min) / span) * (height - 16);
+  const coords = points.map((value, index) => {
+    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+    return { x, y: yOf(value) };
+  });
+  const line = coords.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const zeroY = axis && axis.zero != null ? yOf(axis.zero) : null;
+  const base = zeroY == null ? height : zeroY;
+  const fill = `${line} L${coords[coords.length - 1].x.toFixed(1)} ${base.toFixed(1)} L${coords[0].x.toFixed(1)} ${base.toFixed(1)} Z`;
+  return { line, fill, zeroY };
 }
 
 export function FinanceOverview() {
@@ -278,7 +280,7 @@ export function FinanceOverview() {
         <div className="lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:gap-8">
           <section className="px-5 pt-5">
             <p className="text-meta text-muted">Net worth</p>
-            <p className="mt-1 font-medium leading-none">
+            <p className="mt-1 font-medium leading-none" data-net-worth={overview.netWorthCents}>
               <span className="text-title">{dollars(overview.netWorthCents)}</span>
               <span className="text-section">.{centsPart(overview.netWorthCents)}</span>
             </p>
@@ -286,9 +288,25 @@ export function FinanceOverview() {
             {!offline ? (
               <div className="mt-4" data-chart={overview.chart.range} data-points={overview.chart.points.join(",")}>
                 <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
-                  <path d={chartGeometry(overview.chart.points).fill} fill="#2E8B6A" opacity="0.1" />
-                  <path d={chartGeometry(overview.chart.points).line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
+                  <path d={chartGeometry(overview.chart.points, overview.chart.axis).fill} fill="#2E8B6A" opacity="0.1" />
+                  {chartGeometry(overview.chart.points, overview.chart.axis).zeroY != null ? (
+                    <line
+                      x1="0"
+                      x2="360"
+                      y1={chartGeometry(overview.chart.points, overview.chart.axis).zeroY ?? 0}
+                      y2={chartGeometry(overview.chart.points, overview.chart.axis).zeroY ?? 0}
+                      stroke="#C9CEC8"
+                      strokeWidth="1"
+                    />
+                  ) : null}
+                  <path d={chartGeometry(overview.chart.points, overview.chart.axis).line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
                 </svg>
+                {overview.chart.axis && overview.chart.axis.min < 0 ? (
+                  <p className="mt-1 flex justify-between text-meta text-muted">
+                    <span>{money(overview.chart.axis.min, true)}</span>
+                    <span>{money(overview.chart.axis.max, true)}</span>
+                  </p>
+                ) : null}
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex min-w-0 flex-1 gap-1">
                     {RANGES.map((item) => (
@@ -331,7 +349,7 @@ export function FinanceOverview() {
                   <span className="text-body font-normal text-muted">of {money(overview.month.planCents, false)} plan</span>
                 </p>
                 <div className="relative mt-3 h-2.5 rounded-full bg-line">
-                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, overview.month.percent)}%`, background: "#E07A5F" }} />
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, overview.month.percent))}%`, background: "#E07A5F" }} />
                   <span className="absolute -top-1 h-[18px] w-0.5 bg-ink" style={{ left: `${Math.min(100, Math.round((overview.month.day / overview.month.days) * 100))}%` }} />
                 </div>
                 <p className="mt-2 flex justify-between text-meta text-muted">

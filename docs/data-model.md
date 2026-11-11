@@ -145,11 +145,11 @@ Manual account records:
 
 Required: `id`, `name` (1–80), `type`, `balanceCents`, `createdAt` (epoch ms), `updatedAt` (epoch ms).
 
-`type` is `checking`, `savings`, `credit card`, `cash`, `investment`, `loan`, or `other`. `balanceCents` is an integer with absolute value at most `100000000`. `0` is allowed. `credit card` and `loan` are liabilities. Every other type is an asset.
+`type` is `checking`, `savings`, `credit card`, `cash`, `investment`, `brokerage`, `loan`, or `other`. `balanceCents` is an integer with absolute value at most `100000000`. `0` is allowed. `credit card` and `loan` are liabilities. Every other type is an asset.
 
-When the index has at least one account, net worth is the sum of asset `balanceCents` minus the sum of liability `balanceCents`. The accounts page lists those records. The legacy snapshot totals are not used for that figure. Write the legacy snapshot as well, with the same totals, so a database that has no manual accounts still has a figure, and so the overview's required-key check succeeds.
+When the index has at least one account, net worth is the sum of asset `balanceCents` minus the sum of liability `balanceCents`. That figure may be negative. The accounts page lists those records. An empty index does not fall back to the legacy snapshot's net worth. Write the legacy snapshot as well, with the same totals, so the overview's required-key check succeeds.
 
-Optional: `sourceId`, and `mask`. `mask` is exactly four digits, the last four of an account number. There is no field for a full account number. Omit `mask` when it is unknown. Do not write any other number field.
+Optional: `sourceId`, `mask`, `estimate`, and `balanceAsOf`. `mask` is exactly four digits, the last four of an account number. There is no field for a full account number. Omit `mask` when it is unknown. `estimate` is a boolean. Set it when the balance is an estimate; the list shows `est.` and does not treat that as an alarm. `balanceAsOf` is epoch milliseconds. Loans show that date. Do not write any other number field.
 
 A transaction's optional `accountId` is one of these account ids. The app rejects a transaction write whose `accountId` is not in the index. Rows with no `accountId` stay valid.
 
