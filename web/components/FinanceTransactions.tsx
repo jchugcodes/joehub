@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { Sheet } from "./Sheet";
@@ -186,25 +187,25 @@ export function FinanceTransactions() {
   }
 
   const form = (
-    <form onSubmit={save} className="flex min-h-0 flex-1 flex-col">
-      <div className="space-y-3">
+    <form id="finance-form" onSubmit={save} className="flex min-h-0 flex-1 flex-col">
+      <div className="space-y-5">
         <label className="block text-meta text-muted" htmlFor="txn-payee">
           Merchant
-          <input id="txn-payee" value={payee} disabled={offline} data-autofocus className="mt-1 h-12 w-full rounded-xl border border-line bg-page px-3 text-body text-ink" onChange={(event) => setPayee(event.target.value)} />
+          <input id="txn-payee" value={payee} disabled={offline} data-autofocus inputMode="text" enterKeyHint="next" className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border border-line bg-page px-3 text-base text-ink" onChange={(event) => setPayee(event.target.value)} />
         </label>
         <div className="flex gap-3">
-          <label className="block flex-1 text-meta text-muted" htmlFor="txn-amount">
+          <label className="block min-w-0 flex-1 text-meta text-muted" htmlFor="txn-amount">
             Amount
-            <input id="txn-amount" inputMode="decimal" value={amount} disabled={offline} className="mt-1 h-12 w-full rounded-xl border border-line bg-page px-3 text-body text-ink" onChange={(event) => setAmount(event.target.value)} />
+            <input id="txn-amount" inputMode="decimal" enterKeyHint="next" value={amount} disabled={offline} className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border border-line bg-page px-3 text-base text-ink" onChange={(event) => setAmount(event.target.value)} />
           </label>
-          <label className="block flex-1 text-meta text-muted" htmlFor="txn-date">
+          <label className="block min-w-0 flex-1 text-meta text-muted" htmlFor="txn-date">
             Date
-            <input id="txn-date" type="date" value={date} disabled={offline} className="mt-1 h-12 w-full rounded-xl border border-line bg-page px-3 text-body text-ink" onChange={(event) => setDate(event.target.value)} />
+            <input id="txn-date" type="date" enterKeyHint="done" value={date} disabled={offline} className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border border-line bg-page px-3 text-base text-ink" onChange={(event) => setDate(event.target.value)} />
           </label>
         </div>
         <div className="flex flex-wrap gap-2">
           {["expense", "income", "transfer", "refund"].map((item) => (
-            <button key={item} type="button" aria-pressed={kind === item} className={`min-h-11 rounded-full px-3 text-meta ${kind === item ? "bg-ink text-page" : "border border-line"}`} onClick={() => setKind(item)}>
+            <button key={item} type="button" aria-pressed={kind === item} className={`min-h-11 min-w-11 rounded-full px-3 text-meta ${kind === item ? "bg-ink text-page" : "border border-line"}`} onClick={() => setKind(item)}>
               {item === "expense" ? "Expense" : item === "income" ? "Income" : item === "transfer" ? "Transfer" : "Refund"}
             </button>
           ))}
@@ -212,11 +213,11 @@ export function FinanceTransactions() {
         {kind === "expense" || kind === "refund" ? (
           <div className="flex flex-wrap gap-2">
             {CATEGORIES.map(([slug, name]) => (
-              <button key={slug} type="button" aria-pressed={category === slug} className={`min-h-11 rounded-full px-3 text-meta ${category === slug ? "bg-ink text-page" : "border border-line"}`} onClick={() => setCategory(slug)}>
+              <button key={slug} type="button" aria-pressed={category === slug} className={`min-h-11 min-w-11 rounded-full px-3 text-meta ${category === slug ? "bg-ink text-page" : "border border-line"}`} onClick={() => setCategory(slug)}>
                 {name}
               </button>
             ))}
-            <button type="button" aria-pressed={!category} className={`min-h-11 rounded-full px-3 text-meta ${!category ? "bg-ink text-page" : "border border-line"}`} onClick={() => setCategory("")}>
+            <button type="button" aria-pressed={!category} className={`min-h-11 min-w-11 rounded-full px-3 text-meta ${!category ? "bg-ink text-page" : "border border-line"}`} onClick={() => setCategory("")}>
               Uncategorized
             </button>
           </div>
@@ -230,14 +231,16 @@ export function FinanceTransactions() {
         {error ? <p className="text-body text-[#E07A5F]">{error}</p> : null}
         {offline ? <p className="text-body">Can’t edit offline</p> : null}
       </div>
-      <div className="sticky bottom-0 mt-4 flex gap-3 border-t border-line bg-surface py-3">
-        <button type="button" className="min-h-11 flex-1 rounded-xl border border-line text-body" onClick={close}>
-          Cancel
-        </button>
-        <button type="submit" className="min-h-11 flex-1 rounded-xl bg-ink text-body text-page disabled:opacity-40" disabled={offline || saving}>
-          {editing?.source === "ledger" ? "Save correction" : "Save"}
-        </button>
-      </div>
+      {wide ? (
+        <div className="sticky bottom-0 mt-5 flex gap-3 border-t border-line bg-surface py-3">
+          <button type="button" className="min-h-11 min-w-11 flex-1 rounded-xl border border-line text-body" onClick={close}>
+            Cancel
+          </button>
+          <button type="submit" className="min-h-11 min-w-11 flex-1 rounded-xl bg-ink text-body text-page disabled:opacity-40" disabled={offline || saving}>
+            {editing?.source === "ledger" ? "Save correction" : "Save"}
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 
@@ -278,12 +281,15 @@ export function FinanceTransactions() {
               {week.rows.map((row) =>
                 row.corrected && row.latest && row.correction && row.original ? (
                   <li key={row.id} className="my-3 rounded-2xl border border-line p-4" data-conflict={row.id}>
-                    <button type="button" aria-label={`Edit ${row.payee}`} className="w-full text-left" onClick={() => show(row, week.today)}>
-                      <span className="block text-body font-medium">
-                        {row.payee} <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span>
+                    <button type="button" aria-label={`Edit ${row.payee}`} className="flex min-h-11 w-full items-center gap-3 text-left" onClick={() => show(row, week.today)}>
+                      <CategoryMark category={row.category} type={row.type} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-body font-medium">
+                          {row.payee} <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span>
+                        </span>
+                        <span className="block text-meta text-muted">{row.meta}</span>
+                        <span className="mt-2 block text-title font-medium">{money(row.amountCents)}</span>
                       </span>
-                      <span className="block text-meta text-muted">{row.meta}</span>
-                      <span className="mt-2 block text-title font-medium">{money(row.amountCents)}</span>
                     </button>
                     <dl className="mt-3 space-y-2 text-body">
                       <div className="flex justify-between gap-3"><dt className="text-muted">Original from Ledger</dt><dd>{ledgerLine(row.original)}</dd></div>
@@ -296,8 +302,9 @@ export function FinanceTransactions() {
                   </li>
                 ) : (
                   <li key={row.id}>
-                    <button type="button" aria-label={row.payee} className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-line py-2.5 text-left" onClick={() => show(row, week.today)}>
-                      <span>
+                    <button type="button" aria-label={row.payee} className="flex min-h-11 w-full items-center gap-3 border-b border-line py-2.5 text-left" onClick={() => show(row, week.today)}>
+                      <CategoryMark category={row.category} type={row.type} />
+                      <span className="min-w-0 flex-1">
                         <span className="block text-body font-medium">{row.payee}</span>
                         <span className="block text-meta text-muted">
                           {row.meta}
@@ -322,7 +329,16 @@ export function FinanceTransactions() {
         </Sheet>
       ) : null}
       {open && !wide ? (
-        <Sheet title={editing ? "Edit transaction" : "Add expense or income"} frame dock="sheet" onClose={close} titleClassName="finance-type text-section font-medium">
+        <Sheet
+          title={editing ? "Edit transaction" : "Add expense or income"}
+          frame
+          dock="sheet"
+          formId="finance-form"
+          saveLabel={saving ? "Saving…" : editing?.source === "ledger" ? "Save correction" : "Save"}
+          saveDisabled={offline || saving}
+          onClose={close}
+          titleClassName="finance-type text-section font-medium"
+        >
           {form}
         </Sheet>
       ) : null}

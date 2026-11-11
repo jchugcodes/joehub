@@ -374,6 +374,8 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
         amountCents: row.amountCents,
         meta: recentMeta(row),
         corrected: row.corrected,
+        category: row.category,
+        type: row.type,
       })),
       empty: rows.length === 0,
     },
