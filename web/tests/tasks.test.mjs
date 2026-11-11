@@ -596,3 +596,19 @@ test("task get and patch require a session and share the api limiter", async () 
   assert.equal(blocked.status, 429);
   assert.equal((await store.getTask(created.body.id)).title, "Limited edited");
 });
+
+test("the task seed completed date follows the request clock", async () => {
+  const fake = await startFakeUpstash();
+  try {
+    const now = Date.parse("2026-11-11T11:42:00.000Z");
+    const store = createUpstashStore({ url: fake.url, token: fake.token });
+    const listed = await store.listUnfinishedTasks(now);
+    const kit = listed.find((task) => task.id === KIT_ID);
+    assert.equal(kit.completedAt, buildSampleTasks(now).find((task) => task.id === KIT_ID).completedAt);
+    assert.notEqual(kit.completedAt, buildSampleTasks(now - 10 * 24 * 60 * 60 * 1000).find((task) => task.id === KIT_ID).completedAt);
+    const again = await store.listUnfinishedTasks(now + 24 * 60 * 60 * 1000);
+    assert.equal(again.find((task) => task.id === KIT_ID).completedAt, kit.completedAt);
+  } finally {
+    await fake.stop();
+  }
+});

@@ -71,6 +71,7 @@ body {
 
 html {
   scroll-padding-bottom: calc(var(--primary-nav-height, 84px) + 28px);
+  scrollbar-gutter: stable;
 }
 
 /* Outfit is scoped. Body stays DM Sans via font-sans. */
