@@ -52,6 +52,8 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(view.body.chart.points[0], 1718826);
   assert.equal(view.body.chart.points.at(-1), 1847236);
   assert.equal(view.body.recent[0].payee, "Payroll (example)");
+  assert.equal(view.body.recent[0].type, "income");
+  assert.equal(view.body.recent.find((row) => row.payee === "Northside Market").category, "groceries");
   const diningView = categoryView(SEED_TRANSACTIONS, NOW, "2026-11-09", "dining-out");
   assert.equal(diningView.body.rows.length, 5);
   assert.equal(diningView.body.rows.reduce((sum, row) => sum - row.amountCents, 0), 9200);

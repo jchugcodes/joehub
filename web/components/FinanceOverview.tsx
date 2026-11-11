@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FinanceTabs } from "./FinanceTabs";
+import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
@@ -21,7 +22,7 @@ type Cap = {
   tone: string;
   status: string;
 };
-type Recent = { id: string; payee: string; amountCents: number; meta: string; corrected: boolean };
+type Recent = { id: string; payee: string; amountCents: number; meta: string; corrected: boolean; category: string | null; type: string };
 type Overview = {
   asOf: string;
   weekStart: string;
@@ -386,8 +387,9 @@ export function FinanceOverview() {
             ) : (
               <ul className="mt-2">
                 {recent.map((row) => (
-                  <li key={row.id} className="flex min-h-11 items-center justify-between gap-3 border-b border-line py-3">
-                    <span>
+                  <li key={row.id} className="flex min-h-11 items-center gap-3 border-b border-line py-3">
+                    <CategoryMark category={row.category} type={row.type} />
+                    <span className="min-w-0 flex-1">
                       <span className="block text-body">{row.payee}</span>
                       <span className="block text-meta text-muted">{row.meta}</span>
                     </span>
