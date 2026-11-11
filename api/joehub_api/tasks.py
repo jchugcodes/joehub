@@ -225,6 +225,12 @@ class TaskStore:
         self.tasks[task_id] = updated
         return 200, updated
 
+    def delete(self, task_id: str) -> tuple[int, dict]:
+        if not TASK_ID.fullmatch(task_id) or task_id not in self.tasks:
+            return 404, dict(MISSING)
+        del self.tasks[task_id]
+        return 200, {"deleted": True, "id": task_id}
+
     def _purge(self, now: int) -> None:
         stale = [
             task_id

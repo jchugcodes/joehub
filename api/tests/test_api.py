@@ -78,7 +78,7 @@ def test_contract_paths_match_the_app() -> None:
             assert expected == {"get", "post"}
             continue
         if path == "/api/tasks/{id}":
-            assert expected == {"get", "patch"}
+            assert expected == {"get", "patch", "delete"}
             continue
         if path in {"/api/tasks/{id}/complete", "/api/tasks/{id}/reopen"}:
             assert expected == {"post"}

@@ -128,6 +128,7 @@ export default function TasksPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
   const [group, setGroup] = useState<"all" | "status" | "project">("all");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -245,6 +246,34 @@ export default function TasksPage() {
     return () => window.clearTimeout(timer);
   }, [link]);
 
+  useEffect(() => {
+    if (!confirmDelete) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setConfirmDelete(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const root = document.getElementById("delete-dialog");
+      const nodes = root ? [...root.querySelectorAll<HTMLElement>("button")] : [];
+      if (nodes.length < 2) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [confirmDelete]);
+
   function openAdd() {
     if (offline || mode !== "ready") return;
     idemRef.current = newKey();
@@ -272,6 +301,26 @@ export default function TasksPage() {
     setFormError("");
     setGone("");
     setSheet("edit");
+  }
+
+  async function removeTask() {
+    if (!editingId || offline) return;
+    try {
+      const response = await fetch(`/api/tasks/${editingId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setFormError("Couldn't delete this task. It is still here.");
+        setConfirmDelete(false);
+        return;
+      }
+      const removed = editingId;
+      setTasks((current) => current.filter((task) => task.id !== removed));
+      setConfirmDelete(false);
+      setSheet(null);
+      setEditingId("");
+    } catch {
+      setFormError("Couldn't delete this task. It is still here.");
+      setConfirmDelete(false);
+    }
   }
 
   function cancel() {
@@ -512,9 +561,14 @@ export default function TasksPage() {
   return (
     <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="relative min-w-0 flex-1">
-      <header className="px-5 pt-3">
-        <p className="text-meta text-muted">joehub</p>
-        <h1 className="text-title font-medium">Tasks</h1>
+      <header className="flex items-start justify-between gap-3 px-5 pt-3">
+        <div>
+          <p className="text-meta text-muted">joehub</p>
+          <h1 className="text-title font-medium">Tasks</h1>
+        </div>
+        <button type="button" aria-label="Search tasks" className="grid h-11 w-11 place-items-center text-ink" onClick={() => document.getElementById("task-search")?.focus()}>
+          <Icon name="search" size={22} />
+        </button>
       </header>
       {link === "offline" && savedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
@@ -702,6 +756,18 @@ export default function TasksPage() {
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
+          aside={
+            sheet === "edit" ? (
+              <button
+                type="button"
+                className="min-h-11 px-1 text-body font-medium text-[#E07A5F] disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                disabled={offline}
+              >
+                Delete
+              </button>
+            ) : null
+          }
           actions={
             wide ? (
               <div className="flex gap-2">
@@ -839,6 +905,20 @@ export default function TasksPage() {
             )}
           </form>
         </Sheet>
+      ) : null}
+      {confirmDelete ? (
+        <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+28px)]" role="alertdialog" aria-labelledby="delete-title">
+          <div className="card w-full max-w-phone p-5 shadow-2xl">
+            <h2 id="delete-title" className="text-section font-medium">Delete this task?</h2>
+            {formError ? <p role="alert" className="mt-2 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
+            <button type="button" autoFocus className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] text-body font-medium text-white" onClick={() => void removeTask()}>
+              Delete
+            </button>
+            <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-ink text-body font-medium" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

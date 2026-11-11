@@ -411,6 +411,14 @@ function dueForPurge(task, now) {
   return task && task.status === "Done" && typeof task.completedAt === "number" && task.completedAt < now - DONE_WINDOW_MS;
 }
 
+export async function performDelete(backend, id) {
+  if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
+  const existing = await backend.getTask(id);
+  if (!existing) return { status: 404, body: { detail: "This task is no longer here." } };
+  await backend.removeTask(id);
+  return { status: 200, body: { deleted: true, id } };
+}
+
 export async function performReopen(backend, id, now) {
   if (!isTaskId(id)) return { status: 404, body: { detail: "This task is no longer here." } };
   const existing = await backend.getTask(id);
@@ -508,5 +516,6 @@ export function installMemoryTasks(store) {
   store.patchTask = (id, raw, now) => performPatch(backend, id, raw, now);
   store.completeTask = (id, now) => backend.complete(id, now);
   store.reopenTask = (id, now) => backend.reopen(id, now);
+  store.deleteTask = (id) => performDelete(backend, id);
   return store;
 }
