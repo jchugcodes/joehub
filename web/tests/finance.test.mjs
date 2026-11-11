@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, resetLedger, seedSnapshots, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
-import { showNetWorthChart } from "../lib/live-pages.mjs";
+import { capsForWeek, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, overview, parseCaps, patchTransaction, PLAN_CENTS, resetLedger, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
 
@@ -80,6 +80,48 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(empty.body.daysLeft, null);
   assert.equal(empty.body.netWorthCents, 1847236);
   assert.equal(empty.body.caps.every((cap) => cap.spentCents === 0), true);
+});
+
+test("a weekly envelope is not a monthly plan", () => {
+  const month = monthProgress(SEED_TRANSACTIONS, "2026-11-10", ENVELOPE_CENTS, SEED_CATEGORIES);
+  assert.equal(month.spentCents, 112600);
+  assert.equal(month.planCents, null);
+  assert.equal(month.percent, null);
+  assert.equal(month.day, 10);
+  assert.equal(month.days, 30);
+  assert.match(month.label, /–/);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: ENVELOPE_CENTS, categories: SEED_CATEGORIES });
+  assert.equal(view.body.month.planCents, null);
+  assert.equal(view.body.month.percent, null);
+  assert.equal(view.body.month.spentCents, 112600);
+  const explicit = monthProgress(SEED_TRANSACTIONS, "2026-11-10", PLAN_CENTS, SEED_CATEGORIES);
+  assert.equal(explicit.planCents, PLAN_CENTS);
+  assert.equal(explicit.percent, 27);
+});
+
+test("production renders spent only even when monthly caps and a plan are stored", () => {
+  const categories = SEED_CATEGORIES.map((item) => ({
+    ...item,
+    monthlyCapCents: item.slug === "utilities" || item.slug === "school" ? null : 17934,
+  }));
+  const storedPlan = ENVELOPE_CENTS;
+  const env = { VERCEL_ENV: "production" };
+  const month = monthProgress(SEED_TRANSACTIONS, "2026-11-10", storedPlan, categories, env);
+  assert.equal(month.spentCents, 112600);
+  assert.equal(month.planCents, null);
+  assert.equal(month.percent, null);
+  assert.equal(month.day, 10);
+  assert.equal(month.days, 30);
+  assert.match(month.label, /–/);
+  assert.equal(showMonthBudget(true, month), false);
+  assert.equal(showMonthBudget(true, { planCents: 143470, percent: 74 }), false);
+  const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: storedPlan, categories, env });
+  assert.equal(view.body.month.planCents, null);
+  assert.equal(view.body.month.percent, null);
+  assert.equal(view.body.month.spentCents, 112600);
+  const preview = monthProgress(SEED_TRANSACTIONS, "2026-11-10", storedPlan, categories, {});
+  assert.equal(preview.planCents, 17934 * 8);
+  assert.equal(showMonthBudget(false, preview), true);
 });
 
 test("moving budget keeps the $390 total and rejects an over-move", async () => {
