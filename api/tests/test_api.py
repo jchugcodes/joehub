@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -82,6 +83,12 @@ def test_contract_paths_match_the_app() -> None:
             continue
         if path in {"/api/tasks/{id}/complete", "/api/tasks/{id}/reopen"}:
             assert expected == {"post"}
+            continue
+        if path == "/api/grocery":
+            assert expected == {"get", "post"}
+            continue
+        if path == "/api/grocery/{id}":
+            assert expected == {"get"}
             continue
         assert expected == {"get"}
     blob = json.dumps(live)
@@ -543,3 +550,46 @@ def test_complete_search_reopen_and_purge() -> None:
     assert any(task["id"] == task_id and task["status"] == "To do" for task in back.json())
     assert client.post("/api/tasks/missing-task/complete", cookies={COOKIE_NAME: cookie}).status_code == 404
     assert client.post("/api/tasks/missing-task/reopen", cookies={COOKIE_NAME: cookie}).status_code == 404
+
+
+def test_grocery_create_rejects_invalid_fields_and_replays_one_item() -> None:
+    client, _app = client_app()
+    assert client.get("/api/grocery").status_code == 401
+    assert client.post("/api/grocery", json={"name": "Nope"}).status_code == 401
+    assert client.get("/api/grocery/missing-item").status_code == 401
+    cookie = login(client)
+    cookies = {COOKIE_NAME: cookie}
+    blank = client.post("/api/grocery", json={"name": "   "}, cookies=cookies)
+    assert blank.status_code == 400
+    assert blank.json()["field"] == "name"
+    assert blank.json()["detail"] == "Enter a name."
+    for quantity in ("-1", "-2 bags", "---", "??", "."):
+        rejected = client.post("/api/grocery", json={"name": "Apples", "quantity": quantity}, cookies=cookies)
+        assert rejected.status_code == 400
+        assert rejected.json()["field"] == "quantity"
+        assert rejected.json()["detail"] == "Enter a valid quantity."
+    unknown = client.post("/api/grocery", json={"name": "Apples", "checked": True}, cookies=cookies)
+    assert unknown.status_code == 400
+    assert unknown.json() == {"detail": "checked isn't accepted.", "field": "checked"}
+    headers = {"Idempotency-Key": "grocery-key-1"}
+    payload = {"name": "Oat milk", "quantity": "1 carton", "section": "Dairy", "notes": "Barista style if they have it"}
+    first = client.post("/api/grocery", json=payload, headers=headers, cookies=cookies)
+    second = client.post("/api/grocery", json={"name": "Other"}, headers=headers, cookies=cookies)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    session = client.app.state.sessions.resolve(cookie)
+    expected = str(uuid.uuid5(uuid.UUID("6c4e1a90-2b77-4f18-9d33-1a8e5c0b7d44"), f"{session.id}\0grocery-key-1"))
+    assert first.json()["id"] == expected
+    assert first.json()["checked"] is False
+    again = client.post("/api/grocery", json={"name": "Oat milk", "quantity": "a bunch"}, cookies=cookies)
+    assert again.status_code == 201
+    assert again.json()["id"] != first.json()["id"]
+    listed = client.get("/api/grocery", cookies=cookies)
+    assert listed.status_code == 200
+    names = [row["name"] for row in listed.json()]
+    assert names.count("Oat milk") == 2
+    fetched = client.get(f"/api/grocery/{first.json()['id']}", cookies=cookies)
+    assert fetched.status_code == 200
+    assert fetched.json()["section"] == "Dairy"
+    assert client.get("/api/grocery/missing-item", cookies=cookies).status_code == 404

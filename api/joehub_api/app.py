@@ -21,8 +21,9 @@ from joehub_api.models import (
 )
 from joehub_api.ratelimit import RateLimiter
 from joehub_api.read_source import ReadDenied, ReadSource, SyntheticReadSource
-from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionStore
+from joehub_api.sessions import COOKIE_NAME, SESSION_DAYS, AuthDisabled, AuthFailed, SessionRecord, SessionStore
 from joehub_api.settings import ApiSettings
+from joehub_api.grocery import GroceryStore
 from joehub_api.tasks import TaskStore
 
 ACCESS_LOG = logging.getLogger("joehub_api.access")
@@ -50,13 +51,14 @@ def create_app(
     app = FastAPI(
         title="joehub public read API",
         version="0.1.0",
-        description="Synthetic contract. Session posts, POST /api/tasks, and PATCH /api/tasks/{id} are the writes.",
+        description="Synthetic contract. Session posts, POST /api/tasks, PATCH /api/tasks/{id}, and POST /api/grocery are the writes.",
         redirect_slashes=False,
     )
     app.state.settings = settings
     app.state.source = source or SyntheticReadSource(settings.read_credential)
     app.state.sessions = SessionStore(settings, clock or _utcnow)
     app.state.tasks = TaskStore()
+    app.state.grocery = GroceryStore()
     app.state.login_limiter = RateLimiter(login_limit)
     app.state.api_limiter = RateLimiter(api_limit)
 
@@ -78,11 +80,13 @@ def create_app(
                 return hop
         return peer[:64]
 
-    def require_session(request: Request) -> None:
+    def require_session(request: Request) -> SessionRecord:
         if not request.app.state.api_limiter.allow(client_ip(request)):
             raise HTTPException(status_code=429, detail="rate limit")
-        if request.app.state.sessions.resolve(request.cookies.get(COOKIE_NAME)) is None:
+        session = request.app.state.sessions.resolve(request.cookies.get(COOKIE_NAME))
+        if session is None:
             raise HTTPException(status_code=401, detail="authentication required")
+        return session
 
     def rows(request: Request, name: str) -> list[dict]:
         require_session(request)
@@ -166,6 +170,29 @@ def create_app(
     def reopen_task(id: str, request: Request) -> JSONResponse:
         require_session(request)
         status, body = request.app.state.tasks.reopen(id)
+        return JSONResponse(body, status_code=status)
+
+    @app.get("/api/grocery")
+    def list_grocery(request: Request) -> JSONResponse:
+        require_session(request)
+        return JSONResponse(request.app.state.grocery.list_items())
+
+    @app.post("/api/grocery")
+    async def create_grocery(request: Request) -> JSONResponse:
+        session = require_session(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Item must be an object"}, status_code=400)
+        header = request.headers.get("idempotency-key")
+        idem = header.strip() if isinstance(header, str) else ""
+        status, body = request.app.state.grocery.create(payload, idem or None, session.id)
+        return JSONResponse(body, status_code=status)
+
+    @app.get("/api/grocery/{id}")
+    def get_grocery(id: str, request: Request) -> JSONResponse:
+        require_session(request)
+        status, body = request.app.state.grocery.get(id)
         return JSONResponse(body, status_code=status)
 
     @app.post("/api/session/login", response_model=LoginResult)

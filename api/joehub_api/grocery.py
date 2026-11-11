@@ -1,0 +1,126 @@
+"""In-memory grocery items for the separable API. The Next.js app owns the Upstash copy."""
+
+from __future__ import annotations
+
+import re
+import time
+import uuid
+from collections.abc import Callable
+
+CREATE_FIELDS = {"name", "quantity", "notes", "section"}
+ITEM_ID = re.compile(r"^[A-Za-z0-9-]{1,80}$")
+IDEM = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+LEADING_NEGATIVE = re.compile(r"^-\s*\d")
+REAL_AMOUNT = re.compile(r"[A-Za-z0-9]")
+MISSING = {"detail": "This item is no longer here."}
+IDEM_TTL_MS = 24 * 60 * 60 * 1000
+GROCERY_NAMESPACE = uuid.UUID("6c4e1a90-2b77-4f18-9d33-1a8e5c0b7d44")
+
+
+def _quantity(value: object) -> tuple[str | None, dict | None]:
+    if value is None or value == "":
+        return "", None
+    if not isinstance(value, str):
+        return None, {"detail": "Enter a valid quantity.", "field": "quantity"}
+    text = value.strip()
+    if not text:
+        return "", None
+    if len(text) > 80:
+        return None, {"detail": "Quantity is too long.", "field": "quantity"}
+    if LEADING_NEGATIVE.match(text) or not REAL_AMOUNT.search(text):
+        return None, {"detail": "Enter a valid quantity.", "field": "quantity"}
+    return text, None
+
+
+def _text(value: object, field: str, type_detail: str, limit: int, too_long: str) -> tuple[str | None, dict | None]:
+    if value is None or value == "":
+        return "", None
+    if not isinstance(value, str):
+        return None, {"detail": type_detail, "field": field}
+    text = value.strip()
+    if len(text) > limit:
+        return None, {"detail": too_long, "field": field}
+    return text, None
+
+
+def validate_item(body: object) -> tuple[dict | None, dict | None]:
+    if not isinstance(body, dict):
+        return None, {"detail": "Item must be an object"}
+    for key in body:
+        if key not in CREATE_FIELDS:
+            return None, {"detail": f"{key} isn't accepted.", "field": key}
+    name = body.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None, {"detail": "Enter a name.", "field": "name"}
+    name = name.strip()
+    if len(name) > 200:
+        return None, {"detail": "Name is too long.", "field": "name"}
+    quantity, error = _quantity(body.get("quantity"))
+    if error:
+        return None, error
+    notes, error = _text(body.get("notes"), "notes", "Notes must be text.", 4000, "Notes are too long.")
+    if error:
+        return None, error
+    section, error = _text(body.get("section"), "section", "Section must be text.", 120, "Section is too long.")
+    if error:
+        return None, error
+    parsed = {"name": name}
+    if quantity:
+        parsed["quantity"] = quantity
+    if notes:
+        parsed["notes"] = notes
+    if section:
+        parsed["section"] = section
+    return parsed, None
+
+
+class GroceryStore:
+    def __init__(self, clock: Callable[[], int] | None = None) -> None:
+        self.clock = clock or (lambda: int(time.time() * 1000))
+        self.items: dict[str, dict] = {}
+        self.idem: dict[str, tuple[int, dict]] = {}
+
+    def create(self, body: object, idem_key: str | None, scope: str | None = None) -> tuple[int, dict]:
+        now = self.clock()
+        if idem_key:
+            if not IDEM.fullmatch(idem_key):
+                return 400, {"detail": "Invalid Idempotency-Key"}
+            stored = self.idem.get(idem_key)
+            if stored and stored[0] > now:
+                return stored[1]["status"], stored[1]["body"]
+        parsed, error = validate_item(body)
+        if error:
+            return 400, error
+        assert parsed is not None
+        item_id = str(uuid.uuid5(GROCERY_NAMESPACE, f"{scope or ''}\0{idem_key}")) if idem_key else str(uuid.uuid4())
+        existing = self.items.get(item_id)
+        if existing is not None:
+            response = {"status": 201, "body": existing}
+            if idem_key:
+                self.idem[idem_key] = (now + IDEM_TTL_MS, response)
+            return 201, existing
+        item = {
+            "id": item_id,
+            "name": parsed["name"],
+            "checked": False,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        for name in ("quantity", "notes", "section"):
+            if name in parsed:
+                item[name] = parsed[name]
+        self.items[item["id"]] = item
+        response = {"status": 201, "body": item}
+        if idem_key:
+            self.idem[idem_key] = (now + IDEM_TTL_MS, response)
+        return 201, item
+
+    def get(self, item_id: str) -> tuple[int, dict]:
+        if not ITEM_ID.fullmatch(item_id) or item_id not in self.items:
+            return 404, dict(MISSING)
+        return 200, self.items[item_id]
+
+    def list_items(self) -> list[dict]:
+        rows = list(self.items.values())
+        rows.sort(key=lambda item: (item["createdAt"], item["id"]))
+        return rows

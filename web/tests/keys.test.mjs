@@ -37,7 +37,8 @@ async function exercise(prefix) {
     const listed = await store.listUnfinishedTasks(now);
     await store.listUnfinishedTasks(now);
     await store.completeTask(created.body.id, now + 100);
-    return { fake, session, created, listed };
+    const grocery = await store.createGrocery({ name: "Prefixed oats", quantity: "1 bag" }, "grocery-idem-1", now + 60);
+    return { fake, session, created, listed, grocery };
   } finally {
     fake.stop();
   }
@@ -48,7 +49,7 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.equal(readKeyPrefix({}).prefix, "joehub:");
   assert.equal(readKeyPrefix({ JOEHUB_KEY_PREFIX: "" }).prefix, "joehub:");
   assert.equal(applyKeyPrefix("joehub:", "joehub:sess:abc"), "joehub:sess:abc");
-  const { fake, session, created, listed } = await exercise();
+  const { fake, session, created, listed, grocery } = await exercise();
   const keys = redisKeys(fake.commands);
   for (const key of keys) {
     assert.equal(key.startsWith("joehub:"), true, key);
@@ -65,6 +66,16 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
   assert.ok(keys.includes("joehub:tasks:done"));
   assert.ok(keys.includes("joehub:tasks:seeded"));
   assert.ok(keys.includes("joehub:task:idem:idem-1"));
+  assert.ok(keys.includes(`joehub:grocery:item:${grocery.body.id}`));
+  assert.ok(keys.includes("joehub:grocery:items:unchecked"));
+  assert.ok(keys.includes("joehub:grocery:seeded"));
+  assert.ok(keys.includes("joehub:grocery:item:idem:grocery-idem-1"));
+  const groceryWrites = fake.commands.filter((args) => args[0] === "SET" && String(args[1]).startsWith("joehub:grocery:item:") && !String(args[1]).includes(":idem:"));
+  assert.ok(groceryWrites.length >= 1);
+  for (const args of groceryWrites) assert.equal(args.includes("EX"), false, args.join(" "));
+  const groceryFlag = fake.commands.filter((args) => args[0] === "SET" && args[1] === "joehub:grocery:seeded");
+  assert.equal(groceryFlag.length, 1);
+  assert.equal(groceryFlag[0].includes("EX"), false);
   const taskWrites = fake.commands.filter((args) => args[0] === "SET" && String(args[1]).startsWith("joehub:task:") && !String(args[1]).includes(":idem:"));
   assert.ok(taskWrites.length >= 1);
   for (const args of taskWrites) assert.equal(args.includes("EX"), false, args.join(" "));
@@ -83,7 +94,7 @@ test("an unset key prefix leaves every Redis key unchanged", async () => {
 test("a preview prefix replaces the joehub namespace on session and task keys", async () => {
   assert.equal(readKeyPrefix({ JOEHUB_KEY_PREFIX: "joehub-preview:" }).prefix, "joehub-preview:");
   assert.equal(applyKeyPrefix("joehub-preview:", "joehub:task:abc"), "joehub-preview:task:abc");
-  const { fake, session, created } = await exercise("joehub-preview:");
+  const { fake, session, created, grocery } = await exercise("joehub-preview:");
   const keys = redisKeys(fake.commands);
   assert.ok(keys.length > 0);
   for (const key of keys) assert.equal(key.startsWith("joehub-preview:"), true, key);
@@ -102,6 +113,12 @@ test("a preview prefix replaces the joehub namespace on session and task keys", 
   assert.equal(keys.includes("joehub:tasks:seeded:v2"), false);
   assert.equal(keys.includes(`joehub:sess:${session.id}`), false);
   assert.equal(keys.includes(`joehub:task:${created.body.id}`), false);
+  assert.ok(keys.includes(`joehub-preview:grocery:item:${grocery.body.id}`));
+  assert.ok(keys.includes("joehub-preview:grocery:items:unchecked"));
+  assert.ok(keys.includes("joehub-preview:grocery:seeded"));
+  assert.ok(keys.includes("joehub-preview:grocery:item:idem:grocery-idem-1"));
+  assert.equal(keys.includes("joehub:grocery:seeded"), false);
+  assert.equal(keys.includes(`joehub:grocery:item:${grocery.body.id}`), false);
 });
 
 test("an invalid key prefix fails closed", async () => {

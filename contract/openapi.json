@@ -3,7 +3,7 @@
   "info": {
     "title": "joehub public read API",
     "version": "0.1.0",
-    "description": "Synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. Finance, jobs, and journal routes are read-only fixtures. POST /api/tasks creates one unfinished task and honors an Idempotency-Key for about 24 hours. No raw SQL, file download, or export. The browser authenticates with the joehub_session cookie."
+    "description": "Synthetic contract shared by the Next.js route handlers and the optional FastAPI process. Paths are /api/... on both origins. On the Next.js origin, /finance/accounts without the /api prefix is the UI page and returns HTML, not this contract. Finance, jobs, and journal routes are read-only fixtures. POST /api/tasks creates one unfinished task and honors an Idempotency-Key for about 24 hours. POST /api/grocery creates one grocery item and honors an Idempotency-Key for about 24 hours. No raw SQL, file download, or export. The browser authenticates with the joehub_session cookie."
   },
   "servers": [
     {
@@ -215,6 +215,77 @@
         }
       }
     },
+    "/api/grocery": {
+      "get": {
+        "operationId": "listGrocery",
+        "description": "Every grocery item, unchecked and checked. The client groups unchecked items by section, with No section last, then Checked.",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "Grocery items",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/GroceryItem" } }
+              }
+            }
+          },
+          "401": { "description": "Authentication required" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      },
+      "post": {
+        "operationId": "createGroceryItem",
+        "description": "Create one item. Name is required. quantity, notes, and section are optional. Unknown fields are rejected. The same Idempotency-Key replays this response for about 24 hours. Duplicate names are separate items.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GroceryCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created item, or the item already stored for this Idempotency-Key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "400": { "description": "Invalid item" },
+          "401": { "description": "Authentication required" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
+    "/api/grocery/{id}": {
+      "get": {
+        "operationId": "getGroceryItem",
+        "description": "One grocery item by id.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroceryItem" } } }
+          },
+          "401": { "description": "Authentication required" },
+          "404": { "description": "Item not found" },
+          "429": { "description": "Rate limit" },
+          "503": { "description": "Store unavailable" }
+        }
+      }
+    },
     "/api/session/login": {
       "post": {
         "operationId": "sessionLogin",
@@ -254,6 +325,32 @@
   },
   "components": {
     "schemas": {
+      "GroceryItem": {
+        "type": "object",
+        "required": ["id", "name", "checked", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "string", "description": "Free-text amount such as 6 or 1 carton." },
+          "section": { "type": "string" },
+          "notes": { "type": "string" },
+          "checked": { "type": "boolean" },
+          "createdAt": { "type": "integer" },
+          "updatedAt": { "type": "integer" },
+          "checkedAt": { "type": "integer" }
+        }
+      },
+      "GroceryCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "notes": { "type": "string" },
+          "section": { "type": "string" }
+        }
+      },
       "Task": {
         "type": "object",
         "required": ["id", "title", "status", "createdAt", "updatedAt"],

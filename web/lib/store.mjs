@@ -1,6 +1,7 @@
 import { createStore } from "./sessions.mjs";
 import { createLimiter } from "./ratelimit.mjs";
 import { readKeyPrefix } from "./keys.mjs";
+import { installMemoryGrocery } from "./grocery.mjs";
 import { installMemoryTasks } from "./tasks.mjs";
 import { createUpstashLimiter, createUpstashStore, StoreError } from "./store-upstash.mjs";
 
@@ -28,6 +29,9 @@ function unavailableStore() {
     completeTask: fail,
     reopenTask: fail,
     deleteTask: fail,
+    listGrocery: fail,
+    createGrocery: fail,
+    getGrocery: fail,
   };
 }
 
@@ -60,7 +64,7 @@ function build(env) {
     };
   }
   return {
-    store: installMemoryTasks(createStore()),
+    store: installMemoryGrocery(installMemoryTasks(createStore())),
     loginLimiter: createLimiter(5),
     apiLimiter: createLimiter(60),
   };

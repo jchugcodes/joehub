@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 const tabs = [
-  { href: "/", label: "Home", icon: "home", match: (path: string) => path === "/" || path.startsWith("/tasks") },
+  { href: "/", label: "Home", icon: "home", match: (path: string) => path === "/" || path.startsWith("/tasks") || path.startsWith("/grocery") },
   { href: "/finance", label: "Finance", icon: "finance", match: (path: string) => path.startsWith("/finance") },
   { href: "/jobs", label: "Jobs", icon: "jobs", match: (path: string) => path.startsWith("/jobs") },
   { href: "/journal", label: "Journal", icon: "journal", match: (path: string) => path.startsWith("/journal") },
@@ -44,6 +44,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
   const composing = pathname.startsWith("/journal/compose");
   const tasksScreen = pathname.startsWith("/tasks");
+  const groceryScreen = pathname.startsWith("/grocery");
+  const outfitScreen = tasksScreen || groceryScreen;
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -67,7 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* The frames are 390px. Wider viewports keep that column centered. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
       >
         {children}
       </main>
@@ -82,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={tab.href}
                   aria-current={current ? "page" : undefined}
-                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center leading-tight ${tasksScreen ? "tasks-type text-meta font-normal" : `text-ui-10.5 ${current ? "font-semibold" : "font-medium"}`} ${tone}`}
+                  className={`flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-center leading-tight ${outfitScreen ? `${groceryScreen ? "grocery-type" : "tasks-type"} text-meta font-normal` : `text-ui-10.5 ${current ? "font-semibold" : "font-medium"}`} ${tone}`}
                 >
                   <span className={`rounded-full px-3 py-1 ${current ? `${activePill[tab.label]} ${tone}` : ""}`}>
                     <Icon name={tab.icon} size={22} strokeWidth={current ? 2.2 : 1.8} />
