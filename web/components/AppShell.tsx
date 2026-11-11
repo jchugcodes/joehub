@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <a className="sr-only" href="#content">
         Skip to content
       </a>
-      {/* The frames are 390px. Wider viewports keep that column centered. */}
+      {/* Tasks and Grocery widen on desktop. The tab bar stays a full-width bar so it does not cover the column. */}
       <main
         id="content"
         className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
@@ -75,8 +75,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       {composing ? null : (
-      <nav ref={navRef} aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex justify-center">
-        <ul className="flex min-h-[84px] w-full min-w-0 max-w-phone items-stretch border-t border-tab-line bg-tab px-2 py-2 backdrop-blur">
+      <nav ref={navRef} aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30">
+        <ul className="flex min-h-[84px] w-full min-w-0 items-stretch border-t border-tab-line bg-tab px-2 py-2 backdrop-blur">
           {tabs.map((tab) => {
             const current = tab.match(pathname);
             const tone = current ? activeText[tab.label] : "text-inactive";

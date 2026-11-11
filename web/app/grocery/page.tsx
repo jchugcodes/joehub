@@ -599,28 +599,24 @@ export default function GroceryPage() {
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
-          corner={
-            editingId ? (
-              <button type="button" className="min-h-11 shrink-0 px-1 text-body font-medium text-[#E07A5F] disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
-                Delete
-              </button>
-            ) : null
-          }
+          formId="grocery-form"
+          saveLabel="Save"
+          saveDisabled={saveDisabled}
           actions={
             wide ? (
               <div className="flex gap-2">
                 {editingId ? (
-                  <button type="button" className="flex min-h-10 items-center justify-center px-2 text-body font-medium text-[#E07A5F] disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                  <button type="button" className="flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
                     Delete
                   </button>
                 ) : null}
-                <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
+                <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
                   Cancel
                 </button>
                 <button
                   type="submit"
                   form="grocery-form"
-                  className="flex min-h-10 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
                   disabled={saveDisabled}
                 >
                   Save
@@ -629,49 +625,55 @@ export default function GroceryPage() {
             ) : null
           }
         >
-          <form id="grocery-form" className={wide ? "" : "mt-4"} onSubmit={save}>
-            <label className="block text-meta font-normal text-muted" htmlFor="grocery-name">
-              Name
-            </label>
-            <input
-              id="grocery-name"
-              value={draft.name}
-              data-autofocus=""
-              aria-required="true"
-              aria-invalid={nameError ? true : undefined}
-              aria-describedby={nameError ? "grocery-name-error" : hint ? "grocery-duplicate" : undefined}
-              placeholder="What do you need?"
-              onBlur={() => {
-                if (!draft.name.trim()) setNameError("Enter a name.");
-              }}
-              onChange={(event) => {
-                setDraft({ ...draft, name: event.target.value });
-                if (nameError) setNameError("");
-              }}
-              className={`mt-1.5 w-full min-w-0 rounded-xl border-2 bg-surface px-3.5 py-3 text-body ${nameError ? "border-[#E07A5F]" : "border-ink"}`}
-              autoComplete="off"
-            />
-            {nameError ? <p id="grocery-name-error" role="alert" className="mt-1.5 text-meta font-medium text-[#E07A5F]">{nameError}</p> : null}
-            {hint ? <p id="grocery-duplicate" className="mt-1.5 text-meta text-muted">{hint} is already on the list</p> : null}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div>
+          <form id="grocery-form" className="space-y-5" onSubmit={save}>
+            <div>
+              <label className="block text-meta font-normal text-muted" htmlFor="grocery-name">
+                Name
+              </label>
+              <input
+                id="grocery-name"
+                value={draft.name}
+                data-autofocus=""
+                aria-required="true"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? "grocery-name-error" : hint ? "grocery-duplicate" : undefined}
+                placeholder="What do you need?"
+                inputMode="text"
+                enterKeyHint="next"
+                onBlur={() => {
+                  if (!draft.name.trim()) setNameError("Enter a name.");
+                }}
+                onChange={(event) => {
+                  setDraft({ ...draft, name: event.target.value });
+                  if (nameError) setNameError("");
+                }}
+                className={`mt-1.5 min-h-11 w-full min-w-0 rounded-xl border-2 bg-surface px-3.5 py-3 text-base ${nameError ? "border-[#E07A5F]" : "border-ink"}`}
+                autoComplete="off"
+              />
+              {nameError ? <p id="grocery-name-error" role="alert" className="mt-1.5 text-meta font-medium text-[#E07A5F]">{nameError}</p> : null}
+              {hint ? <p id="grocery-duplicate" className="mt-1.5 text-meta text-muted">{hint} is already on the list</p> : null}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0">
                 <label className="block text-meta font-normal text-muted" htmlFor="grocery-quantity">
                   Quantity
                 </label>
                 <input
                   id="grocery-quantity"
                   value={draft.quantity}
+                  inputMode="numeric"
+                  enterKeyHint="next"
                   aria-invalid={quantityError ? true : undefined}
                   aria-describedby={quantityError ? "grocery-quantity-error" : undefined}
                   onChange={(event) => {
                     setDraft({ ...draft, quantity: event.target.value });
                     if (quantityError) setQuantityError("");
                   }}
-                  className={`mt-1 w-full min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-body ${quantityError ? "border-[#E07A5F]" : "border-line"}`}
+                  className={`mt-1 min-h-11 w-full min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-base ${quantityError ? "border-[#E07A5F]" : "border-line"}`}
                   autoComplete="off"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="block text-meta font-normal text-muted" htmlFor="grocery-section">
                   Section
                 </label>
@@ -679,8 +681,10 @@ export default function GroceryPage() {
                   id="grocery-section"
                   value={draft.section}
                   list="grocery-sections"
+                  inputMode="text"
+                  enterKeyHint="next"
                   onChange={(event) => setDraft({ ...draft, section: event.target.value })}
-                  className="mt-1 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-body"
+                  className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-base"
                   autoComplete="off"
                 />
                 <datalist id="grocery-sections">
@@ -690,32 +694,30 @@ export default function GroceryPage() {
                 </datalist>
               </div>
             </div>
-            {quantityError ? <p id="grocery-quantity-error" role="alert" className="mt-1.5 text-meta font-medium text-[#E07A5F]">{quantityError}</p> : null}
-            <label className="mt-3 block text-meta font-normal text-muted" htmlFor="grocery-notes">
-              Notes
-            </label>
-            <textarea
-              id="grocery-notes"
-              value={draft.notes}
-              onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
-              rows={2}
-              className="mt-1.5 w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-3 text-body"
-            />
+            {quantityError ? <p id="grocery-quantity-error" role="alert" className="text-meta font-medium text-[#E07A5F]">{quantityError}</p> : null}
+            <div>
+              <label className="block text-meta font-normal text-muted" htmlFor="grocery-notes">
+                Notes
+              </label>
+              <textarea
+                id="grocery-notes"
+                value={draft.notes}
+                onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
+                rows={2}
+                enterKeyHint="done"
+                className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-3 text-base"
+              />
+            </div>
             {formError ? (
-              <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">
+              <p role="alert" className="text-meta font-medium text-[#E07A5F]">
                 {formError}
               </p>
             ) : null}
-            {wide ? null : (
-              <div className="sticky bottom-0 z-10 mt-5 flex gap-2.5 bg-surface pt-3 pb-[calc(var(--primary-nav-height,84px)+12px)]">
-                <button type="button" className="flex min-h-12 flex-1 items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={cancel}>
-                  Cancel
-                </button>
-                <button type="submit" className="flex min-h-12 flex-1 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50" disabled={saveDisabled}>
-                  Save
-                </button>
-              </div>
-            )}
+            {!wide && editingId ? (
+              <button type="button" className="min-h-11 min-w-11 px-1 text-left text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                Delete
+              </button>
+            ) : null}
           </form>
         </Sheet>
       ) : null}
