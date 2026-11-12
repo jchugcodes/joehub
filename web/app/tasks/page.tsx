@@ -726,19 +726,19 @@ export default function TasksPage() {
         </button>
       </header>
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-meta font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-meta font-medium text-ink">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-meta font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-meta font-medium text-ink">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-meta font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-meta font-medium text-ink">
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
@@ -794,7 +794,7 @@ export default function TasksPage() {
             key={value}
             type="button"
             aria-pressed={group === value}
-            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
+            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-page" : "border border-line bg-surface text-muted"}`}
             onClick={() => setGroup(value)}
           >
             {label}
@@ -879,7 +879,7 @@ export default function TasksPage() {
           {!offline ? (
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >
@@ -918,7 +918,7 @@ export default function TasksPage() {
         <div className="mt-4 px-4">
           <button
             type="button"
-            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
             onClick={openAdd}
             disabled={addDisabled}
           >
@@ -927,7 +927,7 @@ export default function TasksPage() {
         </div>
       ) : null}
       {showFab ? (
-        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-lg" onClick={openAdd}>
+        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-page shadow-lg" onClick={openAdd}>
           <Icon name="plus" size={22} />
           <span className="sr-only">Add a task</span>
         </button>

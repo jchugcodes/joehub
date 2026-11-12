@@ -433,19 +433,19 @@ export default function GroceryPage() {
   const banners = (
     <>
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body font-medium text-ink">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           <span>Back online</span>
           <button type="button" className="pointer-events-auto min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
@@ -464,11 +464,11 @@ export default function GroceryPage() {
         </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
         {checkedCount > 0 ? (
-          <div className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
-            <p className="text-body">{checkedCount} checked</p>
+          <div data-checked-bar="true" className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[color-mix(in_srgb,var(--gain)_16%,var(--surface))] px-3.5 py-2.5 text-ink">
+            <p className="text-body text-ink">{checkedCount} checked</p>
             <button
               type="button"
-              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               aria-disabled={offline || undefined}
               onClick={() => {
                 if (offline) {
@@ -501,7 +501,7 @@ export default function GroceryPage() {
             <p className="mt-4 text-section font-medium">No items</p>
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >
@@ -537,7 +537,7 @@ export default function GroceryPage() {
                               </svg>
                             </span>
                           ) : (
-                            <span className="h-6 w-6 rounded-full border border-[#C9CEC8]" aria-hidden="true" />
+                            <span className="h-6 w-6 rounded-full border border-subtle-border" aria-hidden="true" />
                           )}
                         </button>
                         <button
@@ -561,7 +561,7 @@ export default function GroceryPage() {
             {wide ? (
               <button
                 type="button"
-                className="ml-4 mt-4 flex min-h-12 max-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+                className="ml-4 mt-4 flex min-h-12 max-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
                 onClick={openAdd}
                 disabled={addDisabled}
               >
@@ -580,7 +580,7 @@ export default function GroceryPage() {
         <button
           type="button"
           aria-label="Add an item"
-          className="fixed bottom-[100px] right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-xl disabled:opacity-50"
+          className="fixed bottom-[100px] right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-ink text-page shadow-xl disabled:opacity-50"
           onClick={openAdd}
           disabled={addDisabled}
         >

@@ -87,8 +87,8 @@ function stamp(ms: number) {
 
 const CHART_W = 390;
 const CHART_H = 148;
-const ABOVE = "#2E8B6A";
-const BELOW = "#E07A5F";
+const ABOVE = "var(--chart-positive)";
+const BELOW = "var(--chart-negative)";
 
 type PlotPoint = { x: number; y: number; v: number };
 
@@ -256,8 +256,8 @@ function ChartPaths({ points }: { points: number[] }) {
     <>
       {include ? (
         <>
-          <line x1="0" x2={CHART_W} y1={y0} y2={y0} stroke="#C9CEC8" strokeWidth="1" />
-          <text x="8" y={labelY} fill="#6B746E" fontSize="12" fontFamily="Outfit, sans-serif">
+          <line x1="0" x2={CHART_W} y1={y0} y2={y0} stroke="var(--zero-line)" strokeWidth="1" />
+          <text x="8" y={labelY} fill="var(--muted)" fontSize="12" fontFamily="Outfit, sans-serif">
             0
           </text>
         </>
@@ -302,9 +302,9 @@ function WeeklySpendChart({
       {showChart ? (
         <div className="mt-4" data-chart={chart.range} data-kind="weekly" data-points={chart.points.join(",")} data-baseline={chart.axis?.zero != null ? "true" : "false"}>
           <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
-            <path d={geometry.fill} fill="#2E8B6A" opacity="0.1" />
-            {geometry.zeroY != null ? <line x1="0" x2="360" y1={geometry.zeroY} y2={geometry.zeroY} stroke="#C9CEC8" strokeWidth="1" /> : null}
-            <path d={geometry.line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
+            <path d={geometry.fill} fill="var(--chart-positive)" opacity="0.1" />
+            {geometry.zeroY != null ? <line x1="0" x2="360" y1={geometry.zeroY} y2={geometry.zeroY} stroke="var(--zero-line)" strokeWidth="1" /> : null}
+            <path d={geometry.line} fill="none" stroke="var(--chart-positive)" strokeWidth="2.2" />
           </svg>
           {chart.axis && chart.axis.min < 0 ? (
             <p className="mt-1 flex justify-between text-meta text-muted">
@@ -539,19 +539,19 @@ export function FinanceOverview() {
     <main className="finance-type relative mx-auto w-full max-w-[1080px] text-ink" data-ready={overview ? "true" : "false"}>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
         {tone === "offline" && updated ? (
-          <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
+          <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body font-medium text-ink">
             Offline
             <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {updated}</span>
             <span className="block text-meta font-normal text-muted">America/Detroit</span>
           </p>
         ) : null}
         {tone === "reconnecting" ? (
-          <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+          <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
             Reconnecting…
           </p>
         ) : null}
         {tone === "back" ? (
-          <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+          <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
             <span>Back online</span>
             <button type="button" className="pointer-events-auto min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
               Dismiss
@@ -586,7 +586,7 @@ export function FinanceOverview() {
                         key={item}
                         type="button"
                         aria-pressed={range === item}
-                        className={`min-h-11 flex-1 rounded-full text-meta ${range === item ? "bg-finance-primary text-page" : "text-muted"}`}
+                        className={`min-h-11 flex-1 rounded-full text-meta ${range === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-muted"}`}
                         onClick={() => chooseRange(item)}
                       >
                         {item}

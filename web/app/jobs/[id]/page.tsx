@@ -40,7 +40,7 @@ export default function JobDetailPage() {
         </p>
       ) : null}
       <div className="mt-3 flex items-start gap-3 px-5">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-ink text-ui-22 font-bold text-white">{jobDetail.initial}</span>
+        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-ink text-ui-22 font-bold text-page">{jobDetail.initial}</span>
         <div className="min-w-0">
           <p className="text-ui-20 font-bold">{jobDetail.title}</p>
           <p className="text-ui-13 text-muted">{jobDetail.meta}</p>

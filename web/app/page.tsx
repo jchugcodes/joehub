@@ -46,7 +46,7 @@ export default async function HomePage() {
           <p className="text-ui-13 mut">{detroitHeading(now)}</p>
           <h1 className="text-ui-24 font-bold">{home.greeting}</h1>
         </div>
-        <span className="grid h-10 w-10 place-items-center rounded-full bg-ink text-ui-15 font-bold text-white" aria-hidden>
+        <span className="grid h-10 w-10 place-items-center rounded-full bg-ink text-ui-15 font-bold text-page" aria-hidden>
           {home.initial}
         </span>
       </header>
@@ -139,7 +139,7 @@ export default async function HomePage() {
             {highlight.dueDate === today ? <span className="text-muted"> · due today</span> : null}
           </p>
         ) : null}
-        <span className="mt-3 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-white">Open tasks</span>
+        <span className="mt-3 flex min-h-11 items-center justify-center rounded-xl bg-ink text-body font-medium text-page">Open tasks</span>
       </Link>
 
       {live ? null : <section className="card p-4" aria-labelledby="goals-heading">

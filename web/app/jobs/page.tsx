@@ -236,7 +236,7 @@ function Pipeline({ onDemo }: { onDemo: () => void }) {
         {pipeline.matches.map((match) => (
           <li key={match.id} className="card p-4">
             <div className="flex items-start gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink text-ui-16 font-bold text-white">{match.initial}</span>
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink text-ui-16 font-bold text-page">{match.initial}</span>
               <div className="min-w-0 flex-1">
                 <p className="text-ui-15 font-bold">{match.title}</p>
                 <p className="text-ui-12 text-muted">{match.meta}</p>

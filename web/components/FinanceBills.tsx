@@ -86,7 +86,7 @@ function PaidSwitch({ on, muted, onToggle }: { on: boolean; muted: boolean; onTo
       }}
       className={`inline-flex min-h-11 min-w-11 items-center justify-end ${muted ? "opacity-40" : ""}`}
     >
-      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-[#2E8B6A]" : "bg-[#C9CEC8]"}`}>
+      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-finance-primary" : "bg-subtle-border"}`}>
         <span className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow ${on ? "left-[22px]" : "left-[2px]"}`} />
       </span>
     </button>
@@ -424,7 +424,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={recurrence === item.id}
             onClick={() => setRecurrence(item.id)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${recurrence === item.id ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${recurrence === item.id ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {item.name}
           </button>
@@ -438,7 +438,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={category === item.slug}
             onClick={() => setCategory(item.slug)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${category === item.slug ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${category === item.slug ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {item.name}
           </button>
@@ -452,7 +452,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={accountId === account.id}
             onClick={() => setAccountId(account.id)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${accountId === account.id ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${accountId === account.id ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {account.name}
           </button>
@@ -511,18 +511,18 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   return (
     <main className="finance-type min-w-0 text-ink" data-ready={snapshot ? "true" : undefined} data-bills={empty ? "empty" : "list"}>
       {shownTone === "offline" && snapshot?.updatedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-ink">
           <span className="block text-body font-medium">Offline</span>
           <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
         </p>
       ) : null}
       {shownTone === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           Reconnecting…
         </p>
       ) : null}
       {shownTone === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
             Dismiss
@@ -571,7 +571,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             {snapshot && empty ? (
               <div className="px-5 py-16 text-center">
                 <p className="text-section font-medium">No upcoming bills</p>
-                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white">
+                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page">
                   Add a bill
                 </button>
               </div>
@@ -583,9 +583,11 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                   return (
                     <section key={group}>
                       <h2 className={`${wide ? "px-1" : "px-5"} pt-5 text-section font-medium`}>{group}</h2>
-                      <ul className={`${wide ? "" : "mx-4"} mt-2 divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                        {rows.map((bill) => (
-                          <li key={bill.id} className="flex min-h-16 items-center gap-3 px-4 py-2.5">
+                      <ul className={`${wide ? "" : "mx-4"} mt-2 overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                        {rows.map((bill, index) => (
+                          <li key={bill.id}>
+                            {index > 0 ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
+                            <div className="flex min-h-16 items-center gap-3 px-4 py-2.5">
                             <Link href={`/finance/bills/${bill.id}${suffix}`} className="flex min-w-0 flex-1 items-center gap-3">
                               <CategoryMark category={bill.category} />
                               <span className="min-w-0 flex-1">
@@ -597,6 +599,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                               <span className={`text-body font-medium tabular-nums ${bill.group === "Overdue" ? "text-finance-dining" : ""}`}>{money(bill.amountCents)}</span>
                               <PaidSwitch on={bill.paid} muted={blocked} onToggle={() => void togglePaid(bill)} />
                             </span>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -618,7 +621,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                     Cancel
                   </button>
                   <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{mode === "edit" ? "Edit bill" : "Add a bill"}</h2>
-                  <button type="submit" form="bill-form" disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">
+                  <button type="submit" form="bill-form" disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
                     Save
                   </button>
                 </div>

@@ -260,9 +260,9 @@ export function FinanceCategory({ slug }: { slug?: string }) {
           <div className="mt-3">
             <FinanceTabs />
           </div>
-          <div className="mx-4 mt-4 grid h-11 grid-cols-2 rounded-full bg-white p-1" role="group" aria-label="Budget period">
+          <div data-period-track="true" className="mx-4 mt-4 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
             {(["week", "month"] as const).map((item) => (
-              <button key={item} type="button" aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-white" : "text-ink"}`} onClick={() => withPeriod(item, wide ? slug : undefined)}>
+              <button key={item} type="button" data-period-option={item} aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-ink"}`} onClick={() => withPeriod(item, wide ? slug : undefined)}>
                 {item === "week" ? "Week" : "Month"}
               </button>
             ))}
@@ -283,7 +283,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
                   const itemQuery = new URLSearchParams(query);
                   const href = `/finance/categories/${item.slug}?${itemQuery.toString()}`;
                   return (
-                    <li key={item.slug} className={item.slug === slug ? "rounded-2xl bg-white" : ""}>
+                    <li key={item.slug} data-selected={item.slug === slug ? "true" : undefined} className={item.slug === slug ? "rounded-2xl bg-surface" : ""}>
                       <Link href={href} className="flex min-h-11 items-center gap-3 px-1 py-3">
                         <CategoryMark category={item.slug} />
                         <span className="min-w-0 flex-1">
@@ -335,7 +335,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
           actions={wide ? (
             <>
               <button type="button" onClick={() => setEditing(false)} className="inline-flex min-h-11 items-center px-3 text-body text-muted">Cancel</button>
-              <button type="submit" form="budget-form" disabled={saving} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">Save</button>
+              <button type="submit" form="budget-form" disabled={saving} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">Save</button>
             </>
           ) : null}
         >
