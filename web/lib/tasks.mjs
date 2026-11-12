@@ -1,4 +1,5 @@
 import { detroitCalendarDate } from "./detroit-date.mjs";
+import { attachMemoryLists } from "./list-store.mjs";
 import { readOptionalSourceId, readSourceId } from "./source-id.mjs";
 
 function addCalendarDays(ymd, count) {
@@ -527,6 +528,11 @@ export function installMemoryTasks(store) {
   if (process.env.JOEHUB_SEED_TASKS === "1") {
     for (const sample of SAMPLE_TASKS) backend.tasks.set(sample.id, structuredClone(sample));
   }
+  const lists = attachMemoryLists(backend);
+  store.listLists = () => lists.listLists();
+  store.createList = (raw, now) => lists.createList(raw, now);
+  store.patchList = (id, raw, now) => lists.patchList(id, raw, now);
+  store.deleteList = (id) => lists.deleteList(id);
   store.listUnfinishedTasks = (now) => backend.list(now);
   store.searchTasks = (query, now) => backend.search(query, now);
   store.createTask = (raw, idemKey, now, scope) => performCreate(backend, raw, idemKey, now, newTaskId, scope || "");

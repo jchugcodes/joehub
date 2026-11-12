@@ -489,24 +489,19 @@ export default function GroceryPage() {
           </p>
         ) : null}
         {listError ? (
-          <p role="alert" className="mx-4 mt-3 text-meta font-medium text-[#E07A5F]">
+          <p role="alert" className="mx-4 mt-3 text-meta font-medium text-warn">
             {listError}
           </p>
         ) : null}
         {mode === "ready" && items.length === 0 ? (
-          <div className="mt-16 flex flex-col items-center px-5 text-center">
-            <div className="grid h-16 w-16 place-items-center rounded-full bg-ink/[0.12]" aria-hidden="true">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M6 7h15l-1.5 9H8L6 7z" />
-                <path d="M6 7L5 3H2" />
-                <circle cx="9" cy="20" r="1.5" />
-                <circle cx="18" cy="20" r="1.5" />
-              </svg>
-            </div>
-            <p className="mt-4 text-section font-medium">The list is empty</p>
+          <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
+              <Icon name="check-square" size={28} />
+            </span>
+            <p className="mt-4 text-section font-medium">No items</p>
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full max-w-[280px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >
@@ -536,7 +531,7 @@ export default function GroceryPage() {
                           onClick={() => void toggle(item)}
                         >
                           {item.checked ? (
-                            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#2E8B6A] text-white" aria-hidden="true">
+                            <span className="grid h-6 w-6 place-items-center rounded-full bg-gain text-on-gain" aria-hidden="true">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                                 <path d="M5 12.5 10 17.5 19 7.5" />
                               </svg>
@@ -599,40 +594,24 @@ export default function GroceryPage() {
           frame
           dock={wide ? "panel" : "sheet"}
           titleClassName="text-section font-medium"
+          header="slim"
           formId="grocery-form"
           saveLabel="Save"
           saveDisabled={saveDisabled}
-          footer={
-            !wide && editingId ? (
-              <button type="button" className="flex min-h-11 w-full items-center px-1 text-left text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+          aside={
+            wide && editingId ? (
+              <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
                 Delete
               </button>
             ) : null
           }
-          actions={
-            wide ? (
-              <div className="flex gap-2">
-                {editingId ? (
-                  <button type="button" className="flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-muted disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
-                    Delete
-                  </button>
-                ) : null}
-                <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  form="grocery-form"
-                  className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
-                  disabled={saveDisabled}
-                >
-                  Save
-                </button>
-              </div>
-            ) : null
-          }
         >
           <form id="grocery-form" className="space-y-5" onSubmit={save}>
+            {editingId && !wide ? (
+              <button type="button" className="flex min-h-11 min-w-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                Delete
+              </button>
+            ) : null}
             <div>
               <label className="block text-meta font-normal text-muted" htmlFor="grocery-name">
                 Name
@@ -654,10 +633,10 @@ export default function GroceryPage() {
                   setDraft({ ...draft, name: event.target.value });
                   if (nameError) setNameError("");
                 }}
-                className={`mt-1.5 min-h-11 w-full min-w-0 rounded-xl border-2 bg-surface px-3.5 py-3 text-base ${nameError ? "border-[#E07A5F]" : "border-ink"}`}
+                className={`mt-1.5 min-h-11 w-full min-w-0 rounded-xl border-2 bg-surface px-3.5 py-3 text-base ${nameError ? "border-[var(--warn)]" : "border-ink"}`}
                 autoComplete="off"
               />
-              {nameError ? <p id="grocery-name-error" role="alert" className="mt-1.5 text-meta font-medium text-[#E07A5F]">{nameError}</p> : null}
+              {nameError ? <p id="grocery-name-error" role="alert" className="mt-1.5 text-meta font-medium text-[var(--warn)]">{nameError}</p> : null}
               {hint ? <p id="grocery-duplicate" className="mt-1.5 text-meta text-muted">{hint} is already on the list</p> : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -676,7 +655,7 @@ export default function GroceryPage() {
                     setDraft({ ...draft, quantity: event.target.value });
                     if (quantityError) setQuantityError("");
                   }}
-                  className={`mt-1 min-h-11 w-full min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-base ${quantityError ? "border-[#E07A5F]" : "border-line"}`}
+                  className={`mt-1 min-h-11 w-full min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-base ${quantityError ? "border-[var(--warn)]" : "border-line"}`}
                   autoComplete="off"
                 />
               </div>
@@ -684,24 +663,23 @@ export default function GroceryPage() {
                 <label className="block text-meta font-normal text-muted" htmlFor="grocery-section">
                   Section
                 </label>
-                <input
+                <select
                   id="grocery-section"
-                  value={draft.section}
-                  list="grocery-sections"
-                  inputMode="text"
-                  enterKeyHint="next"
+                  value={sections.includes(draft.section) || draft.section === "" ? draft.section : draft.section}
                   onChange={(event) => setDraft({ ...draft, section: event.target.value })}
                   className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2.5 text-base"
-                  autoComplete="off"
-                />
-                <datalist id="grocery-sections">
+                >
+                  <option value="">None</option>
                   {sections.map((section) => (
-                    <option key={section} value={section} />
+                    <option key={section} value={section}>
+                      {section}
+                    </option>
                   ))}
-                </datalist>
+                  {draft.section && !sections.includes(draft.section) ? <option value={draft.section}>{draft.section}</option> : null}
+                </select>
               </div>
             </div>
-            {quantityError ? <p id="grocery-quantity-error" role="alert" className="text-meta font-medium text-[#E07A5F]">{quantityError}</p> : null}
+            {quantityError ? <p id="grocery-quantity-error" role="alert" className="text-meta font-medium text-[var(--warn)]">{quantityError}</p> : null}
             <div>
               <label className="block text-meta font-normal text-muted" htmlFor="grocery-notes">
                 Notes
@@ -716,7 +694,7 @@ export default function GroceryPage() {
               />
             </div>
             {formError ? (
-              <p role="alert" className="text-meta font-medium text-[#E07A5F]">
+              <p role="alert" className="text-meta font-medium text-[var(--warn)]">
                 {formError}
               </p>
             ) : null}
@@ -728,8 +706,8 @@ export default function GroceryPage() {
           <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-clear-title" id="grocery-clear-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
             <h2 id="grocery-clear-title" className="text-section font-medium">Remove {checkedCount} checked {checkedCount === 1 ? "item" : "items"}?</h2>
             <p className="mt-2 text-body text-muted">{checkedNames}. This can't be undone.</p>
-            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
-            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void clearChecked()} disabled={offline || saving}>
+            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[var(--warn)]">{formError}</p> : null}
+            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-warn px-4 text-body font-medium text-on-warn disabled:opacity-50" onClick={() => void clearChecked()} disabled={offline || saving}>
               Remove checked
             </button>
             <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={() => { setConfirmClear(false); setFormError(""); }}>
@@ -744,8 +722,8 @@ export default function GroceryPage() {
             <h2 id="grocery-delete-title" className="text-section font-medium">Delete this item?</h2>
             <p className="mt-2 break-words text-body">{draft.name.trim()}</p>
             <p className="mt-2 text-body text-muted">This can't be undone.</p>
-            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
-            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] px-4 text-body font-medium text-white disabled:opacity-50" onClick={() => void removeItem()} disabled={offline || saving}>
+            {formError ? <p role="alert" className="mt-3 text-meta font-medium text-[var(--warn)]">{formError}</p> : null}
+            <button type="button" className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-warn px-4 text-body font-medium text-on-warn disabled:opacity-50" onClick={() => void removeItem()} disabled={offline || saving}>
               Delete
             </button>
             <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-[#C9CEC8] bg-surface px-4 text-body font-medium" onClick={() => { setConfirmDelete(false); setFormError(""); }}>

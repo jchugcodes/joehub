@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
 import { Sheet } from "../../components/Sheet";
+import { ManageLists, TaskListMenu, listAccent, type TaskList } from "../../components/TaskLists";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
+import { nextPaletteColor, resolveTaskList } from "../../lib/list-display.mjs";
 
 const CACHE_KEY = "joehub.tasks.unfinished";
 
@@ -65,11 +67,11 @@ const emptyDraft = (): Draft => ({
 });
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const STATUS_CLASS: Record<string, string> = {
-  Doing: "bg-[#3A86C81F] text-[#3A86C8]",
-  "To do": "bg-[#EEF0EC] text-[#6B746E]",
-  Blocked: "bg-[#E07A5F1F] text-[#E07A5F]",
-  Done: "bg-[#2E8B6A1F] text-[#2E8B6A]",
+const STATUS_VAR: Record<string, string> = {
+  "To do": "var(--status-todo)",
+  Doing: "var(--status-doing)",
+  Blocked: "var(--status-blocked)",
+  Done: "var(--status-done)",
 };
 
 function detroitToday(now = Date.now()) {
@@ -85,6 +87,15 @@ function dueLabel(iso: string, today = detroitToday()) {
   return `Due ${MONTHS[month - 1]} ${day}`;
 }
 
+function createdLabel(ms: number) {
+  if (!Number.isFinite(ms)) return "";
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+  const month = Number(ymd.slice(5, 7));
+  const day = Number(ymd.slice(8, 10));
+  if (!month || !day) return "";
+  return `Created ${MONTHS[month - 1]} ${day}`;
+}
+
 function completedLabel(ms: number) {
   const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
   const month = Number(ymd.slice(5, 7));
@@ -93,8 +104,9 @@ function completedLabel(ms: number) {
   return `Completed ${MONTHS[month - 1]} ${day}`;
 }
 
-function taskMeta(task: Task, today = detroitToday()) {
-  return [task.project, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
+function taskMeta(task: Task, lists: TaskList[] = [], today = detroitToday()) {
+  const list = task.project ? resolveTaskList(task.project, lists).label : "";
+  return [list, task.priority, task.dueDate ? dueLabel(task.dueDate, today) : ""].filter(Boolean).join(" · ");
 }
 
 function formatDetroit(ms: number) {
@@ -152,6 +164,20 @@ export default function TasksPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [wide, setWide] = useState(false);
   const [group, setGroup] = useState<"all" | "status" | "project">("all");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [lists, setLists] = useState<TaskList[]>([]);
+  const [listOpen, setListOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [newListColor, setNewListColor] = useState("");
+  const [colorOpen, setColorOpen] = useState(false);
+  const [listError, setListError] = useState("");
+  const [manage, setManage] = useState<null | "home" | "edit" | "delete">(null);
+  const [editList, setEditList] = useState<TaskList | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState<string | null>(null);
+  const [manageError, setManageError] = useState("");
+  const [manageSaving, setManageSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const savingRef = useRef(false);
   const actingRef = useRef(false);
@@ -190,6 +216,15 @@ export default function TasksPage() {
       if (!q) writeCache(next, at);
       setTasks(next);
       if (!q) setSavedAt(at);
+      try {
+        const listsResponse = await fetch("/api/lists", { cache: "no-store" });
+        if (listsResponse.ok && gen === loadGen.current) {
+          const listed = (await listsResponse.json()) as unknown;
+          if (Array.isArray(listed)) setLists(listed as TaskList[]);
+        }
+      } catch {
+        // The task list still stands when lists cannot be read.
+      }
       setActiveQuery(q);
       const recovered = downRef.current;
       downRef.current = false;
@@ -357,6 +392,85 @@ export default function TasksPage() {
     setTitleError("");
     setFormError("");
     setDraft(emptyDraft());
+    setListOpen(false);
+  }
+
+  function openListMenu() {
+    setNewListColor((current) => current || nextPaletteColor(lists));
+    setListError("");
+    setColorOpen(false);
+    setListOpen(true);
+    setManage(null);
+  }
+
+  async function addList() {
+    const name = newListName.trim();
+    if (!name) {
+      setListError("Enter a list name.");
+      return;
+    }
+    const response = await fetch("/api/lists", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, color: newListColor || nextPaletteColor(lists) }),
+    });
+    const body = (await response.json().catch(() => null)) as { id?: string; detail?: string; name?: string; color?: string | null; createdAt?: number; updatedAt?: number } | null;
+    if (!response.ok || !body || typeof body.id !== "string") {
+      setListError(body?.detail || "Couldn't add that list.");
+      return;
+    }
+    const created: TaskList = { id: body.id, name: body.name || name, color: body.color || newListColor, createdAt: body.createdAt || Date.now(), updatedAt: body.updatedAt || Date.now(), count: 0 };
+    setLists((current) => [...current, created]);
+    setDraft((current) => ({ ...current, project: created.id }));
+    setNewListName("");
+    setListOpen(false);
+    setColorOpen(false);
+  }
+
+  async function saveListEdit() {
+    if (!editList || manageSaving) return;
+    setManageSaving(true);
+    setManageError("");
+    try {
+      const response = await fetch(`/api/lists/${editList.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: editName, color: editColor }),
+      });
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      if (!response.ok) {
+        setManageError(body?.detail || "Couldn't save this list.");
+        return;
+      }
+      setManage("home");
+      void load();
+    } catch {
+      setManageError("Couldn't save this list.");
+    } finally {
+      setManageSaving(false);
+    }
+  }
+
+  async function removeList() {
+    if (!editList || manageSaving) return;
+    setManageSaving(true);
+    setManageError("");
+    try {
+      const response = await fetch(`/api/lists/${editList.id}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      if (!response.ok) {
+        setManageError(body?.detail || "Couldn't delete this list.");
+        return;
+      }
+      if (draft.project === editList.id) setDraft((current) => ({ ...current, project: "" }));
+      setManage("home");
+      setEditList(null);
+      void load();
+    } catch {
+      setManageError("Couldn't delete this list.");
+    } finally {
+      setManageSaving(false);
+    }
   }
 
   async function save(event: React.FormEvent) {
@@ -525,24 +639,33 @@ export default function TasksPage() {
   const openTasks = tasks.filter((task) => task.status !== "Done");
   const completedTasks = activeQuery ? [] : tasks.filter((task) => task.status === "Done");
   const groups = useMemo(() => {
-    const source = activeQuery ? tasks : openTasks;
-    if (activeQuery || group === "all") return [{ key: "all", label: "", items: source }];
-    const labelFor = (task: Task) => (group === "status" ? task.status : task.project || "No project");
+    const dir = sortOrder === "oldest" ? 1 : -1;
+    const ordered = [...(activeQuery ? tasks : openTasks)].sort((left, right) => dir * ((left.createdAt || 0) - (right.createdAt || 0)) || (left.id < right.id ? -1 : 1));
+    if (activeQuery || group === "all") return [{ key: "all", label: "", items: ordered }];
+    const labelFor = (task: Task) => (group === "status" ? task.status : resolveTaskList(task.project, lists).label);
     const statusOrder = ["Doing", "To do", "Blocked"];
-    const seen = [...new Set(source.map(labelFor))];
+    const seen = [...new Set(ordered.map(labelFor))];
     const labels =
       group === "status"
         ? [...statusOrder.filter((status) => seen.includes(status as Task["status"])), ...seen.filter((status) => !statusOrder.includes(status))]
-        : [...seen.filter((label) => label !== "No project").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No project")];
-    return labels.map((label) => ({ key: label, label, items: source.filter((task) => labelFor(task) === label) }));
-  }, [activeQuery, group, openTasks, tasks]);
+        : [...seen.filter((label) => label !== "No list").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No list")];
+    return labels.map((label) => ({ key: label, label, items: ordered.filter((task) => labelFor(task) === label) }));
+  }, [activeQuery, group, lists, openTasks, sortOrder, tasks]);
   const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
-  const showAddBar = !showFab && !offline && !activeQuery && (wide || (mode === "ready" && openTasks.length === 0));
+  const showAddBar = !showFab && !offline && !activeQuery && wide && openTasks.length > 0;
   function renderTask(task: Task) {
     const done = task.status === "Done";
-    const meta = taskMeta(task);
+    const meta = taskMeta(task, lists);
+    const statusColor = STATUS_VAR[task.status] || "var(--muted)";
+    const listColor = listAccent(resolveTaskList(task.project, lists).color);
+    const accent = activeQuery ? "" : group === "status" ? statusColor : group === "project" ? listColor : "";
+    const created = createdLabel(task.createdAt);
     return (
-      <li key={task.id} className="card flex min-w-0 items-start gap-1 p-2">
+      <li
+        key={task.id}
+        className="card flex min-w-0 items-start gap-1 p-2"
+        style={accent ? { boxShadow: `inset 4px 0 0 ${accent}`, backgroundColor: `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
+      >
         <button
           type="button"
           data-complete={done ? undefined : "true"}
@@ -552,7 +675,10 @@ export default function TasksPage() {
           disabled={controlsDisabled}
           onClick={() => void (done ? reopenTask(task) : completeTask(task))}
         >
-          <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${done ? "border-[#2E8B6A] bg-[#2E8B6A] text-white" : "border-[#C9CEC8]"}`}>
+          <span
+            className="grid h-6 w-6 place-items-center rounded-full border-2"
+            style={done ? { borderColor: "var(--gain)", background: "var(--gain)", color: "var(--on-gain)" } : { borderColor: "var(--subtle-border)" }}
+          >
             {done ? <Icon name="check" size={14} /> : null}
           </span>
         </button>
@@ -560,11 +686,12 @@ export default function TasksPage() {
           <button type="button" className="block w-full text-left disabled:opacity-50" aria-label={`Edit ${task.title}`} disabled={offline} onClick={() => openEdit(task)}>
             <div className="flex items-start justify-between gap-3">
               <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
-              <span data-done={done ? "true" : undefined} className={`shrink-0 rounded-full px-2.5 py-1 text-meta font-medium ${STATUS_CLASS[task.status] || "bg-line text-muted"}`}>
+              <span data-done={done ? "true" : undefined} className="shrink-0 rounded-full px-2.5 py-1 text-meta font-medium" style={{ color: statusColor, backgroundColor: `color-mix(in srgb, ${statusColor} 8%, transparent)` }}>
                 {task.status}
               </span>
             </div>
             {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
+            {created ? <p className="mt-1 text-meta text-muted">{created}</p> : null}
             {task.notes ? <p className="mt-2 break-words text-meta leading-relaxed">{task.notes}</p> : null}
             {done && typeof task.completedAt === "number" ? <p className="mt-1 text-meta text-muted">{completedLabel(task.completedAt)}</p> : null}
             {task.bot ? <BotLine bot={task.bot} /> : null}
@@ -587,7 +714,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide && sheet ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
+    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="relative min-w-0 flex-1">
       <header className="flex items-start justify-between gap-3 px-5 pt-3">
         <div>
@@ -645,7 +772,7 @@ export default function TasksPage() {
             placeholder="Search tasks"
             disabled={controlsDisabled}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent py-3 text-body outline-none disabled:opacity-50"
+            className="min-w-0 flex-1 bg-transparent py-3 text-base outline-none disabled:opacity-50"
             autoComplete="off"
           />
           {query ? (
@@ -660,7 +787,7 @@ export default function TasksPage() {
           [
             ["all", "All"],
             ["status", "Status"],
-            ["project", "Project"],
+            ["project", "List"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -674,14 +801,37 @@ export default function TasksPage() {
           </button>
         ))}
       </div>
-      {group !== "all" ? (
-        <div className="mt-1 flex items-center gap-2 px-4">
-          <span className="rounded-full bg-[#E6E8E4] px-3 py-1 text-meta font-medium text-[#5C6560]">{group === "status" ? "Status" : "Project"}</span>
-          <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setGroup("all")}>
-            Clear
-          </button>
-        </div>
-      ) : null}
+      <div className="relative mt-1 flex justify-end px-4">
+        <button
+          type="button"
+          className="inline-flex min-h-11 items-center px-2 text-meta font-medium text-muted"
+          aria-expanded={sortOpen}
+          aria-haspopup="menu"
+          onClick={() => setSortOpen((open) => !open)}
+        >
+          {sortOrder === "newest" ? "Newest first" : "Oldest first"}
+        </button>
+        {sortOpen ? (
+          <div role="menu" className="absolute right-4 top-11 z-10 min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg">
+            {(["newest", "oldest"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={sortOrder === value}
+                className="flex min-h-11 w-full items-center justify-between px-3 text-left text-body"
+                onClick={() => {
+                  setSortOrder(value);
+                  setSortOpen(false);
+                }}
+              >
+                <span>{value === "newest" ? "Newest first" : "Oldest first"}</span>
+                {sortOrder === value ? <span aria-hidden="true">✓</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       </>
       )}
       {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
@@ -721,15 +871,21 @@ export default function TasksPage() {
         </div>
       ) : null}
       {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
-        <div className="px-4" data-empty="true">
-          <div className="mt-10 flex flex-col items-center">
-            <span className="grid h-16 w-16 place-items-center rounded-full bg-[#E4E6E2] text-ink">
-              <span className="grid h-7 w-7 place-items-center rounded-md border-2 border-current">
-                <Icon name="check" size={16} />
-              </span>
-            </span>
-            <h2 className="mt-4 text-section font-medium">No unfinished tasks</h2>
-          </div>
+        <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
+          <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
+            <Icon name="check-square" size={28} />
+          </span>
+          <h2 className="mt-4 text-section font-medium">No unfinished tasks</h2>
+          {!offline ? (
+            <button
+              type="button"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              onClick={openAdd}
+              disabled={addDisabled}
+            >
+              Add a task
+            </button>
+          ) : null}
         </div>
       ) : null}
       {mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
@@ -755,7 +911,7 @@ export default function TasksPage() {
             <span>Completed</span>
             <span className="font-medium text-muted">{completedTasks.length}</span>
           </h2>
-          <ul className="mt-2 space-y-3 px-4">{completedTasks.map((task) => renderTask(task))}</ul>
+          <ul className="mt-2 space-y-3 px-4">{[...completedTasks].sort((left, right) => (sortOrder === "oldest" ? 1 : -1) * ((left.createdAt || 0) - (right.createdAt || 0)) || (left.id < right.id ? -1 : 1)).map((task) => renderTask(task))}</ul>
         </section>
       ) : null}
       {showAddBar && !offline ? (
@@ -777,33 +933,27 @@ export default function TasksPage() {
         </button>
       ) : null}
       </div>
-      {sheet ? (
+      {wide && !sheet ? (
+        <aside className="card mt-4 h-fit w-[420px] shrink-0 p-5">
+          <h2 className="pt-8 text-center text-section font-medium text-muted">Select a task</h2>
+        </aside>
+      ) : null}
+      {sheet && !manage ? (
         <Sheet
           title={sheet === "edit" ? "Edit task" : "Add a task"}
           onClose={cancel}
           frame
           dock={wide ? "panel" : "sheet"}
+          header="slim"
           titleClassName="text-section font-medium"
           formId="task-form"
           saveLabel={saving ? "Saving…" : "Save"}
           saveDisabled={offline || saving}
-          footer={
-            !wide && sheet === "edit" ? (
-              <button
-                type="button"
-                className="flex min-h-11 w-full items-center px-1 text-left text-body font-medium text-muted disabled:opacity-50"
-                onClick={() => setConfirmDelete(true)}
-                disabled={offline}
-              >
-                Delete
-              </button>
-            ) : null
-          }
           aside={
             wide && sheet === "edit" ? (
               <button
                 type="button"
-                className="min-h-11 min-w-11 px-1 text-body font-medium text-muted disabled:opacity-50"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50"
                 onClick={() => setConfirmDelete(true)}
                 disabled={offline}
               >
@@ -811,25 +961,13 @@ export default function TasksPage() {
               </button>
             ) : null
           }
-          actions={
-            wide ? (
-              <div className="flex gap-2">
-                <button type="button" className="flex min-h-10 items-center justify-center rounded-xl border border-ink px-3 text-body font-medium" onClick={cancel}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  form="task-form"
-                  className="flex min-h-10 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
-                  disabled={offline || saving}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            ) : null
-          }
         >
           <form id="task-form" className="space-y-5" onSubmit={save}>
+            {sheet === "edit" && !wide ? (
+              <button type="button" className="flex min-h-11 min-w-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline}>
+                Delete
+              </button>
+            ) : null}
             {sheet === "edit" && tasks.find((task) => task.id === editingId)?.bot ? (
               <BotLine bot={tasks.find((task) => task.id === editingId)!.bot!} />
             ) : null}
@@ -854,12 +992,15 @@ export default function TasksPage() {
               autoComplete="off"
             />
             {titleError ? (
-              <p id="task-title-error" role="alert" className="mt-1 text-meta font-medium text-finance-dining">
+              <p id="task-title-error" role="alert" className="mt-1 text-meta font-medium text-warn">
                 {titleError}
               </p>
             ) : null}
+            {sheet === "edit" && createdLabel(tasks.find((task) => task.id === editingId)?.createdAt ?? Number.NaN) ? (
+              <p className="mt-2 text-meta text-muted">{createdLabel(tasks.find((task) => task.id === editingId)?.createdAt ?? Number.NaN)}</p>
+            ) : null}
             </div>
-            <div>
+            {!listOpen ? (<><div>
             <label className="block text-meta font-medium" htmlFor="task-notes">
               Notes
             </label>
@@ -872,9 +1013,10 @@ export default function TasksPage() {
               className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
             />
             </div>
+            <div className="grid grid-cols-2 gap-3">
             <div>
             <label className="block text-meta font-medium" htmlFor="task-due">
-              Due date
+              Due
             </label>
             <input
               id="task-due"
@@ -913,6 +1055,7 @@ export default function TasksPage() {
               <option>Low</option>
             </select>
             </div>
+            </div>
             <div>
             <label className="block text-meta font-medium" htmlFor="task-status">
               Status
@@ -929,34 +1072,82 @@ export default function TasksPage() {
               {sheet === "edit" ? <option>Done</option> : null}
             </select>
             </div>
-            <div>
-            <label className="block text-meta font-medium" htmlFor="task-project">
-              Project
-            </label>
-            <input
-              id="task-project"
+            </>) : null}
+            <TaskListMenu
               value={draft.project}
-              onChange={(event) => setDraft({ ...draft, project: event.target.value })}
-              enterKeyHint="done"
-              inputMode="text"
-              className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base"
-              autoComplete="off"
+              label={draft.project ? resolveTaskList(draft.project, lists).label : "None"}
+              lists={lists}
+              legacy={[...new Set(tasks.map((task) => task.project).filter((project): project is string => Boolean(project) && !lists.some((list) => list.id === project)))]}
+              open={listOpen}
+              name={newListName}
+              color={newListColor || nextPaletteColor(lists)}
+              colorOpen={colorOpen}
+              error={listError}
+              onToggle={() => (listOpen ? setListOpen(false) : openListMenu())}
+              onPick={(project) => {
+                setDraft({ ...draft, project });
+                setListOpen(false);
+              }}
+              onName={setNewListName}
+              onColor={setNewListColor}
+              onToggleColor={() => setColorOpen((open) => !open)}
+              onAdd={() => void addList()}
+              onManage={() => {
+                setListOpen(false);
+                setManage("home");
+                setManageError("");
+              }}
             />
-            </div>
             {formError ? (
-              <p role="alert" className="text-meta font-medium text-finance-dining">
+              <p role="alert" className="text-meta font-medium text-warn">
                 {formError}
               </p>
             ) : null}
           </form>
         </Sheet>
       ) : null}
+      {manage ? (
+        <ManageLists
+          lists={lists}
+          mode={manage}
+          name={editName}
+          color={editColor}
+          error={manageError}
+          moved={editList ? lists.find((list) => list.id === editList.id)?.count ?? 0 : 0}
+          wide={wide}
+          saving={manageSaving}
+          onClose={() => setManage(null)}
+          onNew={() => {
+            setManage(null);
+            openListMenu();
+          }}
+          onOpen={(list) => {
+            setEditList(list);
+            setEditName(list.name);
+            setEditColor(list.color);
+            setManageError("");
+            setManage("edit");
+          }}
+          onName={setEditName}
+          onColor={setEditColor}
+          onSave={() => void saveListEdit()}
+          onAskDelete={() => {
+            setManageError("");
+            setManage("delete");
+          }}
+          onDelete={() => void removeList()}
+          onBack={() => {
+            setManageError("");
+            setManage(manage === "delete" ? "edit" : "home");
+          }}
+        />
+      ) : null}
       {confirmDelete ? (
         <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+28px)]" role="alertdialog" aria-labelledby="delete-title">
           <div className="card w-full max-w-phone p-5 shadow-2xl">
             <h2 id="delete-title" className="text-section font-medium">Delete this task?</h2>
-            {formError ? <p role="alert" className="mt-2 text-meta font-medium text-[#E07A5F]">{formError}</p> : null}
-            <button type="button" autoFocus className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#E07A5F] text-body font-medium text-white" onClick={() => void removeTask()}>
+            {formError ? <p role="alert" className="mt-2 text-meta font-medium text-warn">{formError}</p> : null}
+            <button type="button" autoFocus className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-warn text-body font-medium text-on-warn" onClick={() => void removeTask()}>
               Delete
             </button>
             <button type="button" className="mt-2 flex min-h-12 w-full items-center justify-center rounded-xl border border-ink text-body font-medium" onClick={() => setConfirmDelete(false)}>
