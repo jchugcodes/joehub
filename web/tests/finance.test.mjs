@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoriesSnapshot, categoryView, chartAxis, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, parseMonthlyBudgets, patchTransaction, periodChange, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoriesSnapshot, categoryView, chartAxis, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, incomeSpent, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, parseMonthlyBudgets, patchTransaction, periodChange, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
@@ -467,4 +467,85 @@ test("saving monthly budgets confirms the estimates and leaves blanks empty", as
   const view = store.financeOverview(NOW, "", "YTD");
   assert.equal(view.body.month.saved, true);
   assert.equal(view.body.month.planCents, 169000);
+});
+
+test("seed income vs spent matches the overview month and week tables", () => {
+  const flow = incomeSpent([], "2026-11-10", true);
+  assert.deepEqual(
+    flow.Month.map((row) => [row.label, row.incomeCents, row.spentCents, row.over, row.current]),
+    [
+      ["Jun", 470000, 382000, false, false],
+      ["Jul", 470000, 416000, false, false],
+      ["Aug", 470000, 354000, false, false],
+      ["Sep", 470000, 428000, false, false],
+      ["Oct", 470000, 512000, true, false],
+      ["Nov", 235000, 112600, false, true],
+    ],
+  );
+  assert.equal(flow.Month.find((row) => row.key === "2026-11").title, "November");
+  assert.equal(flow.Month.find((row) => row.key === "2026-10").title, "October");
+  assert.deepEqual(
+    flow.Week.map((row) => [row.key, row.incomeCents, row.spentCents, row.over, row.title]),
+    [
+      ["2026-09-28", 0, 118000, true, "Sep 28"],
+      ["2026-10-05", 235000, 142000, false, "Oct 5"],
+      ["2026-10-12", 0, 98000, true, "Oct 12"],
+      ["2026-10-19", 235000, 129000, false, "Oct 19"],
+      ["2026-10-26", 0, 143000, true, "Oct 26"],
+      ["2026-11-09", 235000, 112600, false, "This week"],
+    ],
+  );
+  assert.equal(flow.Quarter.at(-1).title, "This quarter");
+  assert.equal(flow.Quarter.at(-1).incomeCents, 705000);
+  assert.equal(flow.Quarter.at(-1).spentCents, 624600);
+  assert.equal(flow.Quarter.length, 6);
+  assert.equal(flow.Year.find((row) => row.key === "2025").over, true);
+  assert.equal(flow.Year.at(-1).title, "This year");
+  assert.equal(flow.Year.at(-1).incomeCents, 4935000);
+  assert.equal(flow.Year.at(-1).spentCents, 4204600);
+  const seeded = overview(SEED_TRANSACTIONS, NOW, "", "YTD");
+  assert.equal(seeded.body.flow.Month.find((row) => row.key === "2026-10").incomeCents, 470000);
+});
+
+test("production income vs spent sums stored transactions and skips the synthetic table", () => {
+  const txns = [
+    { id: "in", date: "2026-11-09", type: "income", amountCents: 10000 },
+    { id: "out", date: "2026-11-10", type: "expense", amountCents: -400 },
+    { id: "back", date: "2026-11-10", type: "refund", amountCents: 100 },
+    { id: "move", date: "2026-11-09", type: "transfer", amountCents: -5000 },
+    { id: "oct", date: "2026-10-15", type: "expense", amountCents: -2500 },
+  ];
+  const flow = incomeSpent(txns, "2026-11-10", false);
+  assert.equal(flow.Month.length, 6);
+  assert.equal(flow.Week.length, 6);
+  assert.equal(flow.Quarter.length, 6);
+  assert.equal(flow.Year.length, 6);
+  const november = flow.Month.find((row) => row.key === "2026-11");
+  assert.equal(november.incomeCents, 10000);
+  assert.equal(november.spentCents, 300);
+  assert.equal(november.over, false);
+  assert.equal(november.current, true);
+  const october = flow.Month.find((row) => row.key === "2026-10");
+  assert.equal(october.incomeCents, 0);
+  assert.equal(october.spentCents, 2500);
+  assert.equal(october.over, true);
+  assert.notEqual(october.incomeCents, 470000);
+  assert.notEqual(october.spentCents, 512000);
+  assert.equal(flow.Week[0].key, "2026-10-05");
+  assert.equal(flow.Week.at(-1).key, "2026-11-09");
+  assert.equal(flow.Week.at(-1).title, "This week");
+  assert.equal(flow.Week.find((row) => row.key === "2026-11-02").key, "2026-11-02");
+  const empty = incomeSpent([], "2026-11-10", false);
+  assert.equal(empty.Month.length, 6);
+  assert.equal(empty.Month.every((row) => row.incomeCents === 0 && row.spentCents === 0), true);
+  assert.equal(empty.Week[0].key, "2026-10-05");
+  const stored = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { env: { VERCEL_ENV: "production" } });
+  const storedOctober = stored.body.flow.Month.find((row) => row.key === "2026-10");
+  assert.equal(storedOctober.incomeCents, 0);
+  assert.equal(storedOctober.spentCents, 4820);
+  assert.equal(stored.body.flow.Month.find((row) => row.key === "2026-11").incomeCents, 235000);
+  assert.equal(stored.body.flow.Week[0].key, "2026-10-05");
+  assert.notEqual(stored.body.flow.Week[0].key, "2026-09-28");
+  assert.equal(stored.body.flow.Week.find((row) => row.key === "2026-11-02").spentCents > 0, true);
+  assert.equal(stored.body.chart.kind, "net-worth");
 });

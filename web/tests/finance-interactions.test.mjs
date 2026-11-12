@@ -138,6 +138,22 @@ test("finance week, chart, goals, caps, and offline reconnect at 390 and 1280", 
       await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
       await send("Page.navigate", { url: `${base()}/finance?asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(send, "document.body && document.body.innerText.includes('Dining Out') && document.body.innerText.includes('This week') ? 'yes' : ''", `overview ${width}`);
+      if (width === 390) {
+        await waitFor(send, "document.querySelector('[data-flow]')?.getAttribute('data-period') === 'Month' && document.querySelector('[data-flow-net]')?.getAttribute('data-income') === '235000' && document.querySelector('[data-flow-net]')?.textContent.includes('+$1,224') ? 'yes' : ''", "november totals");
+        await pointerClick(send, evalPage, "document.querySelector('[data-flow-card=\"2026-10\"]')");
+        await waitFor(send, "document.querySelector('[data-flow-net]')?.textContent.includes('$420 over') && document.querySelector('[data-flow-net]')?.getAttribute('data-spent') === '512000' ? 'yes' : ''", "october totals");
+        assert.equal(await evalPage(send, "document.querySelector('[data-flow-card=\"2026-10\"]')?.getAttribute('data-over')"), "true");
+        assert.equal(await evalPage(send, "document.querySelector('[data-flow-card=\"2026-10\"]')?.getAttribute('aria-pressed')"), "true");
+        await pressLabel(send, evalPage, "Week");
+        await waitFor(send, "document.querySelector('[data-flow]')?.getAttribute('data-period') === 'Week' && document.querySelector('[data-flow-card=\"2026-10-26\"]')?.getAttribute('data-over') === 'true' && document.querySelector('[data-flow-net]')?.textContent.includes('+$1,224') ? 'yes' : ''", "week totals");
+        assert.equal(await evalPage(send, "document.querySelector('[data-flow-card=\"2026-11-09\"]')?.getAttribute('aria-pressed')"), "true");
+        await pressLabel(send, evalPage, "Quarter");
+        await waitFor(send, "document.querySelector('[data-flow]')?.getAttribute('data-period') === 'Quarter' && document.querySelector('[data-flow-net]')?.textContent.includes('+$804') ? 'yes' : ''", "quarter totals");
+        await pressLabel(send, evalPage, "Year");
+        await waitFor(send, "document.querySelector('[data-flow]')?.getAttribute('data-period') === 'Year' && document.querySelector('[data-flow-card=\"2025\"]')?.getAttribute('data-over') === 'true' ? 'yes' : ''", "year totals");
+        await pressLabel(send, evalPage, "Month");
+        await pointerClick(send, evalPage, "document.querySelector('[data-flow-card=\"2026-11\"]')");
+      }
       await pressLabel(send, evalPage, "Previous week");
       await waitFor(send, "document.body.innerText.includes('Nov 2–8') ? 'yes' : ''", `previous ${width}`);
       await pressLabel(send, evalPage, "Next week");

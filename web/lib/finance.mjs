@@ -2,6 +2,7 @@
 
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { productionNav } from "./live-pages.mjs";
+import { syntheticSeedEnabled } from "./seed.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 
 export const PLAN_CENTS = 420_400;
@@ -961,6 +962,163 @@ function recentMeta(row) {
   return `${dateLabel(row.date)} · ${categoryBySlug(row.category)?.name || row.category}`;
 }
 
+function flowRow(key, label, title, incomeCents, spentCents, current) {
+  return { key, label, title, incomeCents, spentCents, over: spentCents > incomeCents, current: Boolean(current) };
+}
+
+// Preview tables from the v8 overview frames. November spent matches the seed week.
+// Production never uses these; it sums stored transactions instead.
+const SEED_FLOW_WEEK = [
+  flowRow("2026-09-28", "Sep 28", "Sep 28", 0, 118_000, false),
+  flowRow("2026-10-05", "Oct 5", "Oct 5", 235_000, 142_000, false),
+  flowRow("2026-10-12", "Oct 12", "Oct 12", 0, 98_000, false),
+  flowRow("2026-10-19", "Oct 19", "Oct 19", 235_000, 129_000, false),
+  flowRow("2026-10-26", "Oct 26", "Oct 26", 0, 143_000, false),
+  flowRow("2026-11-09", "Nov 9", "This week", 235_000, 112_600, true),
+];
+
+const SEED_FLOW_MONTH = [
+  flowRow("2026-06", "Jun", "Jun", 470_000, 382_000, false),
+  flowRow("2026-07", "Jul", "Jul", 470_000, 416_000, false),
+  flowRow("2026-08", "Aug", "Aug", 470_000, 354_000, false),
+  flowRow("2026-09", "Sep", "Sep", 470_000, 428_000, false),
+  flowRow("2026-10", "Oct", "October", 470_000, 512_000, false),
+  flowRow("2026-11", "Nov", "November", 235_000, 112_600, true),
+];
+
+// Q3 and Q4 2026 are the month table. Q2 adds Apr $4,700/$4,300 and May $4,700/$4,400 to June.
+// Earlier quarters are a steady $14,100 income so the pill has six cards.
+const SEED_FLOW_QUARTER = [
+  flowRow("2025-Q3", "Q3 ’25", "Q3 2025", 1_410_000, 1_200_000, false),
+  flowRow("2025-Q4", "Q4 ’25", "Q4 2025", 1_410_000, 1_320_000, false),
+  flowRow("2026-Q1", "Q1 ’26", "Q1 2026", 1_410_000, 1_280_000, false),
+  flowRow("2026-Q2", "Q2 ’26", "Q2 2026", 1_410_000, 1_252_000, false),
+  flowRow("2026-Q3", "Q3 ’26", "Q3 2026", 1_410_000, 1_198_000, false),
+  flowRow("2026-Q4", "Q4 ’26", "This quarter", 705_000, 624_600, true),
+];
+
+// 2026 is Jan–May at $4,700 / $4,000 plus Jun–Nov from the month table.
+// 2025 is the over-income year so the coral bar has a year example.
+const SEED_FLOW_YEAR = [
+  flowRow("2021", "2021", "2021", 5_640_000, 5_100_000, false),
+  flowRow("2022", "2022", "2022", 5_640_000, 5_220_000, false),
+  flowRow("2023", "2023", "2023", 5_640_000, 4_980_000, false),
+  flowRow("2024", "2024", "2024", 5_640_000, 5_400_000, false),
+  flowRow("2025", "2025", "2025", 5_640_000, 5_760_000, false),
+  flowRow("2026", "2026", "This year", 4_935_000, 4_204_600, true),
+];
+
+function shiftMonth(year, month, delta) {
+  const index = year * 12 + (month - 1) + delta;
+  return { year: Math.floor(index / 12), month: (index % 12) + 1 };
+}
+
+function monthWindows(today, count = 6) {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const rows = [];
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const point = shiftMonth(year, month, -back);
+    const key = `${point.year}-${String(point.month).padStart(2, "0")}`;
+    const current = back === 0;
+    const end = current ? today : new Date(Date.UTC(point.year, point.month, 0)).toISOString().slice(0, 10);
+    const short = MONTHS[point.month - 1];
+    const name = MONTH_NAMES[point.month - 1];
+    rows.push({
+      key,
+      label: point.year === year ? short : `${short} ’${String(point.year).slice(2)}`,
+      title: current || point.year === year ? name : `${name} ${point.year}`,
+      start: `${key}-01`,
+      end,
+      current,
+    });
+  }
+  return rows;
+}
+
+function weekWindows(today, count = 6) {
+  const currentStart = weekStart(today);
+  const rows = [];
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const start = addDays(currentStart, -7 * back);
+    const current = back === 0;
+    const label = formatDay(start);
+    rows.push({ key: start, label, title: current ? "This week" : label, start, end: current ? today : addDays(start, 6), current });
+  }
+  return rows;
+}
+
+function quarterWindows(today, count = 6) {
+  const year = Number(today.slice(0, 4));
+  const quarter = Math.floor((Number(today.slice(5, 7)) - 1) / 3);
+  const rows = [];
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const index = year * 4 + quarter - back;
+    const pointYear = Math.floor(index / 4);
+    const pointQuarter = ((index % 4) + 4) % 4;
+    const startMonth = pointQuarter * 3 + 1;
+    const current = back === 0;
+    const start = `${pointYear}-${String(startMonth).padStart(2, "0")}-01`;
+    const end = current ? today : new Date(Date.UTC(pointYear, startMonth + 2, 0)).toISOString().slice(0, 10);
+    rows.push({
+      key: `${pointYear}-Q${pointQuarter + 1}`,
+      label: `Q${pointQuarter + 1} ’${String(pointYear).slice(2)}`,
+      title: current ? "This quarter" : `Q${pointQuarter + 1} ${pointYear}`,
+      start,
+      end,
+      current,
+    });
+  }
+  return rows;
+}
+
+function yearWindows(today, count = 6) {
+  const year = Number(today.slice(0, 4));
+  const rows = [];
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const point = year - back;
+    const current = back === 0;
+    rows.push({
+      key: String(point),
+      label: String(point),
+      title: current ? "This year" : String(point),
+      start: `${point}-01-01`,
+      end: current ? today : `${point}-12-31`,
+      current,
+    });
+  }
+  return rows;
+}
+
+function flowSums(txns, start, end) {
+  let incomeCents = 0;
+  let spentCents = 0;
+  for (const row of (txns || []).map(effective)) {
+    if (!row.date || row.date < start || row.date > end) continue;
+    if (row.type === "income") incomeCents += Math.abs(row.amountCents || 0);
+    else spentCents += spendCents(row);
+  }
+  return { incomeCents, spentCents };
+}
+
+function presentFlow(windows, txns) {
+  return windows.map((window) => {
+    const sums = flowSums(txns, window.start, window.end);
+    return flowRow(window.key, window.label, window.title, sums.incomeCents, sums.spentCents, window.current);
+  });
+}
+
+export function incomeSpent(txns, today, seeded) {
+  if (seeded) return { Week: SEED_FLOW_WEEK, Month: SEED_FLOW_MONTH, Quarter: SEED_FLOW_QUARTER, Year: SEED_FLOW_YEAR };
+  const rows = Array.isArray(txns) ? txns : [];
+  return {
+    Week: presentFlow(weekWindows(today), rows),
+    Month: presentFlow(monthWindows(today), rows),
+    Quarter: presentFlow(quarterWindows(today), rows),
+    Year: presentFlow(yearWindows(today), rows),
+  };
+}
+
 export function overview(txns, now, week, range, caps = defaultCaps(), context = {}) {
   const today = detroitYmd(now);
   const start = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? weekStart(week) : weekStart(today);
@@ -990,6 +1148,7 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       netWorthCents,
       chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
       month: monthProgress(txns, today, planCents, categories, env, context.budgetsSaved === true),
+      flow: incomeSpent(txns, today, syntheticSeedEnabled(env)),
       caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,

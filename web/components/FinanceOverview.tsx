@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { hasNetWorthHistory, periodChange } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 import { FinanceTabs } from "./FinanceTabs";
+import { IncomeSpent, type Flow } from "./IncomeSpent";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
 import { useProductionNav } from "./LivePages";
@@ -46,6 +47,7 @@ type Overview = {
     endCents?: number;
   };
   month: { label: string; spentCents: number; planCents: number | null; percent: number | null; day: number; days: number };
+  flow?: Flow;
   caps: Cap[];
   recent: Recent[];
   empty: boolean;
@@ -607,6 +609,7 @@ export function FinanceOverview() {
                   </div>
                 </div>
             </NetWorthChart>
+            {!offline && overview.flow ? <IncomeSpent flow={overview.flow} /> : null}
             {!offline ? (
               <section className="mt-6 rounded-[22px] border border-line px-4 py-4">
                 <div className="flex items-baseline justify-between gap-3 text-meta">
@@ -634,9 +637,7 @@ export function FinanceOverview() {
                 </p>
               </section>
             ) : null}
-          </section>
-          <section className="px-5 pt-6">
-            <div className="flex items-center justify-between gap-2">
+            <div className="mt-4 flex items-center justify-between gap-2">
               <button type="button" aria-label="Previous week" className="grid h-11 w-11 shrink-0 place-items-center" onClick={() => chooseWeek(overview.previousWeek)}>
                 <Icon name="back" size={18} />
               </button>
@@ -654,7 +655,9 @@ export function FinanceOverview() {
                 <Icon name="chevron" size={18} />
               </button>
             </div>
-            <div className="mt-4 flex items-baseline justify-between gap-3">
+          </section>
+          <section className="px-5 pt-6">
+            <div className="flex items-baseline justify-between gap-3">
               <h3 className="text-body font-medium">Weekly caps</h3>
               <Link href={`/finance/caps${suffix}`} className="text-body font-medium text-finance-primary">
                 Edit caps
