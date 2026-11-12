@@ -216,6 +216,25 @@ function areaPath(seg: PlotPoint[], y0: number) {
   return `${linePath(seg)} L${last.x.toFixed(2)},${y0.toFixed(2)} L${seg[0].x.toFixed(2)},${y0.toFixed(2)} Z`;
 }
 
+function weeklyGeometry(points: number[], axis?: { min: number; max: number; zero: number | null }) {
+  if (!points.length) return { line: "", fill: "", zeroY: null as number | null };
+  const width = 360;
+  const height = 120;
+  const min = axis ? axis.min : Math.min(...points);
+  const max = axis ? axis.max : Math.max(...points);
+  const span = max - min || 1;
+  const yOf = (value: number) => height - 8 - ((value - min) / span) * (height - 16);
+  const coords = points.map((value, index) => {
+    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+    return { x, y: yOf(value) };
+  });
+  const line = coords.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const zeroY = axis && axis.zero != null ? yOf(axis.zero) : null;
+  const base = zeroY == null ? height : zeroY;
+  const fill = `${line} L${coords[coords.length - 1].x.toFixed(1)} ${base.toFixed(1)} L${coords[0].x.toFixed(1)} ${base.toFixed(1)} Z`;
+  return { line, fill, zeroY };
+}
+
 function TrendMark({ tone, color }: { tone: string; color: string }) {
   if (tone !== "up" && tone !== "down") return null;
   const d = tone === "down" ? "M3 7l6 6 4-4 8 8M15 17h6v-6" : "M3 17l6-6 4 4 8-8M15 7h6v6";
@@ -257,7 +276,7 @@ function ChartPaths({ points }: { points: number[] }) {
   );
 }
 
-function NetWorthChart({
+function WeeklySpendChart({
   netWorthCents,
   chart,
   showCaption,
@@ -270,8 +289,49 @@ function NetWorthChart({
   showChart: boolean;
   children: ReactNode;
 }) {
-  const start = chart.startCents ?? chart.points[0] ?? netWorthCents;
-  const end = chart.endCents ?? netWorthCents;
+  const geometry = weeklyGeometry(chart.points, chart.axis);
+  return (
+    <>
+      <p className="mt-1 font-medium leading-none" data-net-worth={netWorthCents} style={netWorthCents < 0 ? { color: BELOW } : undefined}>
+        <span className="text-title">{dollars(netWorthCents)}</span>
+        <span className="text-section">.{centsPart(netWorthCents)}</span>
+      </p>
+      {showCaption ? <p className="mt-2 text-body text-finance-primary">{chart.caption}</p> : null}
+      {showChart ? (
+        <div className="mt-4" data-chart={chart.range} data-kind="weekly" data-points={chart.points.join(",")} data-baseline={chart.axis?.zero != null ? "true" : "false"}>
+          <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
+            <path d={geometry.fill} fill="#2E8B6A" opacity="0.1" />
+            {geometry.zeroY != null ? <line x1="0" x2="360" y1={geometry.zeroY} y2={geometry.zeroY} stroke="#C9CEC8" strokeWidth="1" /> : null}
+            <path d={geometry.line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
+          </svg>
+          {chart.axis && chart.axis.min < 0 ? (
+            <p className="mt-1 flex justify-between text-meta text-muted">
+              <span>{money(chart.axis.min, true)}</span>
+              <span>{money(chart.axis.max, true)}</span>
+            </p>
+          ) : null}
+          {children}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function NetWorthSeriesChart({
+  netWorthCents,
+  chart,
+  showCaption,
+  showChart,
+  children,
+}: {
+  netWorthCents: number;
+  chart: Overview["chart"];
+  showCaption: boolean;
+  showChart: boolean;
+  children: ReactNode;
+}) {
+  const start = chart.startCents ?? chart.points[0] ?? 0;
+  const end = chart.endCents ?? chart.points[chart.points.length - 1] ?? netWorthCents;
   const frame = useChartMotion(chart.points, start, end);
   const shownEnd = showChart ? frame.end : netWorthCents;
   const change = periodChange(frame.start, frame.end);
@@ -294,6 +354,7 @@ function NetWorthChart({
         <div
           className="mt-2"
           data-chart={chart.range}
+          data-kind="net-worth"
           data-points={chart.points.join(",")}
           data-baseline={chart.axis?.zero != null ? "true" : "false"}
         >
@@ -305,6 +366,17 @@ function NetWorthChart({
       ) : null}
     </>
   );
+}
+
+function NetWorthChart(props: {
+  netWorthCents: number;
+  chart: Overview["chart"];
+  showCaption: boolean;
+  showChart: boolean;
+  children: ReactNode;
+}) {
+  if (props.chart.kind !== "net-worth") return <WeeklySpendChart {...props} />;
+  return <NetWorthSeriesChart {...props} />;
 }
 
 export function FinanceOverview() {

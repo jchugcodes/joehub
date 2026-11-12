@@ -385,6 +385,40 @@ test("a debts-inclusive net worth uses the period change and the data scale", ()
   assert.equal(cross.max > 0, true);
 });
 
+test("a stored snapshot without series keeps weekly spend off the net-worth change", () => {
+  const stored = { points: [1_718_826, 1_847_236], netWorthCents: 1_847_236 };
+  const context = { netWorthCents: 1_847_236, snapshot: stored };
+  const week = overview(SEED_TRANSACTIONS, NOW, "", "1W", undefined, context);
+  const month = overview(SEED_TRANSACTIONS, NOW, "", "1M", undefined, context);
+  assert.equal(week.body.chart.kind, "weekly");
+  assert.equal(month.body.chart.kind, "weekly");
+  assert.deepEqual(week.body.chart.points, [38543]);
+  assert.deepEqual(month.body.chart.points, [74057, 38543]);
+  assert.equal(week.body.chart.axis.zero, null);
+  assert.equal(month.body.chart.axis.zero, null);
+  assert.equal(chartAxis([38543, 74057]).zero, 0);
+  for (const view of [week, month]) {
+    assert.equal(view.body.chart.caption, "");
+    assert.equal(view.body.chart.changeTone, undefined);
+    assert.equal(view.body.chart.startCents, undefined);
+    assert.equal(view.body.chart.endCents, undefined);
+    assert.notEqual(view.body.chart.caption, periodChange(view.body.chart.points[0], 1_847_236).text);
+  }
+  const negative = { points: [-11_600_000, -11_553_311], netWorthCents: -11_553_311 };
+  const spent = overview(SEED_TRANSACTIONS, NOW, "", "1W", undefined, { netWorthCents: -11_553_311, snapshot: negative });
+  assert.equal(spent.body.chart.kind, "weekly");
+  assert.deepEqual(spent.body.chart.points, [38543]);
+  assert.equal(spent.body.chart.axis.zero, null);
+  assert.equal(spent.body.chart.caption, "");
+  assert.equal(spent.body.chart.startCents, undefined);
+  assert.equal(spent.body.chart.endCents, undefined);
+  assert.notEqual(spent.body.chart.caption, periodChange(38543, -11_553_311).text);
+  const ytd = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: -12_919_164, snapshot: seedSnapshots() });
+  assert.equal(ytd.body.chart.kind, "net-worth");
+  assert.equal(ytd.body.chart.caption, "+$2,408.36 (1.8%)");
+  assert.equal(ytd.body.chart.axis.zero, null);
+});
+
 test("a ledger refresh keeps the Shell correction until a confirmed reset", () => {
   const refreshed = simulateLedgerRefresh(SEED_TRANSACTIONS, NOW);
   const shell = refreshed.find((row) => row.id === "fin-shell");

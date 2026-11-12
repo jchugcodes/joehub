@@ -537,7 +537,7 @@ export function periodChange(startCents, endCents) {
   return { text, tone, deltaCents: delta, hidePercent };
 }
 
-/** Include zero when the series crosses it, or when the span is at least 25% of the distance to zero. */
+/** Include zero when the series crosses it, or when the span is at least 25% of the distance to zero. Net-worth charts only. */
 export function chartAxis(points) {
   const values = (points || []).filter((value) => Number.isFinite(value));
   if (!values.length) return { min: 0, max: 0, zero: null };
@@ -548,6 +548,18 @@ export function chartAxis(points) {
   const include = crosses || span <= 0 || span >= 0.25 * Math.min(Math.abs(low), Math.abs(high));
   if (!include) return { min: low, max: high, zero: null };
   return { min: Math.min(low, 0), max: Math.max(high, 0), zero: 0 };
+}
+
+/** Weekly spend keeps the axis from before the net-worth scale. A positive spend series does not grow a zero line. */
+function weeklyChartAxis(points) {
+  const values = (points || []).filter((value) => Number.isFinite(value));
+  if (!values.length) return { min: 0, max: 0, zero: null };
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = high - low || 1;
+  if (low < 0 && high > 0) return { min: low, max: high, zero: 0 };
+  if (low < 0 && high <= 0 && Math.abs(high) <= span * 4) return { min: low, max: 0, zero: 0 };
+  return { min: low, max: high, zero: null };
 }
 
 export function alignNetWorthSeries(points, netWorthCents) {
@@ -892,8 +904,10 @@ function presentChart(chart, netWorthCents) {
     next.changeTone = change.tone;
     next.startCents = next.points[0];
     next.endCents = next.points[next.points.length - 1];
+    next.axis = chartAxis(next.points);
+    return next;
   }
-  next.axis = chartAxis(next.points);
+  next.axis = weeklyChartAxis(next.points);
   return next;
 }
 
@@ -1498,6 +1512,7 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const idem = new Map();
   const planCents = process.env.JOEHUB_MONTHLY_PLAN === "weekly-envelope" ? ENVELOPE_CENTS : PLAN_CENTS;
   const snapshot = seedSnapshots();
+  if (process.env.JOEHUB_NET_WORTH_SERIES === "0") delete snapshot.series;
   const legacyAccounts = structuredClone(ACCOUNTS);
   let manualAccounts = structuredClone(SEED_ACCOUNTS);
   let accountSeq = 0;

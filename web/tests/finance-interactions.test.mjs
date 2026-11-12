@@ -23,7 +23,7 @@ function cookieValue(response) {
   return raw.split(";", 1)[0].slice("joehub_session=".length);
 }
 
-async function boot() {
+async function boot(extra = {}) {
   release = await acquireBrowserLock();
   port = await reservePort();
   cdp = await reservePort();
@@ -37,6 +37,7 @@ async function boot() {
       NODE_ENV: "development",
       JOEHUB_DEV_AUTH: "1",
       JOEHUB_SESSION_SECRET: "finance-browser-secret-value",
+      ...extra,
     },
   });
   child = started.child;
@@ -387,6 +388,53 @@ test("finance corrections survive a ledger refresh until reset at 390 and 1280",
       await waitFor(send, "document.body.innerText.includes('−$24.18') && !document.body.innerText.includes('Ledger updated') ? 'yes' : ''", `reset ${width}`);
       await send("Page.reload", { ignoreCache: true });
       await waitFor(send, "document.body.innerText.includes('Shell (example)') && document.body.innerText.includes('−$24.18') && !document.body.innerText.includes('Ledger updated') ? 'yes' : ''", `held ${width}`);
+    }
+    ws.close();
+  } finally {
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+  }
+});
+
+test("weekly ranges on a snapshot without series do not invent a net-worth change", { skip }, async () => {
+  const cookie = await boot({ JOEHUB_NET_WORTH_SERIES: "0" });
+  try {
+    const created = await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    const ws = new WebSocket(created.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve);
+      ws.addEventListener("error", reject);
+    });
+    let seq = 0;
+    const pending = new Map();
+    ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id && pending.has(message.id)) pending.get(message.id)(message);
+    });
+    const send = (method, params = {}) =>
+      new Promise((resolve) => {
+        const id = ++seq;
+        pending.set(id, resolve);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    await send("Page.enable");
+    await send("Network.enable");
+    await send("Runtime.enable");
+    const cooked = await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${base()}/`, httpOnly: true });
+    assert.equal(cooked.result?.success, true);
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
+    await send("Page.navigate", { url: `${base()}/finance?asOf=${encodeURIComponent(AS_OF)}` });
+    await waitFor(send, "document.querySelector('[data-ready=\"true\"]') ? 'yes' : ''", "weekly ready");
+    for (const [label, points] of [["1W", "38543"], ["1M", "74057,38543"]]) {
+      await pressLabel(send, evalPage, label);
+      await waitFor(send, `document.querySelector("[data-chart='${label}']") ? 'yes' : ''`, label);
+      assert.equal(await evalPage(send, "document.querySelector('[data-chart]')?.getAttribute('data-kind') || ''"), "weekly");
+      assert.equal(await evalPage(send, "document.querySelector('[data-chart]')?.getAttribute('data-points') || ''"), points);
+      assert.equal(await evalPage(send, "document.querySelector('[data-chart]')?.getAttribute('data-baseline') || ''"), "false");
+      assert.equal(await evalPage(send, "document.querySelector('[data-change]') ? 'yes' : 'no'"), "no");
+      assert.equal(await evalPage(send, "document.querySelector('[data-chart] svg text')?.textContent || ''"), "");
+      assert.equal(await evalPage(send, "document.body.innerText.includes('−$129,577.07') || document.body.innerText.includes('−$129,932.21') ? 'yes' : 'no'"), "no");
     }
     ws.close();
   } finally {
