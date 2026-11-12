@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Canonical light values from tokens.json. Dark overrides are the Finance-home palette only. */
+/* Light values stay the existing theme. html.dark switches the v9 dark tokens. */
 :root {
   --page: #f5f6f4;
   --surface: #ffffff;
@@ -15,7 +15,27 @@
   --tab-bg: rgb(255 255 255 / 0.95);
   --tab-line: #e6e8e4;
   --scrim: rgb(0 0 0 / 0.4);
-  --finance: #2e8b6a;
+  --finance-rgb: 46 139 106;
+  --finance: rgb(var(--finance-rgb));
+  --jobs-rgb: 58 134 200;
+  --jobs: rgb(var(--jobs-rgb));
+  --journal-rgb: 194 87 122;
+  --journal: rgb(var(--journal-rgb));
+  --dining-rgb: 224 122 95;
+  --dining: rgb(var(--dining-rgb));
+  --chart-positive: rgb(var(--finance-rgb));
+  --chart-negative: #e07a5f;
+  --spend-dot: #1f2a24;
+  --spend-wash: #e07a5f26;
+  --zero-line: #c9cec8;
+  --cat-groceries: #2e8b6a;
+  --cat-dining: #e07a5f;
+  --cat-transport: #5b6b8c;
+  --cat-subscriptions: #8e7cc3;
+  --cat-shopping: #e9b949;
+  --cat-utilities: #3a86c8;
+  --cat-loan: #c2577a;
+  --cat-income: #2e8b6a;
   --accent: #4eae86;
   --warn: #c4161c;
   --gain: #0b7a52;
@@ -34,33 +54,47 @@
   --list-ochre: #866c27;
   --list-plum: #ae3db8;
   --list-azure: #3075a6;
-  --jobs: #3a86c8;
-  --journal: #c2577a;
-  --dining: #e07a5f;
   --shopping: #e9b949;
   --subscriptions: #8e7cc3;
 }
 
+html.dark,
 [data-theme="dark"] {
+  color-scheme: dark;
   --page: #0e1310;
   --surface: #161d18;
   --ink: #ecf1ee;
   --muted: #8c978f;
-  --line: #26302a;
-  --inactive: #7c857f;
+  --line: #616b63;
+  --inactive: #8c978f;
   --table-header: #161d18;
-  --subtle-border: #2a332d;
+  --subtle-border: #616b63;
   --tab-bg: rgb(20 26 22 / 0.95);
   --tab-line: #2a332d;
-  --warn: #ff4d4d;
-  --gain: #5eecbc;
+  --finance-rgb: 78 174 134;
+  --jobs-rgb: 125 179 224;
+  --journal-rgb: 224 122 154;
+  --chart-positive: #4eae86;
+  --chart-negative: #e07a5f;
+  --spend-dot: #d5ddd7;
+  --spend-wash: #e07a5f33;
+  --zero-line: #616b63;
+  --cat-groceries: #4eae86;
+  --cat-transport: #8a9bb8;
+  --cat-subscriptions: #a99be0;
+  --cat-utilities: #6ba8dc;
+  --cat-loan: #e07a9a;
+  --cat-income: #4eae86;
+  --accent: #4eae86;
+  --warn: #e07a5f;
+  --gain: #4eae86;
   --on-warn: #0e1310;
   --on-gain: #0e1310;
   --muted-aa: #8c978f;
-  --status-todo: #7a8d9f;
-  --status-doing: #7a91cd;
-  --status-blocked: #ff4d4d;
-  --status-done: #5eecbc;
+  --status-todo: #8c978f;
+  --status-doing: #7db3e0;
+  --status-blocked: #e07a5f;
+  --status-done: #4eae86;
   --list-teal: #4ababa;
   --list-indigo: #9789d2;
   --list-violet: #ad81cf;
@@ -78,6 +112,8 @@
 
 html,
 body {
+  background: var(--page);
+  color: var(--ink);
   font-optical-sizing: auto;
   font-variation-settings: normal;
   -webkit-font-smoothing: antialiased;

@@ -86,7 +86,7 @@ function PaidSwitch({ on, muted, onToggle }: { on: boolean; muted: boolean; onTo
       }}
       className={`inline-flex min-h-11 min-w-11 items-center justify-end ${muted ? "opacity-40" : ""}`}
     >
-      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-[#2E8B6A]" : "bg-[#C9CEC8]"}`}>
+      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-finance-primary" : "bg-subtle-border"}`}>
         <span className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow ${on ? "left-[22px]" : "left-[2px]"}`} />
       </span>
     </button>
@@ -424,7 +424,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={recurrence === item.id}
             onClick={() => setRecurrence(item.id)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${recurrence === item.id ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${recurrence === item.id ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {item.name}
           </button>
@@ -438,7 +438,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={category === item.slug}
             onClick={() => setCategory(item.slug)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${category === item.slug ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${category === item.slug ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {item.name}
           </button>
@@ -452,7 +452,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={accountId === account.id}
             onClick={() => setAccountId(account.id)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${accountId === account.id ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${accountId === account.id ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {account.name}
           </button>
@@ -571,7 +571,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
             {snapshot && empty ? (
               <div className="px-5 py-16 text-center">
                 <p className="text-section font-medium">No upcoming bills</p>
-                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white">
+                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page">
                   Add a bill
                 </button>
               </div>
@@ -618,7 +618,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                     Cancel
                   </button>
                   <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{mode === "edit" ? "Edit bill" : "Add a bill"}</h2>
-                  <button type="submit" form="bill-form" disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">
+                  <button type="submit" form="bill-form" disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
                     Save
                   </button>
                 </div>

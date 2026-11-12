@@ -172,7 +172,7 @@ export function TaskListMenu({
                   className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 text-base"
                   autoComplete="off"
                 />
-                <button type="button" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white" onClick={onAdd}>
+                <button type="button" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page" onClick={onAdd}>
                   Add
                 </button>
               </div>
@@ -267,7 +267,7 @@ export function ManageLists({
               type="submit"
               form={formId}
               disabled={saving}
-              className={`inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-body font-medium disabled:opacity-50 ${mode === "delete" ? "bg-warn text-on-warn" : "bg-ink text-white"}`}
+              className={`inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-body font-medium disabled:opacity-50 ${mode === "delete" ? "bg-warn text-on-warn" : "bg-ink text-page"}`}
             >
               {mode === "delete" ? "Delete" : "Save"}
             </button>
@@ -292,7 +292,7 @@ export function ManageLists({
         ) : (
           <div className="px-1 py-8 text-center">
             <p className="text-section font-medium">No lists yet</p>
-            <button type="button" className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white" onClick={onNew}>
+            <button type="button" className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page" onClick={onNew}>
               New list
             </button>
           </div>

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Icon } from "./Icon";
+import { applyAppearance } from "../lib/appearance.mjs";
 import { DEV_PRIMARY, LIVE_PRIMARY } from "../lib/live-pages.mjs";
 import { useProductionNav } from "./LivePages";
 
@@ -35,17 +36,21 @@ const activePill: Record<string, string> = {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const params = useSearchParams();
-  const [storedDark, setStoredDark] = useState(false);
 
-  useEffect(() => {
-    const read = () => setStoredDark(localStorage.getItem("joehub-finance-theme") === "dark");
-    read();
-    window.addEventListener("joehub-theme", read);
-    return () => window.removeEventListener("joehub-theme", read);
+  useLayoutEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => applyAppearance();
+    apply();
+    media.addEventListener("change", apply);
+    window.addEventListener("joehub-appearance", apply);
+    window.addEventListener("storage", apply);
+    return () => {
+      media.removeEventListener("change", apply);
+      window.removeEventListener("joehub-appearance", apply);
+      window.removeEventListener("storage", apply);
+    };
   }, []);
 
-  const dark = pathname === "/finance" && (params.get("theme") === "dark" || storedDark);
   const composing = pathname.startsWith("/journal/compose");
   const tasksScreen = pathname.startsWith("/tasks");
   const groceryScreen = pathname.startsWith("/grocery");
@@ -69,14 +74,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [composing]);
 
   return (
-    <div data-theme={dark ? "dark" : "light"} className="min-h-screen bg-page text-ink">
+    <div className="min-h-screen bg-page text-ink">
       <a className="sr-only" href="#content">
         Skip to content
       </a>
       {/* Tasks and Grocery widen on desktop. The tab bar stays a full-width bar so it does not cover the column. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
       >
         {children}
       </main>

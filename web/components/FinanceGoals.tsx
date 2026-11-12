@@ -177,7 +177,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
   ) : empty ? (
     <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
       <h2 className="text-section font-medium">No goals yet</h2>
-      <button type="button" className="mt-5 inline-flex min-h-11 min-w-[180px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white" onClick={openAdd}>
+      <button type="button" className="mt-5 inline-flex min-h-11 min-w-[180px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page" onClick={openAdd}>
         Add a goal
       </button>
     </div>

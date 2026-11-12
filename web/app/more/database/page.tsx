@@ -133,7 +133,7 @@ export default function DatabasePage() {
           <p className="mt-2 text-ui-13 leading-relaxed text-[#46544B]">Transactions · read-only inspection</p>
         </header>
         <div className="mt-4 flex gap-1.5 overflow-hidden px-4">
-          <span className="inline-flex min-h-11 items-center rounded-md bg-ink px-2.5 text-ui-12.5 font-medium text-white">Transactions</span>
+          <span className="inline-flex min-h-11 items-center rounded-md bg-ink px-2.5 text-ui-12.5 font-medium text-page">Transactions</span>
           <span className="inline-flex min-h-11 items-center rounded-md border border-subtle-border px-2.5 text-ui-12.5 text-muted">Jobs · planned</span>
           <span className="inline-flex min-h-11 items-center rounded-md border border-subtle-border px-2.5 text-ui-12.5 text-muted">Journal · planned</span>
         </div>
@@ -299,14 +299,14 @@ export default function DatabasePage() {
         {phase === "loading" ? <p className="mx-4 mt-3 text-ui-14 leading-relaxed">Loading your table. No counts until it resolves.</p> : null}
         {phase === "empty" ? (
           <StateCard title="No transactions yet" body="Your table is ready for its first transaction. No example balances or zero totals have been inferred.">
-            <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white">
+            <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-page">
               Back to More
             </Link>
           </StateCard>
         ) : null}
         {phase === "error" ? (
           <StateCard title="Table unavailable" body="We couldn’t load transactions. Your saved data hasn’t been changed.">
-            <button type="button" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white" onClick={retry}>
+            <button type="button" className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-page" onClick={retry}>
               Retry
             </button>
             <Link href="/more#database" className="flex min-h-12 w-full items-center justify-center rounded-2xl border border-ink bg-white px-4 text-ui-16 font-bold">
@@ -318,7 +318,7 @@ export default function DatabasePage() {
           <StateCard title="No matching transactions" body={`No rows match ${filterSentence(filters)}. Your other transactions are still in the table.`}>
             <button
               type="button"
-              className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-white"
+              className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-ui-16 font-bold text-page"
               onClick={() => {
                 setFilters({ month: "all", amount: "all", account: "all" });
                 document.getElementById("filter-month")?.focus();
@@ -526,7 +526,7 @@ function Detail({ row, onClose }: { row: Transaction; onClose: () => void }) {
           ))}
         </dl>
         <p className="mt-3 rounded-xl bg-page p-3 text-ui-12 leading-relaxed">Inspection only. No inline edits, review toggle, financial action or account credentials.</p>
-        <button type="button" className="mt-4 flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink text-ui-16 font-bold text-white" onClick={onClose}>
+        <button type="button" className="mt-4 flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink text-ui-16 font-bold text-page" onClick={onClose}>
           Back to table
         </button>
       </div>

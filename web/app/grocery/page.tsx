@@ -468,7 +468,7 @@ export default function GroceryPage() {
             <p className="text-body">{checkedCount} checked</p>
             <button
               type="button"
-              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               aria-disabled={offline || undefined}
               onClick={() => {
                 if (offline) {
@@ -501,7 +501,7 @@ export default function GroceryPage() {
             <p className="mt-4 text-section font-medium">No items</p>
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >
@@ -537,7 +537,7 @@ export default function GroceryPage() {
                               </svg>
                             </span>
                           ) : (
-                            <span className="h-6 w-6 rounded-full border border-[#C9CEC8]" aria-hidden="true" />
+                            <span className="h-6 w-6 rounded-full border border-subtle-border" aria-hidden="true" />
                           )}
                         </button>
                         <button
@@ -561,7 +561,7 @@ export default function GroceryPage() {
             {wide ? (
               <button
                 type="button"
-                className="ml-4 mt-4 flex min-h-12 max-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+                className="ml-4 mt-4 flex min-h-12 max-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
                 onClick={openAdd}
                 disabled={addDisabled}
               >
@@ -580,7 +580,7 @@ export default function GroceryPage() {
         <button
           type="button"
           aria-label="Add an item"
-          className="fixed bottom-[100px] right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-xl disabled:opacity-50"
+          className="fixed bottom-[100px] right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-ink text-page shadow-xl disabled:opacity-50"
           onClick={openAdd}
           disabled={addDisabled}
         >

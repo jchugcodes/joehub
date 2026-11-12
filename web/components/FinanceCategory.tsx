@@ -335,7 +335,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
           actions={wide ? (
             <>
               <button type="button" onClick={() => setEditing(false)} className="inline-flex min-h-11 items-center px-3 text-body text-muted">Cancel</button>
-              <button type="submit" form="budget-form" disabled={saving} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">Save</button>
+              <button type="submit" form="budget-form" disabled={saving} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">Save</button>
             </>
           ) : null}
         >

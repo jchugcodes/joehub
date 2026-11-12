@@ -157,7 +157,7 @@ export function Sheet({
                 type="submit"
                 form={formId}
                 disabled={saveDisabled}
-                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-white"}`}
+                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-page"}`}
               >
                 {saveLabel}
               </button>
@@ -204,7 +204,7 @@ export function Sheet({
                 form={formId}
                 disabled={saveDisabled}
                 onMouseDown={(event) => event.preventDefault()}
-                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-white"}`}
+                className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl px-3 text-body font-medium disabled:opacity-50 ${saveTone === "warn" ? "bg-warn text-on-warn" : "bg-ink text-page"}`}
               >
                 {saveLabel}
               </button>

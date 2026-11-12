@@ -42,8 +42,15 @@ const TYPE_LABEL: Record<string, string> = {
   cash: "Savings",
   investment: "Brokerage",
 };
-const GROUP_ORDER = ["Banking", "Investments", "Cards", "Loans", "Other", "Hidden"];
 const LOAN_TYPES = new Set(["loan", "installment", "student"]);
+const INVESTED_TYPES = new Set(["brokerage", "investment", "retirement", "crypto"]);
+const DISPLAY_GROUPS: Array<[string, (account: Account) => boolean]> = [
+  ["Checking", (account) => account.type === "checking"],
+  ["Savings", (account) => account.type === "savings" || account.type === "cash"],
+  ["Credit cards", (account) => account.type === "credit card"],
+  ["Loans", (account) => LOAN_TYPES.has(account.type)],
+  ["Brokerage", (account) => INVESTED_TYPES.has(account.type)],
+];
 
 function money(cents: number) {
   const abs = Math.abs(cents);
@@ -59,8 +66,6 @@ function wholeDollars(cents: number) {
 function asOfDate(value: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/Detroit", month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
-
-const COLLAPSE_AT = 5;
 
 function signed(cents: number) {
   return `${cents < 0 ? "−" : "+"}${money(cents)}`;
@@ -94,10 +99,10 @@ function sourceLine(account: Account) {
 function AccountGlyph({ type }: { type: string }) {
   const loan = LOAN_TYPES.has(type);
   const invested = type === "brokerage" || type === "investment" || type === "retirement" || type === "crypto";
-  const tone = type === "credit card" ? "#E07A5F" : loan ? "#C2577A" : invested ? "#3A86C8" : "#2E8B6A";
+  const tone = type === "credit card" ? "var(--cat-dining)" : loan ? "var(--cat-loan)" : invested ? "var(--jobs)" : "var(--cat-income)";
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: tone, strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
-    <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `${tone}1F` }}>
+    <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `color-mix(in srgb, ${tone} 12%, transparent)` }}>
       {type === "credit card" ? (
         <svg {...common}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20M6 15h4" /></svg>
       ) : loan ? (
@@ -116,7 +121,7 @@ function AccountGlyph({ type }: { type: string }) {
 function HideSwitch({ on, disabled, onToggle }: { on: boolean; disabled: boolean; onToggle: () => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label="Hide from net worth" disabled={disabled} onClick={onToggle} className="inline-flex min-h-11 min-w-11 items-center justify-end disabled:opacity-40">
-      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-ink" : "bg-[#C9CEC8]"}`}>
+      <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-ink" : "bg-subtle-border"}`}>
         <span className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow ${on ? "left-[22px]" : "left-[2px]"}`} />
       </span>
     </button>
@@ -131,7 +136,6 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const previewEmpty = search.get("view") === "empty";
   const previewLink = search.get("link") || "";
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<Txn[]>([]);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -381,11 +385,14 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   }
 
   function groups() {
-    return GROUP_ORDER.map((name) => {
-      const rowsInGroup = accounts.filter((account) => account.group === name);
-      const total = rowsInGroup.reduce((sum, account) => sum + account.balanceCents, 0);
-      return { name, rows: rowsInGroup, total };
+    const visible = accounts.filter((account) => !account.hiddenFromNetWorth);
+    const named = DISPLAY_GROUPS.map(([name, match]) => {
+      const rowsInGroup = visible.filter(match);
+      return { name, rows: rowsInGroup, total: rowsInGroup.reduce((sum, account) => sum + account.balanceCents, 0) };
     }).filter((group) => group.rows.length);
+    const hidden = accounts.filter((account) => account.hiddenFromNetWorth);
+    if (hidden.length) named.push({ name: "Hidden", rows: hidden, total: hidden.reduce((sum, account) => sum + account.balanceCents, 0) });
+    return named;
   }
 
   const form = (
@@ -414,7 +421,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             type="button"
             aria-pressed={type === item}
             onClick={() => setType(item)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${type === item ? "border-ink bg-ink text-white" : "border-line text-muted"}`}
+            className={`inline-flex min-h-11 items-center rounded-full border px-4 text-body font-medium ${type === item ? "border-ink bg-ink text-page" : "border-line text-muted"}`}
           >
             {TYPE_LABEL[item]}
           </button>
@@ -575,7 +582,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             {snapshot && empty ? (
               <div className="px-5 py-16 text-center">
                 <p className="text-section font-medium">No accounts yet</p>
-                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white">
+                <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page">
                   Add a manual account
                 </button>
               </div>
@@ -583,7 +590,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             {snapshot && !empty && net ? (
               <section className={`${wide ? "" : "mx-4"} ${shownTone ? "mt-3" : ""} rounded-[20px] border border-line bg-surface p-4`}>
                 <p className="text-meta text-muted">Net worth</p>
-                <p className="mt-1 font-medium tabular-nums" data-net-worth={net.netWorthCents}>
+                <p className="mt-1 font-medium tabular-nums" data-net-worth={net.netWorthCents} style={net.netWorthCents! < 0 ? { color: "var(--chart-negative)" } : undefined}>
                   <span className="text-title">{wholeDollars(net.netWorthCents!)}</span>
                   <span className="text-section">.{String(Math.abs(net.netWorthCents!) % 100).padStart(2, "0")}</span>
                 </p>
@@ -597,7 +604,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                     <span className="mt-1 block text-section font-medium text-ink">{money(net.liabilitiesCents || 0)}</span>
                   </p>
                 </div>
-                {snapshot.updatedAt ? <p className="mt-3 text-meta text-muted">Updated {stamp(snapshot.updatedAt)}</p> : null}
+                {snapshot.updatedAt ? <p className="mt-3 text-meta text-muted">As of {stamp(snapshot.updatedAt)}</p> : null}
               </section>
             ) : null}
             {shownTone === "offline" && snapshot ? (
@@ -607,32 +614,31 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             ) : null}
             {snapshot && !empty
               ? groups().map((group) => {
-                  const longLoans = group.name === "Loans" && group.rows.length > COLLAPSE_AT;
-                  const holdsSelection = longLoans && group.rows.some((account) => account.id === selectedId);
-                  const expanded = !longLoans || Boolean(openGroups.Loans) || holdsSelection;
-                  const visible = expanded ? group.rows : [];
+                  const students = group.name === "Loans" ? group.rows.filter((account) => account.type === "student") : [];
+                  const visible = students.length > 1 ? group.rows.filter((account) => account.type !== "student") : group.rows;
+                  const studentTotal = students.reduce((sum, account) => sum + account.balanceCents, 0);
                   return (
                   <section key={group.name}>
                     <div className={`mt-5 flex items-baseline justify-between ${wide ? "" : "px-5"}`}>
                       <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{group.name}</h2>
                       <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{money(group.total)}</p>
                     </div>
-                    {longLoans && !expanded ? (
-                      <div className={`${wide ? "mt-2" : "mx-4 mt-2"} overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                        <button
-                          type="button"
-                          data-loans="show"
-                          className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
-                          onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
-                        >
-                          <span className="min-w-0 flex-1">Show {group.rows.length} loans</span>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
-                            <path d="M9 6l6 6-6 6" />
-                          </svg>
-                        </button>
-                      </div>
-                    ) : (
                     <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                      {students.length > 1 ? (
+                        <li>
+                          <Link href={`/finance/debts${suffix}`} data-student-loans={students.length} className="flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink">
+                            <AccountGlyph type="student" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-body font-medium">Student loans</span>
+                              <span className="mt-0.5 block text-meta text-muted">{students.length} loans · Debts</span>
+                            </span>
+                            <span className="shrink-0 text-body font-medium tabular-nums">{money(studentTotal)}</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                              <path d="M9 6l6 6-6 6" />
+                            </svg>
+                          </Link>
+                        </li>
+                      ) : null}
                       {visible.map((account) => {
                         const current = account.id === selectedId;
                         return (
@@ -640,7 +646,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
                               aria-current={current ? "true" : undefined}
-                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-[#2E8B6A14]" : ""}`}
+                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-finance-primary/10" : ""}`}
                             >
                               <AccountGlyph type={account.type} />
                               <span className="min-w-0 flex-1">
@@ -659,23 +665,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                           </li>
                         );
                       })}
-                      {longLoans && expanded ? (
-                        <li>
-                          <button
-                            type="button"
-                            data-loans="hide"
-                            className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
-                            onClick={() => setOpenGroups((current) => ({ ...current, Loans: false }))}
-                          >
-                            <span className="min-w-0 flex-1">Hide loans</span>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
-                              <path d="M6 15l6-6 6 6" />
-                            </svg>
-                          </button>
-                        </li>
-                      ) : null}
                     </ul>
-                    )}
                   </section>
                   );
                 })
@@ -698,7 +688,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                     Cancel
                   </button>
                   <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{mode === "edit" ? "Edit account" : "Add account"}</h2>
-                  <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-white disabled:opacity-50">
+                  <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
                     Save
                   </button>
                 </div>

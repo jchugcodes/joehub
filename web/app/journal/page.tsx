@@ -27,9 +27,9 @@ function Streak() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-ui-26 font-extrabold leading-none">{journal.streak}</p>
-            <p className="mt-1 inline-block rounded-lg bg-ink/40 px-1 py-0.5 text-ui-12 text-white">{journal.streakNote}</p>
+            <p className="mt-1 inline-block rounded-lg bg-ink/40 px-1 py-0.5 text-ui-12 text-page">{journal.streakNote}</p>
           </div>
-          <p className="max-w-full rounded-lg bg-ink/40 px-1 py-0.5 text-right text-ui-12 text-white">
+          <p className="max-w-full rounded-lg bg-ink/40 px-1 py-0.5 text-right text-ui-12 text-page">
             {journal.month}
             <br />
             <b className="text-ui-15">{journal.monthNote}</b>

@@ -87,8 +87,8 @@ function stamp(ms: number) {
 
 const CHART_W = 390;
 const CHART_H = 148;
-const ABOVE = "#2E8B6A";
-const BELOW = "#E07A5F";
+const ABOVE = "var(--chart-positive)";
+const BELOW = "var(--chart-negative)";
 
 type PlotPoint = { x: number; y: number; v: number };
 
@@ -256,8 +256,8 @@ function ChartPaths({ points }: { points: number[] }) {
     <>
       {include ? (
         <>
-          <line x1="0" x2={CHART_W} y1={y0} y2={y0} stroke="#C9CEC8" strokeWidth="1" />
-          <text x="8" y={labelY} fill="#6B746E" fontSize="12" fontFamily="Outfit, sans-serif">
+          <line x1="0" x2={CHART_W} y1={y0} y2={y0} stroke="var(--zero-line)" strokeWidth="1" />
+          <text x="8" y={labelY} fill="var(--muted)" fontSize="12" fontFamily="Outfit, sans-serif">
             0
           </text>
         </>
@@ -302,9 +302,9 @@ function WeeklySpendChart({
       {showChart ? (
         <div className="mt-4" data-chart={chart.range} data-kind="weekly" data-points={chart.points.join(",")} data-baseline={chart.axis?.zero != null ? "true" : "false"}>
           <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
-            <path d={geometry.fill} fill="#2E8B6A" opacity="0.1" />
-            {geometry.zeroY != null ? <line x1="0" x2="360" y1={geometry.zeroY} y2={geometry.zeroY} stroke="#C9CEC8" strokeWidth="1" /> : null}
-            <path d={geometry.line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
+            <path d={geometry.fill} fill="var(--chart-positive)" opacity="0.1" />
+            {geometry.zeroY != null ? <line x1="0" x2="360" y1={geometry.zeroY} y2={geometry.zeroY} stroke="var(--zero-line)" strokeWidth="1" /> : null}
+            <path d={geometry.line} fill="none" stroke="var(--chart-positive)" strokeWidth="2.2" />
           </svg>
           {chart.axis && chart.axis.min < 0 ? (
             <p className="mt-1 flex justify-between text-meta text-muted">
@@ -586,7 +586,7 @@ export function FinanceOverview() {
                         key={item}
                         type="button"
                         aria-pressed={range === item}
-                        className={`min-h-11 flex-1 rounded-full text-meta ${range === item ? "bg-finance-primary text-page" : "text-muted"}`}
+                        className={`min-h-11 flex-1 rounded-full text-meta ${range === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-muted"}`}
                         onClick={() => chooseRange(item)}
                       >
                         {item}

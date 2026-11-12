@@ -36,7 +36,7 @@ function Bars({ incomeCents, spentCents, scale, over }: { incomeCents: number; s
   const spent = barHeight(spentCents, scale);
   return (
     <svg width="25" height={BAR_H} viewBox={`0 0 25 ${BAR_H}`} aria-hidden="true">
-      <rect x="0" y={BAR_H - income} width="10" height={income} rx="5" fill="#2E8B6A" />
+      <rect x="0" y={BAR_H - income} width="10" height={income} rx="5" fill="var(--chart-positive)" />
       <rect x="15" y={BAR_H - spent} width="10" height={spent} rx="5" fill={over ? "url(#dotCoral)" : "url(#dotInk)"} />
     </svg>
   );
@@ -59,7 +59,7 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
             key={item}
             type="button"
             aria-pressed={period === item}
-            className={`min-h-11 flex-1 rounded-full text-meta ${period === item ? "bg-finance-primary text-page" : "text-muted"}`}
+            className={`min-h-11 flex-1 rounded-full text-meta ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-muted"}`}
             onClick={() => {
               setPeriod(item);
               setPicked("");
@@ -81,7 +81,7 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
             </span>
           </p>
           <p
-            className={`mt-1 text-section font-medium ${selected.over ? "text-[#E07A5F]" : "text-[#2E8B6A]"}`}
+            className={`mt-1 text-section font-medium ${selected.over ? "text-[#E07A5F]" : "text-finance-primary"}`}
             data-flow-net="true"
             data-over={selected.over ? "true" : "false"}
             data-income={selected.incomeCents}
@@ -94,11 +94,11 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
       <svg width="0" height="0" className="absolute" aria-hidden="true">
         <defs>
           <pattern id="dotInk" patternUnits="userSpaceOnUse" width="4" height="4">
-            <circle cx="1" cy="1" r="0.85" fill="#1F2A24" />
-            <circle cx="3" cy="3" r="0.85" fill="#1F2A24" />
+            <circle cx="1" cy="1" r="0.85" fill="var(--spend-dot)" />
+            <circle cx="3" cy="3" r="0.85" fill="var(--spend-dot)" />
           </pattern>
           <pattern id="dotCoral" patternUnits="userSpaceOnUse" width="4" height="4">
-            <rect width="4" height="4" fill="#E07A5F26" />
+            <rect width="4" height="4" fill="var(--spend-wash)" />
             <circle cx="1" cy="1" r="0.85" fill="#E07A5F" />
             <circle cx="3" cy="3" r="0.85" fill="#E07A5F" />
           </pattern>
@@ -115,7 +115,7 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
               aria-label={row.label}
               data-flow-card={row.key}
               data-over={row.over ? "true" : "false"}
-              className={`flex min-h-11 min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-xl border px-0.5 pb-2 pt-2.5 ${on ? "border-[#1F2A24] shadow-[inset_0_0_0_1px_#1F2A24]" : "border-[#E6E8E4]"}`}
+              className={`flex min-h-11 min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-xl border px-0.5 pb-2 pt-2.5 ${on ? "border-ink shadow-[inset_0_0_0_1px_var(--ink)]" : "border-line"}`}
               onClick={() => setPicked(row.key)}
             >
               <Bars incomeCents={row.incomeCents} spentCents={row.spentCents} scale={scale} over={row.over} />
@@ -126,12 +126,12 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
       </div>
       <div className="mt-2 flex items-center gap-4 text-meta text-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-[#2E8B6A]" />
+          <span className="h-2.5 w-2.5 rounded-sm bg-finance-primary" />
           Income
         </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="10" height="10" className="overflow-hidden rounded-[2px]" aria-hidden="true">
-            <rect width="10" height="10" fill="url(#dotInk)" />
+            <rect width="10" height="10" fill="var(--spend-dot)" />
           </svg>
           Total spend
         </span>

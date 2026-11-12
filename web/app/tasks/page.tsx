@@ -794,7 +794,7 @@ export default function TasksPage() {
             key={value}
             type="button"
             aria-pressed={group === value}
-            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-white" : "border border-line bg-surface text-muted"}`}
+            className={`min-h-11 rounded-full px-3 text-meta font-medium ${group === value ? "bg-ink text-page" : "border border-line bg-surface text-muted"}`}
             onClick={() => setGroup(value)}
           >
             {label}
@@ -879,7 +879,7 @@ export default function TasksPage() {
           {!offline ? (
             <button
               type="button"
-              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+              className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
               onClick={openAdd}
               disabled={addDisabled}
             >
@@ -918,7 +918,7 @@ export default function TasksPage() {
         <div className="mt-4 px-4">
           <button
             type="button"
-            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-white disabled:opacity-50"
+            className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"
             onClick={openAdd}
             disabled={addDisabled}
           >
@@ -927,7 +927,7 @@ export default function TasksPage() {
         </div>
       ) : null}
       {showFab ? (
-        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-white shadow-lg" onClick={openAdd}>
+        <button type="button" aria-label="Add a task" className="fixed bottom-24 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink text-page shadow-lg" onClick={openAdd}>
           <Icon name="plus" size={22} />
           <span className="sr-only">Add a task</span>
         </button>

@@ -4,23 +4,23 @@
  */
 module.exports = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
-  darkMode: ["selector", "[data-theme='dark']"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
         finance: {
-          primary: "#2E8B6A",
-          dining: "#E07A5F",
-          groceries: "#2E8B6A",
-          transport: "#5B6B8C",
-          subscriptions: "#8E7CC3",
-          shopping: "#E9B949",
-          utilities: "#3A86C8",
-          positive: "#2E8B6A",
+          primary: "rgb(var(--finance-rgb) / <alpha-value>)",
+          dining: "rgb(var(--dining-rgb) / <alpha-value>)",
+          groceries: "var(--cat-groceries)",
+          transport: "var(--cat-transport)",
+          subscriptions: "var(--cat-subscriptions)",
+          shopping: "var(--cat-shopping)",
+          utilities: "var(--cat-utilities)",
+          positive: "rgb(var(--finance-rgb) / <alpha-value>)",
           warning: "#E07A5F",
         },
-        jobs: "#3A86C8",
-        journal: "#C2577A",
+        jobs: "rgb(var(--jobs-rgb) / <alpha-value>)",
+        journal: "rgb(var(--journal-rgb) / <alpha-value>)",
         light: {
           background: "#F5F6F4",
           surface: "#FFFFFF",

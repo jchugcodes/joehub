@@ -1,25 +1,25 @@
 import { Icon } from "./Icon";
 
 const MARKS: Record<string, { icon: string; color: string }> = {
-  "dining-out": { icon: "dining", color: "#E07A5F" },
-  groceries: { icon: "groceries", color: "#2E8B6A" },
-  transport: { icon: "transport", color: "#5B6B8C" },
-  subscriptions: { icon: "subscriptions", color: "#8E7CC3" },
-  shopping: { icon: "shopping", color: "#E9B949" },
-  utilities: { icon: "utilities", color: "#3A86C8" },
+  "dining-out": { icon: "dining", color: "var(--cat-dining)" },
+  groceries: { icon: "groceries", color: "var(--cat-groceries)" },
+  transport: { icon: "transport", color: "var(--cat-transport)" },
+  subscriptions: { icon: "subscriptions", color: "var(--cat-subscriptions)" },
+  shopping: { icon: "shopping", color: "var(--cat-shopping)" },
+  utilities: { icon: "utilities", color: "var(--cat-utilities)" },
   "health-fitness": { icon: "check", color: "#2A9D8F" },
-  fun: { icon: "sun", color: "#C2577A" },
+  fun: { icon: "sun", color: "var(--cat-loan)" },
   school: { icon: "pencil", color: "#3A6EA5" },
-  other: { icon: "more", color: "#6B746E" },
-  uncategorized: { icon: "clock", color: "#6B746E" },
+  other: { icon: "more", color: "var(--muted)" },
+  uncategorized: { icon: "clock", color: "var(--muted)" },
 };
 
 export function CategoryMark({ category, type }: { category?: string | null; type?: string | null }) {
   const known = category ? MARKS[category] : undefined;
   const icon = type === "income" ? "income" : type === "transfer" ? "finance" : known?.icon || "more";
-  const color = type === "income" ? "#2E8B6A" : type === "transfer" ? "#5B6B8C" : known?.color || "#6B746E";
+  const color = type === "income" ? "var(--cat-income)" : type === "transfer" ? "var(--cat-transport)" : known?.color || "var(--muted)";
   return (
-    <span aria-hidden="true" data-category-mark={category || type || "none"} className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `${color}1F`, color }}>
+    <span aria-hidden="true" data-category-mark={category || type || "none"} className="grid h-10 w-10 shrink-0 place-items-center rounded-full" style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color }}>
       <Icon name={icon} size={18} />
     </span>
   );
