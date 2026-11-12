@@ -7,6 +7,10 @@ const MARKS: Record<string, { icon: string; color: string }> = {
   subscriptions: { icon: "subscriptions", color: "#8E7CC3" },
   shopping: { icon: "shopping", color: "#E9B949" },
   utilities: { icon: "utilities", color: "#3A86C8" },
+  "health-fitness": { icon: "check", color: "#2A9D8F" },
+  fun: { icon: "sun", color: "#C2577A" },
+  school: { icon: "pencil", color: "#3A6EA5" },
+  other: { icon: "more", color: "#6B746E" },
   uncategorized: { icon: "clock", color: "#6B746E" },
 };
 
