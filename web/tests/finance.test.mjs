@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStore } from "../lib/sessions.mjs";
-import { capsForWeek, categoriesSnapshot, categoryView, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, parseMonthlyBudgets, patchTransaction, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
+import { capsForWeek, categoriesSnapshot, categoryView, chartAxis, chartFor, createTransaction, daysLeft, ENVELOPE_CENTS, hasNetWorthHistory, installMemoryFinance, monthProgress, monthlyBudgetCents, overview, parseCaps, parseMonthlyBudgets, patchTransaction, periodChange, PLAN_CENTS, resetLedger, resolvedMonthlyCents, seedSnapshots, SEED_CATEGORIES, SEED_TRANSACTIONS, simulateLedgerRefresh, transactionsForWeek, weekStart } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 
 const NOW = Date.parse("2026-11-10T15:00:00-05:00");
@@ -51,9 +51,11 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(view.body.label, "This week · Nov 9–15");
   assert.equal(view.body.daysLeft, 6);
   assert.equal(view.body.netWorthCents, 1847236);
-  assert.equal(view.body.chart.caption, "+$1,284.10 (7.5%) YTD");
-  assert.equal(view.body.chart.points[0], 1718826);
+  assert.equal(view.body.chart.points[0], 1606400);
   assert.equal(view.body.chart.points.at(-1), 1847236);
+  assert.equal(view.body.chart.caption, periodChange(1606400, 1847236).text);
+  assert.equal(view.body.chart.changeTone, "up");
+  assert.equal(view.body.chart.axis.zero, null);
   assert.equal(view.body.recent[0].payee, "Payroll (example)");
   assert.equal(view.body.recent[0].type, "income");
   assert.equal(view.body.recent.find((row) => row.payee === "Northside Market").category, "groceries");
@@ -64,9 +66,16 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   const ranges = ["1W", "1M", "YTD", "1Y", "All"].map((range) => chartFor(SEED_TRANSACTIONS, "2026-11-10", range).points.join(","));
   assert.equal(new Set(ranges).size, 5);
   const week = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1W");
-  assert.deepEqual(week.points, [38543]);
+  assert.equal(week.kind, "net-worth");
+  assert.deepEqual(week.points, [-12941000, -12936000, -12930000, -12924000, -12919164]);
   const oneMonth = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1M");
-  assert.deepEqual(oneMonth.points, [74057, 38543]);
+  assert.deepEqual(oneMonth.points, [-12985000, -12978000, -12962000, -12954000, -12941000, -12933000, -12919164]);
+  const stored = { points: [1_718_826, 1_847_236], netWorthCents: 1_847_236 };
+  const storedWeek = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1W", stored);
+  assert.equal(storedWeek.kind, "weekly");
+  assert.deepEqual(storedWeek.points, [38543]);
+  const storedMonth = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1M", stored);
+  assert.deepEqual(storedMonth.points, [74057, 38543]);
   assert.equal(monthlyBudgetCents(8000), 34667);
   assert.equal(monthlyBudgetCents(12000), 52000);
   assert.equal(monthlyBudgetCents(6000), 26000);
@@ -116,12 +125,14 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(weekCategories.aside, "5 days left");
   assert.equal(weekCategories.categories.some((cap) => cap.slug === "uncategorized"), false);
   const all = chartFor(SEED_TRANSACTIONS, "2026-11-10", "All");
-  assert.equal(all.points[0], 1500);
+  assert.equal(all.kind, "net-worth");
+  assert.equal(all.points[0], 2240000);
+  assert.equal(all.points.at(-1), -12919164);
   assert.equal(all.points.includes(0), false);
   const year = chartFor(SEED_TRANSACTIONS, "2026-11-10", "1Y");
-  assert.equal(year.points.includes(1500), false);
+  assert.equal(year.points[0], -13340000);
   assert.equal(year.points.includes(0), false);
-  assert.ok(year.points.length < all.points.length);
+  assert.notEqual(year.points.join(","), all.points.join(","));
 
   const empty = overview(SEED_TRANSACTIONS, NOW, "2026-10-19", "YTD");
   assert.equal(empty.body.label, "Oct 19–25");
@@ -326,13 +337,86 @@ test("transactions add, recategorize, transfer, income, and refund through the s
 
 test("production net worth history needs two different points that are not the seed curve", () => {
   const seed = seedSnapshots().points;
+  const legacy = [1718826, 1733960, 1726393, 1749094, 1743018, 1761133, 1764113, 1755056, 1777757, 1786815, 1780738, 1803439, 1812497, 1806420, 1824535, 1830611, 1847236];
   assert.equal(hasNetWorthHistory(seed), false);
+  assert.equal(hasNetWorthHistory(seed.map((value) => value - 50_000)), false);
+  assert.equal(hasNetWorthHistory(legacy), false);
+  assert.equal(hasNetWorthHistory(legacy.map((value) => value - 1_000_000)), false);
+  assert.equal(hasNetWorthHistory(seedSnapshots().series["1W"]), false);
+  assert.equal(hasNetWorthHistory(seedSnapshots().series.All), false);
   assert.equal(hasNetWorthHistory([-11_553_311]), false);
   assert.equal(hasNetWorthHistory([-11_553_311, -11_553_311]), false);
   assert.equal(hasNetWorthHistory([-11_600_000, -11_553_311]), true);
   assert.equal(showNetWorthChart(true, false), false);
   assert.equal(showNetWorthChart(true, true), true);
   assert.equal(showNetWorthChart(false, false), true);
+});
+
+test("a debts-inclusive net worth uses the period change and the data scale", () => {
+  const context = { netWorthCents: -12_919_164, snapshot: seedSnapshots() };
+  const ytd = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, context);
+  assert.equal(ytd.body.chart.points[0], -13_160_000);
+  assert.equal(ytd.body.chart.points.at(-1), -12_919_164);
+  assert.equal(ytd.body.chart.caption, "+$2,408.36 (1.8%)");
+  assert.equal(ytd.body.chart.changeTone, "up");
+  assert.equal(ytd.body.chart.axis.zero, null);
+  assert.equal(ytd.body.chart.axis.max < 0, true);
+  const week = overview(SEED_TRANSACTIONS, NOW, "", "1W", undefined, context);
+  assert.equal(week.body.chart.caption, "+$218.36 (0.2%)");
+  assert.equal(week.body.chart.axis.zero, null);
+  const year = overview(SEED_TRANSACTIONS, NOW, "", "1Y", undefined, context);
+  assert.equal(year.body.chart.caption, "+$4,208.36 (3.2%)");
+  assert.equal(year.body.chart.axis.zero, null);
+  const all = overview(SEED_TRANSACTIONS, NOW, "", "All", undefined, context);
+  assert.equal(all.body.chart.points[0], 2_240_000);
+  assert.equal(all.body.chart.caption, "−$151,591.64");
+  assert.equal(all.body.chart.caption.includes("%"), false);
+  assert.equal(all.body.chart.changeTone, "down");
+  assert.equal(all.body.chart.axis.zero, 0);
+  assert.equal(periodChange(0, 500).text, "+$5.00");
+  assert.equal(periodChange(100, 2000).hidePercent, true);
+  assert.equal(periodChange(500, -100).hidePercent, true);
+  assert.equal(periodChange(-13_160_000, -12_919_164).text, "+$2,408.36 (1.8%)");
+  const far = chartAxis([-13_160_000, -12_919_164]);
+  assert.equal(far.zero, null);
+  assert.equal(far.max < 0, true);
+  const cross = chartAxis([2_240_000, -12_919_164]);
+  assert.equal(cross.zero, 0);
+  assert.equal(cross.max > 0, true);
+});
+
+test("a stored snapshot without series keeps weekly spend off the net-worth change", () => {
+  const stored = { points: [1_718_826, 1_847_236], netWorthCents: 1_847_236 };
+  const context = { netWorthCents: 1_847_236, snapshot: stored };
+  const week = overview(SEED_TRANSACTIONS, NOW, "", "1W", undefined, context);
+  const month = overview(SEED_TRANSACTIONS, NOW, "", "1M", undefined, context);
+  assert.equal(week.body.chart.kind, "weekly");
+  assert.equal(month.body.chart.kind, "weekly");
+  assert.deepEqual(week.body.chart.points, [38543]);
+  assert.deepEqual(month.body.chart.points, [74057, 38543]);
+  assert.equal(week.body.chart.axis.zero, null);
+  assert.equal(month.body.chart.axis.zero, null);
+  assert.equal(chartAxis([38543, 74057]).zero, 0);
+  for (const view of [week, month]) {
+    assert.equal(view.body.chart.caption, "");
+    assert.equal(view.body.chart.changeTone, undefined);
+    assert.equal(view.body.chart.startCents, undefined);
+    assert.equal(view.body.chart.endCents, undefined);
+    assert.notEqual(view.body.chart.caption, periodChange(view.body.chart.points[0], 1_847_236).text);
+  }
+  const negative = { points: [-11_600_000, -11_553_311], netWorthCents: -11_553_311 };
+  const spent = overview(SEED_TRANSACTIONS, NOW, "", "1W", undefined, { netWorthCents: -11_553_311, snapshot: negative });
+  assert.equal(spent.body.chart.kind, "weekly");
+  assert.deepEqual(spent.body.chart.points, [38543]);
+  assert.equal(spent.body.chart.axis.zero, null);
+  assert.equal(spent.body.chart.caption, "");
+  assert.equal(spent.body.chart.startCents, undefined);
+  assert.equal(spent.body.chart.endCents, undefined);
+  assert.notEqual(spent.body.chart.caption, periodChange(38543, -11_553_311).text);
+  const ytd = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { netWorthCents: -12_919_164, snapshot: seedSnapshots() });
+  assert.equal(ytd.body.chart.kind, "net-worth");
+  assert.equal(ytd.body.chart.caption, "+$2,408.36 (1.8%)");
+  assert.equal(ytd.body.chart.axis.zero, null);
 });
 
 test("a ledger refresh keeps the Shell correction until a confirmed reset", () => {
