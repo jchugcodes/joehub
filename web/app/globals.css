@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light values stay the existing theme. html.dark switches the v9 dark tokens. */
+/* Light values stay the existing theme. The dark class on the document element switches the v9 tokens. */
 :root {
   --page: #f5f6f4;
   --surface: #ffffff;

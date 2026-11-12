@@ -16,7 +16,7 @@ test("appearance defaults to system and resolves light, dark, and the OS scheme"
 test("dark tokens keep accent text and checkbox marks on the passing pairs", () => {
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const tailwind = readFileSync(new URL("../tailwind.config.cjs", import.meta.url), "utf8");
-  const dark = css.slice(css.indexOf("html.dark"));
+  const dark = css.slice(css.indexOf("html.dark,"));
   assert.match(dark, /--finance-rgb:\s*78 174 134/);
   assert.match(dark, /--chart-positive:\s*#4eae86/);
   assert.match(dark, /--on-gain:\s*#0e1310/);
