@@ -159,9 +159,9 @@ test("finance week, chart, goals, caps, and offline reconnect at 390 and 1280", 
       assert.equal(allPoints[0], "1500");
       assert.equal(allPoints.includes("0"), false);
       await pressLabel(send, evalPage, "Goals");
-      await waitFor(send, "document.body.innerText.includes('Emergency fund') && document.body.innerText.includes('$4,100') ? 'yes' : ''", `goals ${width}`);
-      await pressLabel(send, evalPage, "Open Emergency fund");
-      await waitFor(send, "document.body.innerText.includes('$4,100 of $10,000') && document.body.innerText.includes('On track') ? 'yes' : ''", `goal ${width}`);
+      await waitFor(send, "document.body.innerText.includes('Emergency fund') && document.body.innerText.includes('$8,400') ? 'yes' : ''", `goals ${width}`);
+      await pointerClick(send, evalPage, "document.querySelector(\"a[href='/finance/goals/emergency-fund']\")");
+      await waitFor(send, "document.body.innerText.includes('Emergency savings') && document.body.innerText.includes('$220') ? 'yes' : ''", `goal ${width}`);
       await send("Page.navigate", { url: `${base()}/finance?asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(send, "document.body.innerText.includes('Edit caps') ? 'yes' : ''", `caps entry ${width}`);
       await pressLabel(send, evalPage, "Edit caps");

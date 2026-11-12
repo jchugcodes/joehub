@@ -368,12 +368,92 @@ export function debtById(accounts, id, now = Date.now()) {
   return pool.find((debt) => debt.id === id) || null;
 }
 
+export const GOAL_COLORS = ["#2E8B6A", "#3A86C8", "#E9B949", "#8E7CC3"];
+
+// Monthly cents are seed bookkeeping so the list heading sums to $740.
+// The frame draws $220 only on the emergency fund. Loan payoff keeps the
+// earlier synthetic $400 auto-pay. The paused trip contributes $0, and the
+// NYC move holds the remaining $120.
 export const GOALS = [
-  { slug: "student-loan-payoff", name: "Student loan payoff", value: 62, amount: "$12,400", target: "$20,000", note: "On track" },
-  { slug: "emergency-fund", name: "Emergency fund", value: 41, amount: "$4,100", target: "$10,000", note: "On track" },
-  { slug: "nyc-move-fund", name: "NYC move fund", value: 28, amount: "$2,240", target: "$8,000", note: "Behind" },
-  { slug: "travel-japan", name: "Travel — Japan", value: 15, amount: "$450", target: "$3,000", note: "Paused" },
+  { slug: "student-loan-payoff", name: "Loan payoff", value: 62, amount: "$12,400", target: "$20,000", note: "Extra payments", savedCents: 1_240_000, targetCents: 2_000_000, monthlyCents: 40_000, kind: "Debt", account: "", color: "#2E8B6A" },
+  { slug: "emergency-fund", name: "Emergency fund", value: 67, amount: "$8,400", target: "$12,600", note: "3 months of expenses", savedCents: 840_000, targetCents: 1_260_000, monthlyCents: 22_000, kind: "Savings", account: "Emergency savings", color: "#3A86C8" },
+  { slug: "nyc-move-fund", name: "NYC move", value: 28, amount: "$2,240", target: "$8,000", note: "Aug 2027", savedCents: 224_000, targetCents: 800_000, monthlyCents: 12_000, kind: "Savings", account: "", color: "#E9B949" },
+  { slug: "travel-japan", name: "Travel — Japan", value: 15, amount: "$450", target: "$3,000", note: "Paused", savedCents: 45_000, targetCents: 300_000, monthlyCents: 0, kind: "Savings", account: "", color: "#8E7CC3" },
 ];
+
+export function goalMonthlyCents(goals) {
+  const rows = Array.isArray(goals) ? goals : [];
+  if (!rows.some((goal) => Number.isInteger(goal && goal.monthlyCents))) return null;
+  return rows.reduce((sum, goal) => sum + (Number.isInteger(goal.monthlyCents) ? goal.monthlyCents : 0), 0);
+}
+
+function goalPercent(savedCents, targetCents) {
+  if (!Number.isInteger(targetCents) || targetCents <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((savedCents / targetCents) * 100)));
+}
+
+function goalSlug(name, taken) {
+  const base = String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || "goal";
+  let slug = base;
+  let n = 2;
+  while (taken.has(slug)) {
+    slug = `${base.slice(0, 56)}-${n}`;
+    n += 1;
+  }
+  return slug;
+}
+
+function nextGoalColor(goals) {
+  const used = new Set((Array.isArray(goals) ? goals : []).map((goal) => String(goal && goal.color ? goal.color : "").toLowerCase()));
+  return GOAL_COLORS.find((color) => !used.has(color.toLowerCase())) || GOAL_COLORS[0];
+}
+
+export function createGoal(goals, body) {
+  const rows = Array.isArray(goals) ? goals : [];
+  const name = String(body && body.name ? body.name : "").trim().replace(/\s+/g, " ");
+  if (name.length < 1 || name.length > 80) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+  if (rows.some((goal) => String(goal.name || "").trim().toLowerCase() === name.toLowerCase())) {
+    return { status: 409, body: { detail: "That name is already a goal.", field: "name" } };
+  }
+  const kind = String(body && body.kind ? body.kind : "Savings").trim();
+  if (kind !== "Savings" && kind !== "Debt") return { status: 400, body: { detail: "Choose a type.", field: "kind" } };
+  const savedCents = body && body.savedCents;
+  const targetCents = body && body.targetCents;
+  if (!Number.isInteger(savedCents) || savedCents < 0 || savedCents > 100_000_000_00) {
+    return { status: 400, body: { detail: "Enter an amount.", field: "saved" } };
+  }
+  if (!Number.isInteger(targetCents) || targetCents <= 0 || targetCents > 100_000_000_00) {
+    return { status: 400, body: { detail: "Enter a target.", field: "target" } };
+  }
+  const monthlyCents = body && body.monthlyCents;
+  if (monthlyCents != null && (!Number.isInteger(monthlyCents) || monthlyCents < 0 || monthlyCents > 100_000_000_00)) {
+    return { status: 400, body: { detail: "Enter a monthly amount.", field: "monthly" } };
+  }
+  const note = String(body && body.note ? body.note : "").trim().replace(/\s+/g, " ");
+  if (note.length > 80) return { status: 400, body: { detail: "Keep the note short.", field: "note" } };
+  const account = String(body && body.account ? body.account : "").trim().replace(/\s+/g, " ");
+  if (account.length > 80) return { status: 400, body: { detail: "Keep the account short.", field: "account" } };
+  const goal = {
+    slug: goalSlug(name, new Set(rows.map((item) => item.slug))),
+    name,
+    value: goalPercent(savedCents, targetCents),
+    amount: money(savedCents),
+    target: money(targetCents),
+    note,
+    savedCents,
+    targetCents,
+    monthlyCents: monthlyCents == null ? null : monthlyCents,
+    kind,
+    account,
+    color: nextGoalColor(rows),
+  };
+  return { status: 201, body: goal, goals: [...rows, goal] };
+}
 
 export function detroitYmd(ms) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
@@ -1373,7 +1453,7 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   const legacyAccounts = structuredClone(ACCOUNTS);
   let manualAccounts = structuredClone(SEED_ACCOUNTS);
   let accountSeq = 0;
-  const goals = structuredClone(GOALS);
+  let goals = process.env.JOEHUB_SEED_GOALS === "0" ? [] : structuredClone(GOALS);
   const knownIds = () => new Set(manualAccounts.map((account) => account.id));
   const context = () => ({
     planCents,
@@ -1462,6 +1542,14 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     return { status: 200, body: { linked: result.linked, id: result.transaction.id, sourceId: result.transaction.sourceId || null, billId: result.transaction.billId || null } };
   };
   store.financeGoals = async () => structuredClone(goals);
+  store.financeCreateGoal = async (body, key = "") => {
+    if (key && idem.has(`goal:${key}`)) return idem.get(`goal:${key}`);
+    const result = createGoal(goals, body);
+    if (result.status === 201) goals = result.goals;
+    const stored = { status: result.status, body: result.body };
+    if (key && result.status === 201) idem.set(`goal:${key}`, stored);
+    return stored;
+  };
   store.financeTransactions = async (now = Date.now(), week = "", accountId = "") => {
     if (accountId && !knownIds().has(accountId)) return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
     return transactionsForWeek(rows, now, week, accountId);
