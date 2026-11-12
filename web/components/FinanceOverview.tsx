@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { hasNetWorthHistory } from "../lib/finance.mjs";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { hasNetWorthHistory, periodChange } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { CategoryMark } from "./CategoryMark";
@@ -35,7 +35,16 @@ type Overview = {
   previousWeek: string;
   nextWeek: string | null;
   netWorthCents: number;
-  chart: { range: string; kind: string; caption: string; points: number[]; axis?: { min: number; max: number; zero: number | null } };
+  chart: {
+    range: string;
+    kind: string;
+    caption: string;
+    points: number[];
+    axis?: { min: number; max: number; zero: number | null };
+    changeTone?: "up" | "down" | "flat";
+    startCents?: number;
+    endCents?: number;
+  };
   month: { label: string; spentCents: number; planCents: number | null; percent: number | null; day: number; days: number };
   caps: Cap[];
   recent: Recent[];
@@ -45,12 +54,13 @@ type Overview = {
 const CACHE = "joehub.finance.overview";
 
 function dollars(cents: number) {
-  const whole = Math.trunc(Math.abs(cents) / 100);
-  return `${cents < 0 ? "−" : ""}$${whole.toLocaleString("en-US")}`;
+  const rounded = Math.round(cents);
+  const whole = Math.trunc(Math.abs(rounded) / 100);
+  return `${rounded < 0 ? "−" : ""}$${whole.toLocaleString("en-US")}`;
 }
 
 function centsPart(cents: number) {
-  return String(Math.abs(cents) % 100).padStart(2, "0");
+  return String(Math.abs(Math.round(cents)) % 100).padStart(2, "0");
 }
 
 function money(cents: number, digits?: boolean, signed = false) {
@@ -73,23 +83,228 @@ function stamp(ms: number) {
   }).format(ms);
 }
 
-function chartGeometry(points: number[], axis?: { min: number; max: number; zero: number | null }) {
-  if (!points.length) return { line: "", fill: "", zeroY: null as number | null };
-  const width = 360;
-  const height = 120;
-  const min = axis ? axis.min : Math.min(...points);
-  const max = axis ? axis.max : Math.max(...points);
-  const span = max - min || 1;
-  const yOf = (value: number) => height - 8 - ((value - min) / span) * (height - 16);
-  const coords = points.map((value, index) => {
-    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-    return { x, y: yOf(value) };
-  });
-  const line = coords.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
-  const zeroY = axis && axis.zero != null ? yOf(axis.zero) : null;
-  const base = zeroY == null ? height : zeroY;
-  const fill = `${line} L${coords[coords.length - 1].x.toFixed(1)} ${base.toFixed(1)} L${coords[0].x.toFixed(1)} ${base.toFixed(1)} Z`;
-  return { line, fill, zeroY };
+const CHART_W = 390;
+const CHART_H = 148;
+const ABOVE = "#2E8B6A";
+const BELOW = "#E07A5F";
+
+type PlotPoint = { x: number; y: number; v: number };
+
+function easeOut(t: number) {
+  return 1 - (1 - t) ** 3;
+}
+
+function motionReduced() {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function resample(values: number[], count = 48) {
+  if (!values.length) return [];
+  if (values.length === 1) return Array(count).fill(values[0]);
+  const out: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const t = (index / (count - 1)) * (values.length - 1);
+    const left = Math.floor(t);
+    const right = Math.min(values.length - 1, left + 1);
+    const fraction = t - left;
+    out.push(values[left] * (1 - fraction) + values[right] * fraction);
+  }
+  return out;
+}
+
+function useChartMotion(points: number[], startCents: number, endCents: number) {
+  const fromPts = useRef<number[] | null>(null);
+  const fromEnds = useRef<{ start: number; end: number } | null>(null);
+  const [frame, setFrame] = useState(() => ({ points: resample(points), start: startCents, end: endCents }));
+  const key = `${points.join(",")}|${startCents}|${endCents}`;
+  useEffect(() => {
+    const to = resample(points);
+    const next = { start: startCents, end: endCents };
+    const from = fromPts.current;
+    const ends = fromEnds.current;
+    fromPts.current = to;
+    fromEnds.current = next;
+    if (!from || !ends || motionReduced()) {
+      setFrame({ points: to, start: next.start, end: next.end });
+      return undefined;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / 300);
+      const eased = easeOut(t);
+      setFrame({
+        points: from.map((value, index) => value + (to[index] - value) * eased),
+        start: ends.start + (next.start - ends.start) * eased,
+        end: ends.end + (next.end - ends.end) * eased,
+      });
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [key]);
+  return frame;
+}
+
+function yDomain(values: number[]) {
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = high - low;
+  const include = (low <= 0 && high >= 0) || span <= 0 || span >= 0.25 * Math.min(Math.abs(low), Math.abs(high));
+  const lo = include ? Math.min(low, 0) : low;
+  const hi = include ? Math.max(high, 0) : high;
+  const pad = (hi - lo) * 0.12 || 1000;
+  return { lo: lo - pad, hi: hi + pad, include };
+}
+
+function plotPoints(values: number[]) {
+  const domain = yDomain(values);
+  const yOf = (value: number) => ((domain.hi - value) / (domain.hi - domain.lo || 1)) * CHART_H;
+  const pts: PlotPoint[] = values.map((value, index) => ({
+    x: values.length === 1 ? CHART_W / 2 : (index / (values.length - 1)) * CHART_W,
+    y: yOf(value),
+    v: value,
+  }));
+  return { pts, y0: yOf(0), include: domain.include };
+}
+
+function crossings(pts: PlotPoint[]) {
+  const out: PlotPoint[] = [pts[0]];
+  for (let index = 1; index < pts.length; index += 1) {
+    const left = pts[index - 1];
+    const right = pts[index];
+    if ((left.v > 0 && right.v < 0) || (left.v < 0 && right.v > 0)) {
+      const t = left.v / (left.v - right.v);
+      out.push({ x: left.x + t * (right.x - left.x), y: left.y + t * (right.y - left.y), v: 0 });
+    }
+    out.push(right);
+  }
+  return out;
+}
+
+function segments(pts: PlotPoint[]) {
+  const above: PlotPoint[][] = [];
+  const below: PlotPoint[][] = [];
+  let current: PlotPoint[] = [];
+  let sign = 0;
+  const flush = () => {
+    if (current.length >= 2) (sign > 0 ? above : below).push(current.slice());
+    current = [];
+  };
+  for (const point of pts) {
+    const next = point.v === 0 ? 0 : point.v > 0 ? 1 : -1;
+    if (!current.length || next === 0 || next === sign || sign === 0) {
+      current.push(point);
+      if (next) sign = next;
+    } else {
+      current.push(point);
+      flush();
+      current.push(point);
+      sign = next;
+    }
+  }
+  if (current.length) flush();
+  return { above, below };
+}
+
+function linePath(seg: PlotPoint[]) {
+  return seg.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+}
+
+function areaPath(seg: PlotPoint[], y0: number) {
+  const last = seg[seg.length - 1];
+  return `${linePath(seg)} L${last.x.toFixed(2)},${y0.toFixed(2)} L${seg[0].x.toFixed(2)},${y0.toFixed(2)} Z`;
+}
+
+function TrendMark({ tone, color }: { tone: string; color: string }) {
+  if (tone !== "up" && tone !== "down") return null;
+  const d = tone === "down" ? "M3 7l6 6 4-4 8 8M15 17h6v-6" : "M3 17l6-6 4 4 8-8M15 7h6v6";
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
+function ChartPaths({ points }: { points: number[] }) {
+  if (points.length < 2) return null;
+  const { pts, y0, include } = plotPoints(points);
+  const drawn = segments(crossings(pts));
+  const labelY = y0 < 18 ? y0 + 14 : y0 - 6;
+  return (
+    <>
+      {include ? (
+        <>
+          <line x1="0" x2={CHART_W} y1={y0} y2={y0} stroke="#C9CEC8" strokeWidth="1" />
+          <text x="8" y={labelY} fill="#6B746E" fontSize="12" fontFamily="Outfit, sans-serif">
+            0
+          </text>
+        </>
+      ) : null}
+      {drawn.above.map((seg, index) => (
+        <g key={`above-${index}`}>
+          <path d={areaPath(seg, y0)} fill={ABOVE} opacity="0.1" />
+          <path d={linePath(seg)} fill="none" stroke={ABOVE} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        </g>
+      ))}
+      {drawn.below.map((seg, index) => (
+        <g key={`below-${index}`}>
+          <path d={areaPath(seg, y0)} fill={BELOW} opacity="0.12" />
+          <path d={linePath(seg)} fill="none" stroke={BELOW} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        </g>
+      ))}
+    </>
+  );
+}
+
+function NetWorthChart({
+  netWorthCents,
+  chart,
+  showCaption,
+  showChart,
+  children,
+}: {
+  netWorthCents: number;
+  chart: Overview["chart"];
+  showCaption: boolean;
+  showChart: boolean;
+  children: ReactNode;
+}) {
+  const start = chart.startCents ?? chart.points[0] ?? netWorthCents;
+  const end = chart.endCents ?? netWorthCents;
+  const frame = useChartMotion(chart.points, start, end);
+  const shownEnd = showChart ? frame.end : netWorthCents;
+  const change = periodChange(frame.start, frame.end);
+  const changeColor = change.tone === "down" ? BELOW : change.tone === "up" ? ABOVE : "#6B746E";
+  const settledTone = chart.changeTone || change.tone;
+  return (
+    <>
+      <p className="mt-1 font-medium leading-none" data-net-worth={netWorthCents} style={shownEnd < 0 ? { color: BELOW } : undefined}>
+        <span className="text-title">{dollars(shownEnd)}</span>
+        <span className="text-section">.{centsPart(shownEnd)}</span>
+      </p>
+      {showCaption ? (
+        <p className="mt-0.5 flex items-center gap-1 text-body" style={{ color: changeColor }} data-change={chart.caption} data-tone={settledTone}>
+          <TrendMark tone={change.tone} color={changeColor} />
+          <span>{change.text}</span>
+          <span className="font-medium text-muted">{chart.range}</span>
+        </p>
+      ) : null}
+      {showChart ? (
+        <div
+          className="mt-2"
+          data-chart={chart.range}
+          data-points={chart.points.join(",")}
+          data-baseline={chart.axis?.zero != null ? "true" : "false"}
+        >
+          <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="h-[148px] w-full overflow-hidden" role="img" aria-label="Net worth chart">
+            <ChartPaths points={frame.points} />
+          </svg>
+          {children}
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 export function FinanceOverview() {
@@ -284,36 +499,13 @@ export function FinanceOverview() {
         <div className="lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:gap-8">
           <section className="px-5 pt-5">
             <p className="text-meta text-muted">Net worth</p>
-            <p className="mt-1 font-medium leading-none" data-net-worth={overview.netWorthCents}>
-              <span className="text-title">{dollars(overview.netWorthCents)}</span>
-              <span className="text-section">.{centsPart(overview.netWorthCents)}</span>
-            </p>
-            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline && overview.chart.caption && !(production && /no history imported|\(7\.5%\)/.test(overview.chart.caption)) ? (
-              <p className="mt-2 text-body text-finance-primary">{overview.chart.caption}</p>
-            ) : null}
-            {showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline ? (
-              <div className="mt-4" data-chart={overview.chart.range} data-points={overview.chart.points.join(",")}>
-                <svg viewBox="0 0 360 120" className="h-28 w-full" role="img" aria-label="Net worth chart">
-                  <path d={chartGeometry(overview.chart.points, overview.chart.axis).fill} fill="#2E8B6A" opacity="0.1" />
-                  {chartGeometry(overview.chart.points, overview.chart.axis).zeroY != null ? (
-                    <line
-                      x1="0"
-                      x2="360"
-                      y1={chartGeometry(overview.chart.points, overview.chart.axis).zeroY ?? 0}
-                      y2={chartGeometry(overview.chart.points, overview.chart.axis).zeroY ?? 0}
-                      stroke="#C9CEC8"
-                      strokeWidth="1"
-                    />
-                  ) : null}
-                  <path d={chartGeometry(overview.chart.points, overview.chart.axis).line} fill="none" stroke="#2E8B6A" strokeWidth="2.2" />
-                </svg>
-                {overview.chart.axis && overview.chart.axis.min < 0 ? (
-                  <p className="mt-1 flex justify-between text-meta text-muted">
-                    <span>{money(overview.chart.axis.min, true)}</span>
-                    <span>{money(overview.chart.axis.max, true)}</span>
-                  </p>
-                ) : null}
-                <div className="mt-2 flex items-center gap-2">
+            <NetWorthChart
+              netWorthCents={overview.netWorthCents}
+              chart={overview.chart}
+              showCaption={showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline && Boolean(overview.chart.caption) && !(production && /no history imported|\(7\.5%\)/.test(overview.chart.caption))}
+              showChart={showNetWorthChart(production, hasNetWorthHistory(overview.chart.points)) && !offline}
+            >
+              <div className="mt-2 flex items-center gap-2">
                   <div className="flex min-w-0 flex-1 gap-1">
                     {RANGES.map((item) => (
                       <button
@@ -342,8 +534,7 @@ export function FinanceOverview() {
                     ) : null}
                   </div>
                 </div>
-              </div>
-            ) : null}
+            </NetWorthChart>
             {!offline ? (
               <section className="mt-6 rounded-[22px] border border-line px-4 py-4">
                 <div className="flex items-baseline justify-between gap-3 text-meta">

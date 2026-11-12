@@ -519,15 +519,35 @@ export function netWorthText(cents) {
   return money(cents, true);
 }
 
+/**
+ * Dollar change is end − start. Percent is (end − start) / |start| × 100, to one decimal.
+ * The percent is hidden when start is 0, when the signs differ, or when |start| is under 10% of |end|.
+ * An improving negative uses the absolute start, so the percent keeps the dollar sign.
+ */
+export function periodChange(startCents, endCents) {
+  const start = Number(startCents);
+  const end = Number(endCents);
+  const delta = end - start;
+  const opposite = (start > 0 && end < 0) || (start < 0 && end > 0);
+  const smallStart = end !== 0 && Math.abs(start) < 0.1 * Math.abs(end);
+  const hidePercent = start === 0 || opposite || smallStart;
+  let text = delta > 0 ? `+${money(delta, true)}` : money(delta, true);
+  if (!hidePercent) text += ` (${((delta / Math.abs(start)) * 100).toFixed(1)}%)`;
+  const tone = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  return { text, tone, deltaCents: delta, hidePercent };
+}
+
+/** Include zero when the series crosses it, or when the span is at least 25% of the distance to zero. */
 export function chartAxis(points) {
   const values = (points || []).filter((value) => Number.isFinite(value));
   if (!values.length) return { min: 0, max: 0, zero: null };
   const low = Math.min(...values);
   const high = Math.max(...values);
-  const span = high - low || 1;
-  if (low < 0 && high > 0) return { min: low, max: high, zero: 0 };
-  if (low < 0 && high <= 0 && Math.abs(high) <= span * 4) return { min: low, max: 0, zero: 0 };
-  return { min: low, max: high, zero: null };
+  const span = high - low;
+  const crosses = low <= 0 && high >= 0;
+  const include = crosses || span <= 0 || span >= 0.25 * Math.min(Math.abs(low), Math.abs(high));
+  if (!include) return { min: low, max: high, zero: null };
+  return { min: Math.min(low, 0), max: Math.max(high, 0), zero: 0 };
 }
 
 export function alignNetWorthSeries(points, netWorthCents) {
@@ -798,7 +818,8 @@ export function capsForWeek(txns, start, caps = defaultCaps(), categories = CATE
 
 const YTD_Y = [116, 102.8, 109.4, 89.6, 94.9, 79.1, 76.5, 84.4, 64.6, 56.7, 62, 42.2, 34.3, 39.6, 23.8, 18.5, 4];
 
-function ytdPoints() {
+/** The retired +$18,472.36 curve. A stored copy of this shape is still not history. */
+function legacyYtdPoints() {
   const start = NET_WORTH_CENTS - YTD_DELTA_CENTS;
   return YTD_Y.map((y, index) => {
     if (index === 0) return start;
@@ -808,25 +829,47 @@ function ytdPoints() {
   });
 }
 
+/** Debts-inclusive preview series, in dollars. The last point is −$129,191.64 on every range. */
+const NET_WORTH_SERIES_DOLLARS = {
+  "1W": [-129410, -129360, -129300, -129240, -129191.64],
+  "1M": [-129850, -129780, -129620, -129540, -129410, -129330, -129191.64],
+  YTD: [-131600, -131210, -131880, -131040, -130720, -130990, -130410, -130150, -130480, -129940, -129710, -129860, -129430, -129520, -129280, -129240, -129191.64],
+  "1Y": [-133400, -133020, -132740, -132910, -132200, -131850, -131600, -131210, -130720, -130410, -130150, -129940, -129710, -129430, -129280, -129240, -129191.64],
+  All: [22400, 21800, 23100, 19850, 18600, 17200, 16480, 15120, 12840, 8420, 2100, -6400, -28600, -61200, -98000, -124800, -129191.64],
+};
+
+function seedNetWorthSeries() {
+  return Object.fromEntries(
+    Object.entries(NET_WORTH_SERIES_DOLLARS).map(([range, values]) => [range, values.map((dollars) => Math.round(dollars * 100))]),
+  );
+}
+
+function sameShape(values, seed) {
+  if (!seed || values.length !== seed.length || values.length < 2) return false;
+  const shift = values[values.length - 1] - seed[seed.length - 1];
+  return values.every((value, index) => value - seed[index] === shift);
+}
+
 export function seedSnapshots() {
+  const series = seedNetWorthSeries();
+  const ytd = series.YTD;
+  const change = periodChange(ytd[0], ytd[ytd.length - 1]);
   return {
     netWorthCents: NET_WORTH_CENTS,
-    ytdDeltaCents: YTD_DELTA_CENTS,
-    caption: `+${money(YTD_DELTA_CENTS)} (7.5%) YTD`,
-    points: ytdPoints(),
+    ytdDeltaCents: ytd[ytd.length - 1] - ytd[0],
+    caption: change.text,
+    points: ytd.slice(),
+    series,
   };
 }
 
-/** A chart needs two different store points. The seeded YTD curve and a flat line are not history. */
+/** A chart needs two different store points. The seeded curves and a flat line are not history. */
 export function hasNetWorthHistory(points) {
   const values = (Array.isArray(points) ? points : []).filter((value) => Number.isFinite(value));
   if (new Set(values).size < 2) return false;
-  const seed = ytdPoints();
-  if (values.length === seed.length) {
-    const shift = values[values.length - 1] - seed[seed.length - 1];
-    if (values.every((value, index) => value - seed[index] === shift)) return false;
-  }
-  return true;
+  if (sameShape(values, legacyYtdPoints())) return false;
+  const series = seedNetWorthSeries();
+  return !Object.values(series).some((seed) => sameShape(values, seed));
 }
 
 function weeklySeries(txns, from, to) {
@@ -842,13 +885,13 @@ function weeklySeries(txns, from, to) {
 
 function presentChart(chart, netWorthCents) {
   const next = { ...chart, points: chart.points.slice() };
-  if (next.kind === "net-worth") {
+  if (next.kind === "net-worth" && next.points.length) {
     next.points = alignNetWorthSeries(next.points, netWorthCents);
-    const delta = next.points.length > 1 ? next.points[next.points.length - 1] - next.points[0] : 0;
-    if (delta < 0 || String(next.caption || "").includes("$-")) {
-      const sign = delta > 0 ? "+" : "";
-      next.caption = `${sign}${money(delta, true)} YTD`;
-    }
+    const change = periodChange(next.points[0], next.points[next.points.length - 1]);
+    next.caption = change.text;
+    next.changeTone = change.tone;
+    next.startCents = next.points[0];
+    next.endCents = next.points[next.points.length - 1];
   }
   next.axis = chartAxis(next.points);
   return next;
@@ -856,9 +899,14 @@ function presentChart(chart, netWorthCents) {
 
 export function chartFor(txns, today, range, snapshot) {
   const current = weekStart(today);
+  const seeded = snapshot || seedSnapshots();
+  const series = seeded.series && Array.isArray(seeded.series[range]) ? seeded.series[range] : null;
+  if (series && series.length) {
+    return { range, kind: "net-worth", caption: "", points: series.slice() };
+  }
   if (range === "YTD") {
-    const seeded = snapshot || seedSnapshots();
-    return { range, kind: "net-worth", caption: seeded.caption, points: seeded.points };
+    const points = Array.isArray(seeded.points) && seeded.points.length ? seeded.points : seedNetWorthSeries().YTD;
+    return { range, kind: "net-worth", caption: seeded.caption || "", points: points.slice() };
   }
   let from = null;
   if (range === "1W") from = current;
