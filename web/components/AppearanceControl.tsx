@@ -24,7 +24,7 @@ export function AppearanceControl() {
   }, []);
 
   return (
-    <div role="radiogroup" aria-label="Appearance" data-appearance={mode} data-hydrated={ready ? "true" : "false"} className="flex rounded-full border border-line p-0.5">
+    <div role="radiogroup" aria-label="Appearance" data-appearance={mode} data-hydrated={ready ? "true" : "false"} className="flex max-w-[360px] rounded-full border border-line p-0.5">
       {OPTIONS.map((option) => {
         const on = mode === option;
         return (

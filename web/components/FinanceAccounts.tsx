@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
+import { useProductionNav } from "./LivePages";
 import { Sheet } from "./Sheet";
+import { FINANCE_TABS } from "../lib/live-pages.mjs";
 
 type Account = {
   id: string;
@@ -44,12 +46,15 @@ const TYPE_LABEL: Record<string, string> = {
 };
 const LOAN_TYPES = new Set(["loan", "installment", "student"]);
 const INVESTED_TYPES = new Set(["brokerage", "investment", "retirement", "crypto"]);
+const GROUPED_TYPES = new Set(["checking", "savings", "cash", "credit card", "loan", "installment", "student", "brokerage", "investment", "retirement", "crypto"]);
+const COLLAPSE_AT = 5;
 const DISPLAY_GROUPS: Array<[string, (account: Account) => boolean]> = [
   ["Checking", (account) => account.type === "checking"],
   ["Savings", (account) => account.type === "savings" || account.type === "cash"],
   ["Credit cards", (account) => account.type === "credit card"],
   ["Loans", (account) => LOAN_TYPES.has(account.type)],
   ["Brokerage", (account) => INVESTED_TYPES.has(account.type)],
+  ["Other", (account) => account.type === "other" || !GROUPED_TYPES.has(account.type)],
 ];
 
 function money(cents: number) {
@@ -135,6 +140,10 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const fromMore = search.get("from") === "more";
   const previewEmpty = search.get("view") === "empty";
   const previewLink = search.get("link") || "";
+  const production = useProductionNav();
+  const debtsTab = FINANCE_TABS.find((tab) => tab.href === "/finance/debts");
+  const debtsLinked = Boolean(debtsTab && (production ? debtsTab.live : debtsTab.shipped));
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [rows, setRows] = useState<Txn[]>([]);
   const [wide, setWide] = useState(false);
@@ -510,7 +519,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const statusBanners = (
     <>
       {shownTone === "offline" && snapshot?.updatedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className={`${bannerInset} flex items-start gap-2.5 rounded-2xl bg-[#E6E8E4] px-3.5 py-3`}>
+        <p role="status" data-offline="true" data-link="offline" className={`${bannerInset} flex items-start gap-2.5 rounded-2xl border border-line bg-surface px-3.5 py-3 text-ink`}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="mt-0.5 shrink-0" aria-hidden="true">
             <path d="M2 8.82A15 15 0 0 1 12 5c2.5 0 4.85.6 6.94 1.66M5 12.5A10 10 0 0 1 12 10c1.6 0 3.1.37 4.45 1.03M8.5 16a5 5 0 0 1 7 0M12 20h.01M2 2l20 20" />
           </svg>
@@ -521,12 +530,12 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         </p>
       ) : null}
       {shownTone === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className={`${bannerInset} rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]`}>
+        <p role="status" data-offline="true" data-link="reconnecting" className={`${bannerInset} rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink`}>
           Reconnecting…
         </p>
       ) : null}
       {shownTone === "back" ? (
-        <p role="status" data-link="back" className={`${bannerInset} flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]`}>
+        <p role="status" data-link="back" className={`${bannerInset} flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink`}>
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
             Dismiss
@@ -608,14 +617,18 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
               </section>
             ) : null}
             {shownTone === "offline" && snapshot ? (
-              <p role="status" className={`${bannerInset} rounded-2xl border border-[#C9CEC8] bg-surface px-3.5 py-3 text-body font-medium`}>
+              <p role="status" className={`${bannerInset} rounded-2xl border border-line bg-surface px-3.5 py-3 text-body font-medium text-ink`}>
                 Can’t edit offline
               </p>
             ) : null}
             {snapshot && !empty
               ? groups().map((group) => {
                   const students = group.name === "Loans" ? group.rows.filter((account) => account.type === "student") : [];
-                  const visible = students.length > 1 ? group.rows.filter((account) => account.type !== "student") : group.rows;
+                  const linkStudents = debtsLinked && students.length > 1;
+                  const longLoans = group.name === "Loans" && !linkStudents && group.rows.length > COLLAPSE_AT;
+                  const holdsSelection = longLoans && group.rows.some((account) => account.id === selectedId);
+                  const expanded = !longLoans || Boolean(openGroups.Loans) || holdsSelection;
+                  const visible = linkStudents ? group.rows.filter((account) => account.type !== "student") : expanded ? group.rows : [];
                   const studentTotal = students.reduce((sum, account) => sum + account.balanceCents, 0);
                   return (
                   <section key={group.name}>
@@ -623,8 +636,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                       <h2 className={`text-section font-medium ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{group.name}</h2>
                       <p className={`text-section font-medium tabular-nums ${group.name === "Hidden" ? "text-muted" : "text-ink"}`}>{money(group.total)}</p>
                     </div>
-                    <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                      {students.length > 1 ? (
+                    <ul className={`${wide ? "mt-2" : "mx-4 mt-2"} overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                      {linkStudents ? (
                         <li>
                           <Link href={`/finance/debts${suffix}`} data-student-loans={students.length} className="flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink">
                             <AccountGlyph type="student" />
@@ -639,10 +652,26 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                           </Link>
                         </li>
                       ) : null}
-                      {visible.map((account) => {
+                      {longLoans && !expanded ? (
+                        <li>
+                          <button
+                            type="button"
+                            data-loans="show"
+                            className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
+                            onClick={() => setOpenGroups((current) => ({ ...current, Loans: true }))}
+                          >
+                            <span className="min-w-0 flex-1">Show {group.rows.length} loans</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                              <path d="M9 6l6 6-6 6" />
+                            </svg>
+                          </button>
+                        </li>
+                      ) : null}
+                      {visible.map((account, index) => {
                         const current = account.id === selectedId;
                         return (
                           <li key={account.id} className={account.hiddenFromNetWorth ? "opacity-60" : ""}>
+                            {index > 0 || linkStudents ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
                               aria-current={current ? "true" : undefined}
@@ -665,6 +694,22 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                           </li>
                         );
                       })}
+                      {longLoans && expanded ? (
+                        <li>
+                          <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" />
+                          <button
+                            type="button"
+                            data-loans="hide"
+                            className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left text-body font-medium text-ink"
+                            onClick={() => setOpenGroups((current) => ({ ...current, Loans: false }))}
+                          >
+                            <span className="min-w-0 flex-1">Hide loans</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                              <path d="M6 15l6-6 6 6" />
+                            </svg>
+                          </button>
+                        </li>
+                      ) : null}
                     </ul>
                   </section>
                   );

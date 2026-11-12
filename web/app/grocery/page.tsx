@@ -433,19 +433,19 @@ export default function GroceryPage() {
   const banners = (
     <>
       {link === "offline" && savedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3 text-body font-medium">
+        <p role="status" data-offline="true" data-link="offline" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-body font-medium text-ink">
           Offline
           <span className="mt-0.5 block text-meta font-normal text-muted">Last updated {formatDetroit(savedAt)}</span>
           <span className="block text-meta font-normal text-muted">America/Detroit</span>
         </p>
       ) : null}
       {link === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="pointer-events-none mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           Reconnecting…
         </p>
       ) : null}
       {link === "back" ? (
-        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="pointer-events-none mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           <span>Back online</span>
           <button type="button" className="pointer-events-auto min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setLink("live")}>
             Dismiss
@@ -464,8 +464,8 @@ export default function GroceryPage() {
         </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
         {checkedCount > 0 ? (
-          <div className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F2EC] px-3.5 py-2.5">
-            <p className="text-body">{checkedCount} checked</p>
+          <div data-checked-bar="true" className="relative z-30 mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl bg-[color-mix(in_srgb,var(--gain)_16%,var(--surface))] px-3.5 py-2.5 text-ink">
+            <p className="text-body text-ink">{checkedCount} checked</p>
             <button
               type="button"
               className="flex min-h-11 items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50"

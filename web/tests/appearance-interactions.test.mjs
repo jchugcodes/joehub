@@ -135,6 +135,26 @@ test("appearance light, dark, and system persist on the device", { skip }, async
     await waitFor(send, "document.documentElement.classList.contains('dark') ? 'yes' : ''", "overview dark");
     const change = await evalPage(send, "getComputedStyle(document.querySelector('[data-change]')).color");
     assert.equal(change, "rgb(78, 174, 134)");
+    await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send("Page.navigate", { url: `${base()}/finance/categories/groceries?period=month&asOf=2026-11-11T15:00:00-05:00` });
+    await waitFor(send, "document.documentElement.classList.contains('dark') && document.querySelector('[data-selected=\"true\"]') && document.querySelector('[data-period-option=\"month\"]')?.getAttribute('aria-pressed') === 'true' ? 'yes' : ''", "categories");
+    const categories = JSON.parse(
+      await evalPage(
+        send,
+        `(() => {
+          const track = getComputedStyle(document.querySelector("[data-period-track]"));
+          const week = getComputedStyle(document.querySelector("[data-period-option='week']"));
+          const month = getComputedStyle(document.querySelector("[data-period-option='month']"));
+          const row = getComputedStyle(document.querySelector("[data-selected='true']"));
+          return JSON.stringify({ track: track.backgroundColor, week: week.color, monthBg: month.backgroundColor, monthFg: month.color, row: row.backgroundColor });
+        })()`,
+      ),
+    );
+    assert.equal(categories.track, "rgb(22, 29, 24)");
+    assert.equal(categories.week, "rgb(236, 241, 238)");
+    assert.equal(categories.monthBg, "rgb(236, 241, 238)");
+    assert.equal(categories.monthFg, "rgb(14, 19, 16)");
+    assert.equal(categories.row, "rgb(22, 29, 24)");
     ws.close();
   } finally {
     await stopProcess(chrome);

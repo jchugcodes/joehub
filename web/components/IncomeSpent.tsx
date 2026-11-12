@@ -131,7 +131,7 @@ export function IncomeSpent({ flow }: { flow: Flow }) {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="10" height="10" className="overflow-hidden rounded-[2px]" aria-hidden="true">
-            <rect width="10" height="10" fill="var(--spend-dot)" />
+            <rect width="10" height="10" fill="url(#dotInk)" />
           </svg>
           Total spend
         </span>

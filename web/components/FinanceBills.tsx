@@ -511,18 +511,18 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   return (
     <main className="finance-type min-w-0 text-ink" data-ready={snapshot ? "true" : undefined} data-bills={empty ? "empty" : "list"}>
       {shownTone === "offline" && snapshot?.updatedAt ? (
-        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-[#C9CEC8] bg-[#EEF0EC] px-3.5 py-3">
+        <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-ink">
           <span className="block text-body font-medium">Offline</span>
           <span className="mt-0.5 block text-meta text-muted">Last updated {stamp(snapshot.updatedAt)} America/Detroit</span>
         </p>
       ) : null}
       {shownTone === "reconnecting" ? (
-        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[#E9B94933] bg-[#E9B9491F] px-3.5 py-3 text-body font-medium text-[#8A6B14]">
+        <p role="status" data-offline="true" data-link="reconnecting" className="mx-4 mt-3 rounded-2xl border border-[color-mix(in_srgb,var(--warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--warn)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           Reconnecting…
         </p>
       ) : null}
       {shownTone === "back" ? (
-        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#2E8B6A33] bg-[#2E8B6A1F] px-3.5 py-3 text-body font-medium text-[#246C53]">
+        <p role="status" data-link="back" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--gain)_35%,transparent)] bg-[color-mix(in_srgb,var(--gain)_14%,var(--surface))] px-3.5 py-3 text-body font-medium text-ink">
           <span>Back online</span>
           <button type="button" className="min-h-11 px-2 text-meta font-medium text-muted" onClick={() => setTone("")}>
             Dismiss
@@ -583,9 +583,11 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                   return (
                     <section key={group}>
                       <h2 className={`${wide ? "px-1" : "px-5"} pt-5 text-section font-medium`}>{group}</h2>
-                      <ul className={`${wide ? "" : "mx-4"} mt-2 divide-y divide-line overflow-hidden rounded-[20px] border border-line bg-surface`}>
-                        {rows.map((bill) => (
-                          <li key={bill.id} className="flex min-h-16 items-center gap-3 px-4 py-2.5">
+                      <ul className={`${wide ? "" : "mx-4"} mt-2 overflow-hidden rounded-[20px] border border-line bg-surface`}>
+                        {rows.map((bill, index) => (
+                          <li key={bill.id}>
+                            {index > 0 ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
+                            <div className="flex min-h-16 items-center gap-3 px-4 py-2.5">
                             <Link href={`/finance/bills/${bill.id}${suffix}`} className="flex min-w-0 flex-1 items-center gap-3">
                               <CategoryMark category={bill.category} />
                               <span className="min-w-0 flex-1">
@@ -597,6 +599,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                               <span className={`text-body font-medium tabular-nums ${bill.group === "Overdue" ? "text-finance-dining" : ""}`}>{money(bill.amountCents)}</span>
                               <PaidSwitch on={bill.paid} muted={blocked} onToggle={() => void togglePaid(bill)} />
                             </span>
+                            </div>
                           </li>
                         ))}
                       </ul>
