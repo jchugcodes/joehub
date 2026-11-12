@@ -4,21 +4,43 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const GROUPS = ["Overdue", "This week", "Later"];
 const RECURRENCES = new Set(["monthly", "weekly", "yearly"]);
-const CATEGORIES = new Set(["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities"]);
+const CATEGORIES = new Set(["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities", "health-fitness", "fun", "school", "other"]);
 const LIABILITY = new Set(["credit card", "loan", "installment", "student"]);
 const STOPWORDS = new Set(["example", "the", "pos", "debit", "card", "payment", "purchase", "ach", "visa", "mastercard"]);
 const BILL_ID = /^bill-[A-Za-z0-9._:-]{1,70}$/;
 const CHECKING = "acct-checking";
 const SNAPSHOT_AT = Date.parse("2026-11-11T11:42:00.000Z");
 
-const CATEGORY_NAMES = {
+export const CATEGORY_NAMES = {
   "dining-out": "Dining Out",
   groceries: "Groceries",
   transport: "Transport",
   subscriptions: "Subscriptions",
   shopping: "Shopping",
   utilities: "Utilities",
+  "health-fitness": "Health & Fitness",
+  fun: "Fun",
+  school: "School",
+  other: "Other",
 };
+
+function dated(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isUpcoming(bill) {
+  return Boolean(bill) && bill.status !== "planned" && dated(bill.dueDate);
+}
+
+/** List and detail amounts. A missing amount is an em dash, not $0.00. */
+export function billMoney(cents) {
+  if (cents == null || !Number.isFinite(cents)) return "—";
+  const abs = Math.abs(cents);
+  const sign = cents < 0 ? "−" : "";
+  const whole = Math.floor(abs / 100);
+  const frac = String(Math.round(abs % 100)).padStart(2, "0");
+  return `${sign}$${whole.toLocaleString("en-US")}.${frac}`;
+}
 
 function billRecord(fields) {
   return {
@@ -65,6 +87,7 @@ export function weekStart(ymd) {
 }
 
 function weekEnd(ymd) {
+  if (!dated(ymd)) return ymd;
   return addDays(weekStart(ymd), 6);
 }
 
@@ -85,6 +108,7 @@ function addMonths(ymd, count) {
 }
 
 export function nextDue(ymd, recurrence) {
+  if (!dated(ymd)) return null;
   if (recurrence === "weekly") return addDays(ymd, 7);
   if (recurrence === "yearly") return addMonths(ymd, 12);
   return addMonths(ymd, 1);
@@ -92,6 +116,7 @@ export function nextDue(ymd, recurrence) {
 
 /** A paid bill stays on its due date through that due-week, then the next occurrence becomes the row. */
 export function rollBill(bill, today) {
+  if (!isUpcoming(bill)) return bill;
   let next = { ...bill };
   let guard = 0;
   while (next.paid && weekEnd(next.dueDate) < today && guard < 240) {
@@ -105,6 +130,7 @@ export function projectBills(bills, now = Date.now()) {
   const today = detroitYmd(now);
   let changed = false;
   const next = bills.map((bill) => {
+    if (!isUpcoming(bill)) return bill;
     const rolled = rollBill(bill, today);
     if (rolled.dueDate !== bill.dueDate || rolled.paid !== bill.paid || rolled.paidOn !== bill.paidOn) changed = true;
     return rolled;
@@ -113,6 +139,7 @@ export function projectBills(bills, now = Date.now()) {
 }
 
 export function billGroup(bill, today) {
+  if (!isUpcoming(bill) || !dated(today)) return "Later";
   const start = weekStart(today);
   const end = weekEnd(today);
   if (!bill.paid && bill.dueDate < today) return "Overdue";
@@ -121,6 +148,7 @@ export function billGroup(bill, today) {
 }
 
 function formatDue(ymd, today) {
+  if (!dated(ymd) || !dated(today)) return "";
   const [, month, day] = ymd.split("-").map(Number);
   const label = `${MONTHS[month - 1]} ${day}`;
   return ymd.slice(0, 4) === today.slice(0, 4) ? label : `${label}, ${ymd.slice(0, 4)}`;
@@ -141,6 +169,7 @@ function recurrenceLabel(recurrence) {
 }
 
 function dueLabel(bill, today) {
+  if (!isUpcoming(bill)) return "";
   const base = `Due ${formatDue(bill.dueDate, today)} · ${recurrenceLabel(bill.recurrence)}`;
   if (billGroup(bill, today) !== "Overdue") return base;
   const days = dayNumber(today) - dayNumber(bill.dueDate);
@@ -167,10 +196,11 @@ function presentBill(bill, rows, accounts, today) {
     }))
     .sort((left, right) => right.date.localeCompare(left.date) || String(right.id).localeCompare(String(left.id)));
   const group = billGroup(bill, today);
+  const upcoming = isUpcoming(bill);
   return {
     id: bill.id,
     name: bill.name,
-    amountCents: bill.amountCents,
+    amountCents: bill.amountCents == null ? null : bill.amountCents,
     dueDate: bill.dueDate,
     recurrence: bill.recurrence,
     category: bill.category,
@@ -180,9 +210,9 @@ function presentBill(bill, rows, accounts, today) {
     paid: Boolean(bill.paid),
     paidOn: bill.paidOn || null,
     group,
-    overdueDays: group === "Overdue" ? dayNumber(today) - dayNumber(bill.dueDate) : 0,
-    dueLabel: dueLabel(bill, today),
-    nextDue: nextDue(bill.dueDate, bill.recurrence),
+    overdueDays: group === "Overdue" && upcoming ? dayNumber(today) - dayNumber(bill.dueDate) : 0,
+    dueLabel: upcoming ? dueLabel(bill, today) : "",
+    nextDue: upcoming ? nextDue(bill.dueDate, bill.recurrence) : null,
     payments,
   };
 }
@@ -199,7 +229,7 @@ function sortBills(bills, today) {
 
 export function billsSnapshot(bills, rows, accounts, now = Date.now()) {
   const today = detroitYmd(now);
-  const shown = sortBills(bills, today).map((bill) => presentBill(bill, rows, accounts, today));
+  const shown = sortBills(bills.filter(isUpcoming), today).map((bill) => presentBill(bill, rows, accounts, today));
   return {
     updatedAt: new Date(now).toISOString(),
     empty: shown.length === 0,
@@ -294,6 +324,9 @@ export function setBillPaid(bills, rows, accounts, id, paid, now = Date.now()) {
   if (paid) {
     if (bill.paid) {
       return { status: 200, body: presentBill(bill, rows, accounts, today), bills: working, rows };
+    }
+    if (!Number.isInteger(bill.amountCents) || !isUpcoming(bill)) {
+      return { status: 200, body: presentBill(bill, rows, accounts, today), bills, rows };
     }
     const account = accounts.find((item) => item.id === bill.accountId);
     const existing = paymentFor(rows, bill);

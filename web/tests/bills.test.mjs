@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SEED_BILLS, billGroup, billsSnapshot, deleteBill, importLedgerTransaction, linkOrInsertImportedTxn, projectBills, setBillPaid } from "../lib/bills.mjs";
+import { CATEGORY_NAMES, SEED_BILLS, billGroup, billMoney, billsSnapshot, createBill, deleteBill, importLedgerTransaction, linkOrInsertImportedTxn, projectBills, rollBill, setBillPaid } from "../lib/bills.mjs";
 import { SEED_ACCOUNTS, SEED_TRANSACTIONS, installMemoryFinance, patchTransaction } from "../lib/finance.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
@@ -170,4 +170,43 @@ test("the bill seed is gated in production and links the streaming payment once"
   const cleared = await memory.financePatchBill("bill-phone", { paid: false }, NOW);
   assert.equal(cleared.body.paid, false);
   assert.equal(cleared.body.payments.length, 0);
+});
+
+test("planned bills and blank amounts stay out of the upcoming list", () => {
+  const planned = { id: "bill-planned", name: "Future rent", status: "planned", dueDate: null, amountCents: null, recurrence: "monthly", category: "health-fitness", accountId: "acct-checking", paid: false, sort: 8 };
+  const undated = { id: "bill-undated", name: "No date", dueDate: null, amountCents: 1000, recurrence: "monthly", category: "fun", accountId: "acct-checking", paid: false, sort: 9 };
+  const blank = { id: "bill-blank", name: "Open amount", dueDate: "2026-11-18", amountCents: null, recurrence: "monthly", category: "school", accountId: "acct-checking", paid: false, sort: 10 };
+  assert.doesNotThrow(() => rollBill(planned, "2026-11-11"));
+  assert.doesNotThrow(() => rollBill(undated, "2026-11-11"));
+  const projected = projectBills([...SEED_BILLS, planned, undated], NOW);
+  assert.equal(projected.changed, false);
+  assert.equal(projected.bills.some((bill) => bill.id === "bill-planned"), true);
+  const view = billsSnapshot([...SEED_BILLS, planned, undated, blank], SEED_TRANSACTIONS, SEED_ACCOUNTS, NOW);
+  assert.equal(view.bills.some((bill) => bill.status === "planned" || bill.id === "bill-planned" || bill.id === "bill-undated"), false);
+  const open = view.bills.find((bill) => bill.id === "bill-blank");
+  assert.equal(open.amountCents, null);
+  assert.equal(billMoney(null), "—");
+  assert.equal(billMoney(undefined), "—");
+  assert.equal(billMoney(open.amountCents), "—");
+  assert.equal(billMoney(4820), "$48.20");
+  const before = SEED_TRANSACTIONS.length;
+  const toggled = setBillPaid([...SEED_BILLS, blank], SEED_TRANSACTIONS, SEED_ACCOUNTS, "bill-blank", true, NOW);
+  assert.equal(toggled.rows.length, before);
+  assert.equal(toggled.rows.some((row) => row.billId === "bill-blank"), false);
+  assert.equal(toggled.bills.find((bill) => bill.id === "bill-blank").paid, false);
+  const created = createBill(SEED_BILLS, SEED_ACCOUNTS, { name: "Gym (example)", amountCents: 2500, dueDate: "2026-11-21", recurrence: "monthly", category: "health-fitness", accountId: "acct-checking" }, NOW, 1);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.category, "health-fitness");
+  assert.equal(created.body.categoryName, "Health & Fitness");
+  assert.equal(CATEGORY_NAMES["health-fitness"], "Health & Fitness");
+  assert.equal(CATEGORY_NAMES.fun, "Fun");
+  assert.equal(CATEGORY_NAMES.school, "School");
+  assert.equal(CATEGORY_NAMES.other, "Other");
+  assert.equal(CATEGORY_NAMES.utilities, "Utilities");
+  assert.equal(CATEGORY_NAMES.transport, "Transport");
+  for (const category of ["fun", "school", "other"]) {
+    const saved = createBill(SEED_BILLS, SEED_ACCOUNTS, { name: `${category} bill`, amountCents: 100, dueDate: "2026-11-21", recurrence: "weekly", category, accountId: "acct-checking" }, NOW, 2);
+    assert.equal(saved.status, 201, category);
+    assert.equal(saved.body.categoryName, CATEGORY_NAMES[category]);
+  }
 });

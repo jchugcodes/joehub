@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { billMoney } from "../lib/bills.mjs";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Sheet } from "./Sheet";
@@ -11,7 +12,7 @@ type Payment = { id: string; amountCents: number; accountName: string; label: st
 type Bill = {
   id: string;
   name: string;
-  amountCents: number;
+  amountCents: number | null;
   dueDate: string;
   recurrence: "monthly" | "weekly" | "yearly";
   category: string | null;
@@ -39,13 +40,15 @@ const CATEGORIES = [
   { slug: "subscriptions", name: "Subscriptions" },
   { slug: "shopping", name: "Shopping" },
   { slug: "utilities", name: "Utilities" },
+  { slug: "health-fitness", name: "Health & Fitness" },
+  { slug: "fun", name: "Fun" },
+  { slug: "school", name: "School" },
+  { slug: "other", name: "Other" },
   { slug: "", name: "Uncategorized" },
 ];
 
-function money(cents: number) {
-  const abs = Math.abs(cents);
-  const sign = cents < 0 ? "−" : "";
-  return `${sign}$${Math.floor(abs / 100).toLocaleString("en-US")}.${String(abs % 100).padStart(2, "0")}`;
+function money(cents: number | null | undefined) {
+  return billMoney(cents);
 }
 
 function stamp(value: string) {
@@ -254,7 +257,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
       return;
     }
     setName(bill.name);
-    setAmount(money(bill.amountCents));
+    setAmount(bill.amountCents == null ? "" : money(bill.amountCents));
     setDue(bill.dueDate);
     setRecurrence(bill.recurrence);
     setCategory(bill.category || "");
