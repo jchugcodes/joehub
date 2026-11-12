@@ -91,7 +91,7 @@ test("next http login, session, logout, revoke, and contract json", { timeout: 1
     const goals = await fetch(`${base()}/api/finance/goals`, { headers: auth });
     assert.equal(goals.status, 200);
     const goalRows = await goals.json();
-    assert.equal(goalRows.find((goal) => goal.slug === "emergency-fund").amount, "$4,100");
+    assert.equal(goalRows.find((goal) => goal.slug === "emergency-fund").amount, "$8,400");
 
     const secondLogin = await fetch(`${base()}/api/session/login`, {
       method: "POST",

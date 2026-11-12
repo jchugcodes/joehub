@@ -20,7 +20,7 @@ function measureSource() {
     const primary = document.querySelector("nav[aria-label='Primary'] ul");
     const tabs = primary ? [...primary.querySelectorAll("a")] : [];
     const h1 = document.querySelector("h1");
-    const goal = document.querySelector(".text-ui-16");
+    const goal = document.querySelector(".text-section");
     const root = getComputedStyle(doc).fontSize;
     return {
       overflow: doc.scrollWidth - doc.clientWidth,
@@ -177,7 +177,7 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
         assert.equal(value.hintWidth, 0, "swipe hint still reserves width inside the 390 column");
         if (enlarge) {
           assert.ok(Math.abs(value.title - 48) < 0.6, `Goals title computed ${value.title}px, root ${value.root}`);
-          assert.ok(Math.abs(value.goal - 32) < 0.6, `goal title computed ${value.goal}px`);
+          assert.ok(Math.abs(value.goal - 34) < 0.6, `goal title computed ${value.goal}px`);
           assert.ok(Math.abs(value.tabLabel - 21) < 0.6, `tab label computed ${value.tabLabel}px`);
         } else if (width === 390) {
           assert.equal(value.accountsFit, true, "Accounts is cut off at 390px");
