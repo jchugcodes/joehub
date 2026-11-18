@@ -141,6 +141,25 @@ test("phone sheets stay in the viewport with a slim header and 44px targets", { 
       assert.equal(measured.ok, true, `${label} ${JSON.stringify(measured)}`);
       return measured;
     };
+    const settleForm = async (fieldId) => {
+      const quiet = `(() => {
+        if (!document.getElementById(${JSON.stringify(fieldId)})) return "";
+        const panel = document.querySelector("[data-overlay='panel']");
+        if (!panel) return "yes";
+        const busy = panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running");
+        if (busy || panel.scrollWidth > panel.clientWidth + 1) return "";
+        return "yes";
+      })()`;
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        if ((await evalPage(quiet)) === "yes") {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          if ((await evalPage(quiet)) === "yes") return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`${fieldId} form did not settle`);
+    };
 
     await size(390, 844);
     await send("Page.navigate", { url: `${base}/tasks` });
@@ -192,7 +211,7 @@ test("phone sheets stay in the viewport with a slim header and 44px targets", { 
       await pressLabel(send, evalPage, "Edit");
       await waitFor("document.getElementById('task-title') ? 'yes' : ''", "edit form");
     }
-    await waitFor(`(() => { if (!document.getElementById('task-title')) return ''; const panel = document.querySelector("[data-overlay='panel']"); if (panel && panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) return ''; return 'yes'; })()`, "edit settled");
+    await settleForm("task-title");
     for (const width of [390, 360]) {
       await size(width, 844);
       await check(`edit task ${width}`);
@@ -249,7 +268,7 @@ test("phone sheets stay in the viewport with a slim header and 44px targets", { 
       await pressLabel(send, evalPage, "Edit");
       await waitFor("document.getElementById('grocery-name') ? 'yes' : ''", "edit form");
     }
-    await waitFor(`(() => { if (!document.getElementById('grocery-name')) return ''; const panel = document.querySelector("[data-overlay='panel']"); if (panel && panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) return ''; return 'yes'; })()`, "grocery edit settled");
+    await settleForm("grocery-name");
     for (const width of [390, 360]) {
       await size(width, 844);
       await check(`edit item ${width}`);
