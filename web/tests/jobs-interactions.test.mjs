@@ -92,7 +92,7 @@ after(async () => {
   await release();
 });
 
-test("save previews the stage the user picked", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+test("the stage screen shows the fixture stage and does not offer a save", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   const value = await withPage("/jobs/globex/stage", 390, 800, async (send) => {
     for (let i = 0; i < 40; i++) {
       const ready = await evalPage(send, "document.querySelector(\"[data-ready='true'] h1\")?.textContent || ''");
@@ -100,35 +100,24 @@ test("save previews the stage the user picked", { timeout: 120000, skip: chromeB
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return evalPage(send, `(() => {
-      const click = (label) => {
-        const node = [...document.querySelectorAll("button, a")].find((el) => (el.textContent || "").trim() === label);
-        if (!node) throw new Error("missing " + label);
-        node.click();
+      const labels = [...document.querySelectorAll("button, a")].map((el) => (el.textContent || "").replace(/\\s+/g, " ").trim());
+      const stage = [...document.querySelectorAll("span")].find((el) => el.textContent === "Current stage");
+      return {
+        shown: stage?.nextElementSibling?.textContent?.trim() || "",
+        change: labels.includes("Change stage"),
+        save: labels.includes("Save stage"),
+        undo: labels.includes("Undo"),
+        dialog: Boolean(document.querySelector("[role='dialog']")),
+        demo: document.body.innerText.includes("Demo only. Nothing was saved."),
       };
-      const stage = () => {
-        const label = [...document.querySelectorAll("span")].find((el) => el.textContent === "Current stage");
-        return label?.nextElementSibling?.textContent?.trim() || "";
-      };
-      click("Change stage");
-      return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
-        click("Offer");
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          const picked = document.querySelector("[role='radio'][aria-checked='true']")?.textContent?.trim();
-          click("Save stage");
-          setTimeout(() => resolve({
-            picked,
-            shown: stage(),
-            notice: document.querySelector("[role='status']")?.textContent?.trim() || "",
-            open: Boolean(document.querySelector("[role='dialog']")),
-          }), 500);
-        }));
-      })));
     })()`);
   });
-  assert.equal(value.picked, "Offer");
-  assert.equal(value.shown, "Offer");
-  assert.equal(value.notice, "Demo only. Nothing was saved.");
-  assert.equal(value.open, false);
+  assert.equal(value.shown, "Interviewing");
+  assert.equal(value.change, false);
+  assert.equal(value.save, false);
+  assert.equal(value.undo, false);
+  assert.equal(value.dialog, false);
+  assert.equal(value.demo, false);
 });
 
 test("the board scroller is a named region and arrow keys reveal off-screen columns", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
@@ -169,53 +158,96 @@ test("the board scroller is a named region and arrow keys reveal off-screen colu
   assert.equal(value.offerVisible, true, "Offer stayed off screen after arrow keys");
 });
 
-test("escape and the backdrop cancel a pending stage preview", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
-  const value = await withPage("/jobs/globex/stage", 390, 800, async (send) => {
+test("the board hints at swipe only and the columns use the dark surface", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+  const value = await withPage("/jobs", 390, 800, async (send) => {
     for (let i = 0; i < 40; i++) {
-      const ready = await evalPage(send, "document.querySelector(\"[data-ready='true'] h1\")?.textContent || ''");
-      if (ready === "Globex") break;
+      const ready = await evalPage(send, "document.querySelector(\"[aria-label='Pipeline columns'] section\") ? 'yes' : ''");
+      if (ready === "yes") break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return evalPage(send, `(() => {
-      const click = (label) => {
-        const node = [...document.querySelectorAll("button, a")].find((el) => (el.textContent || "").trim() === label);
-        if (!node) throw new Error("missing " + label);
-        node.click();
+      const column = document.querySelector("[aria-label='Pipeline columns'] section");
+      const board = document.getElementById("board");
+      const hintEl = board?.previousElementSibling?.querySelector("span");
+      const tabHintEl = [...document.querySelectorAll("[aria-label='Jobs sections'] > span")].find((el) => (el.textContent || "").includes("swipe"));
+      const shown = (el) => Boolean(el) && getComputedStyle(el).display !== "none" && el.getBoundingClientRect().width > 0;
+      const hint = hintEl?.textContent?.trim() || "";
+      const light = getComputedStyle(column).backgroundColor;
+      document.documentElement.classList.add("dark");
+      const dark = getComputedStyle(column).backgroundColor;
+      document.documentElement.classList.remove("dark");
+      return {
+        hint,
+        tabHint: (tabHintEl?.textContent || "").replace(/\\s+/g, " ").trim(),
+        boardShown: shown(hintEl),
+        tabShown: shown(tabHintEl),
+        drag: document.body.innerText.includes("drag cards"),
+        grip: Boolean(board.querySelector("svg")),
+        seeAll: document.body.innerText.includes("See all 24"),
+        matchesTab: [...document.querySelectorAll("a")].some((link) => link.getAttribute("href") === "/jobs#matches" && (link.textContent || "").trim() === "Matches"),
+        light,
+        dark,
       };
-      const stage = () => {
-        const label = [...document.querySelectorAll("span")].find((el) => el.textContent === "Current stage");
-        return label?.nextElementSibling?.textContent?.trim() || "";
-      };
-      const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const arm = async () => {
-        click("Change stage");
-        await frame();
-        click("Offer");
-        await frame();
-        click("Save stage");
-      };
-      return (async () => {
-        await arm();
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const afterEscape = { shown: stage(), notice: document.querySelector("[role='status']")?.textContent?.trim() || "", open: Boolean(document.querySelector("[role='dialog']")) };
-        await arm();
-        const overlay = document.querySelector(".fixed.inset-0");
-        overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        return {
-          afterEscape,
-          afterBackdrop: { shown: stage(), notice: document.querySelector("[role='status']")?.textContent?.trim() || "", open: Boolean(document.querySelector("[role='dialog']")) },
-        };
-      })();
     })()`);
   });
-  assert.equal(value.afterEscape.shown, "Applied");
-  assert.equal(value.afterEscape.notice, "");
-  assert.equal(value.afterEscape.open, false);
-  assert.equal(value.afterBackdrop.shown, "Applied");
-  assert.equal(value.afterBackdrop.notice, "");
-  assert.equal(value.afterBackdrop.open, false);
+  assert.equal(value.hint, "swipe →");
+  assert.equal(value.tabHint, "swipe");
+  assert.equal(value.boardShown, true);
+  assert.equal(value.tabShown, true);
+  assert.equal(value.drag, false);
+  assert.equal(value.grip, false);
+  assert.equal(value.seeAll, false);
+  assert.equal(value.matchesTab, true);
+  assert.notEqual(value.light, "rgb(22, 29, 24)");
+  assert.equal(value.dark, "rgb(22, 29, 24)");
+});
+
+test("swipe hints hide once the jobs page no longer needs to scroll", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+  const value = await withPage("/jobs", 1280, 900, async (send) => {
+    for (let i = 0; i < 40; i++) {
+      const ready = await evalPage(send, "document.querySelector(\"[aria-label='Pipeline columns'] section\") ? 'yes' : ''");
+      if (ready === "yes") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return evalPage(send, `(() => {
+      const board = document.getElementById("board");
+      const boardHint = board?.previousElementSibling?.querySelector("span");
+      const tabHint = [...document.querySelectorAll("[aria-label='Jobs sections'] > span")].find((el) => (el.textContent || "").includes("swipe"));
+      const hidden = (el) => Boolean(el) && getComputedStyle(el).display === "none";
+      return { board: hidden(boardHint), tabs: hidden(tabHint), width: window.innerWidth };
+    })()`);
+  });
+  assert.equal(value.width, 1280);
+  assert.equal(value.board, true);
+  assert.equal(value.tabs, true);
+});
+
+test("pipeline matches stay on the page without filter, save, or dismiss", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+  const value = await withPage("/jobs", 390, 800, async (send) => {
+    for (let i = 0; i < 40; i++) {
+      const ready = await evalPage(send, "document.querySelector(\"h1\")?.textContent === 'Pipeline' && document.body.innerText.includes('Senior Product Analyst') ? 'yes' : ''");
+      if (ready === "yes") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return evalPage(send, `(() => {
+      const text = document.body.innerText;
+      const labels = [...document.querySelectorAll("button, a")].map((el) => (el.getAttribute("aria-label") || el.textContent || "").replace(/\\s+/g, " ").trim());
+      return {
+        globex: text.includes("Senior Product Analyst"),
+        hooli: text.includes("Strategy & Ops Lead"),
+        filter: labels.includes("Filter pipeline"),
+        save: labels.includes("Save to pipeline"),
+        dismiss: labels.some((label) => label.startsWith("Dismiss ")),
+        demo: text.includes("Demo only. Nothing was saved."),
+      };
+    })()`);
+  });
+  assert.equal(value.globex, true);
+  assert.equal(value.hooli, true);
+  assert.equal(value.filter, false);
+  assert.equal(value.save, false);
+  assert.equal(value.dismiss, false);
+  assert.equal(value.demo, false);
 });
 
 test("empty and error cards are left aligned and the jobs header uses the shared inset", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
@@ -229,7 +261,6 @@ test("empty and error cards are left aligned and the jobs header uses the shared
       const card = document.querySelector(".card");
       const heading = card.querySelector("h2");
       const action = [...document.querySelectorAll("a, button")].find((el) => (el.textContent || "").trim() === "Explore matches");
-      const secondary = [...document.querySelectorAll("button")].find((el) => (el.textContent || "").trim() === "Add a role");
       const header = document.querySelector("header");
       const main = document.querySelector("main");
       return {
@@ -237,7 +268,7 @@ test("empty and error cards are left aligned and the jobs header uses the shared
         radius: getComputedStyle(card).borderRadius,
         outside: !card.contains(action),
         gap: Math.round(action.getBoundingClientRect().top - card.getBoundingClientRect().bottom),
-        between: Math.round(secondary.getBoundingClientRect().top - action.getBoundingClientRect().bottom),
+        addRole: [...document.querySelectorAll("button")].some((el) => (el.textContent || "").trim() === "Add a role"),
         headerPad: getComputedStyle(header).paddingTop,
         mainPad: getComputedStyle(main).paddingTop,
         headerTop: Math.round(header.getBoundingClientRect().top),
@@ -248,7 +279,7 @@ test("empty and error cards are left aligned and the jobs header uses the shared
   assert.equal(empty.radius, "20px");
   assert.equal(empty.outside, true);
   assert.equal(empty.gap, 16);
-  assert.equal(empty.between, 12);
+  assert.equal(empty.addRole, false);
   assert.equal(empty.headerPad, "0px");
   assert.equal(empty.mainPad, "8px");
   assert.equal(empty.headerTop, 8);

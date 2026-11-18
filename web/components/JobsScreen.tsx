@@ -13,8 +13,6 @@ import { jobDetail, pipeline } from "../lib/design-fixtures";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
-const DEMO = "Demo only. Nothing was saved.";
-
 const valueClass: Record<string, string> = {
   jobs: "text-jobs",
   interview: "text-finance-subscriptions",
@@ -38,7 +36,6 @@ export function JobsScreen({ selectedId = "" }: { selectedId?: string }) {
   const overlayOn = useOverlays();
   const overlayHold = readOverlayHold(search, useOverlayHolds());
   const [view, setView] = useState<View>(viewFrom(requested));
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -86,18 +83,12 @@ export function JobsScreen({ selectedId = "" }: { selectedId?: string }) {
     sessionStorage.removeItem("joehub.jobs.return");
   }, [overlayOn, selectedId]);
 
-  function demo() {
-    setNotice(DEMO);
-  }
-
   function retry() {
     if (busy) return;
     setBusy(true);
-    setNotice("");
     window.setTimeout(() => {
       setBusy(false);
       setView("list");
-      setNotice(DEMO);
     }, 400);
   }
 
@@ -118,23 +109,8 @@ export function JobsScreen({ selectedId = "" }: { selectedId?: string }) {
           <p className="text-ui-13 text-muted">Jobs</p>
           <h1 className="text-ui-22 font-bold text-ink">Pipeline</h1>
         </div>
-        {view === "list" ? (
-          <button
-            type="button"
-            className="card grid h-11 w-11 place-items-center rounded-full"
-            aria-label="Filter pipeline"
-            onClick={demo}
-          >
-            <Icon name="filter" size={18} />
-          </button>
-        ) : null}
       </header>
       {view === "list" && !showError && !showEmptyHold ? <JobsTabs current="Overview" /> : null}
-      {notice ? (
-        <p className="mx-5 mt-3 text-ui-13 font-semibold text-support-linkBlue" role="status">
-          {notice}
-        </p>
-      ) : null}
       {overlayOn && panelOffline ? (
         <p role="status" data-state="offline" className="mx-5 mt-3 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
           You are offline.
@@ -144,10 +120,10 @@ export function JobsScreen({ selectedId = "" }: { selectedId?: string }) {
       {bones ? <JobsSkeleton /> : null}
       {showError ? <LoadError onRetry={retry} /> : null}
       {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No jobs.</p> : null}
-      {!blocked && view === "empty" ? <Empty onAdd={demo} /> : null}
+      {!blocked && view === "empty" ? <Empty /> : null}
       {!blocked && view === "error" ? <ErrorState busy={busy} onRetry={retry} /> : null}
       {!blocked && (view === "list" || hold === "refresh") ? (
-        <Pipeline onDemo={demo} overlayOn={overlayOn} selectedId={selectedId} />
+        <Pipeline overlayOn={overlayOn} selectedId={selectedId} />
       ) : null}
       {blocked ? null : <p className="mb-4 mt-6 text-center text-ui-10 text-muted">SYNTHETIC DATA · design reference</p>}
     </div>
@@ -271,7 +247,7 @@ function Loading() {
   );
 }
 
-function Empty({ onAdd }: { onAdd: () => void }) {
+function Empty() {
   return (
     <div className="px-4">
       <div className="card mt-4 p-4 text-left">
@@ -290,13 +266,6 @@ function Empty({ onAdd }: { onAdd: () => void }) {
         >
           Explore matches
         </Link>
-        <button
-          type="button"
-          className="flex min-h-11 w-full items-center justify-center rounded-xl border border-support-linkBlue px-4 text-ui-14 font-bold text-support-linkBlue"
-          onClick={onAdd}
-        >
-          Add a role
-        </button>
       </div>
     </div>
   );
@@ -332,7 +301,7 @@ function ErrorState({ busy, onRetry }: { busy: boolean; onRetry: () => void }) {
   );
 }
 
-function Pipeline({ onDemo, overlayOn, selectedId }: { onDemo: () => void; overlayOn: boolean; selectedId: string }) {
+function Pipeline({ overlayOn, selectedId }: { overlayOn: boolean; selectedId: string }) {
   return (
     <>
       <ul className="mt-4 grid min-w-0 grid-cols-3 gap-2.5 px-4">
@@ -346,9 +315,7 @@ function Pipeline({ onDemo, overlayOn, selectedId }: { onDemo: () => void; overl
       </ul>
       <div id="overview" className="mt-4 flex min-w-0 items-end justify-between gap-2 px-5">
         <h2 className="shrink-0 text-ui-17 font-bold text-ink">Board</h2>
-        <span className="flex min-w-0 items-center justify-end gap-1 text-right text-ui-12 text-muted">
-          drag cards · swipe <Icon name="swipe" size={14} />
-        </span>
+        <span className="text-right text-ui-12 text-muted lg:hidden">swipe →</span>
       </div>
       <div
         id="board"
@@ -366,7 +333,7 @@ function Pipeline({ onDemo, overlayOn, selectedId }: { onDemo: () => void; overl
         }}
       >
         {pipeline.columns.map((column) => (
-          <section key={column.name} aria-label={column.name} className="w-[150px] shrink-0 rounded-2xl border border-line bg-white/60 p-2.5">
+          <section key={column.name} aria-label={column.name} className="w-[150px] shrink-0 rounded-2xl border border-line bg-white/60 p-2.5 dark:bg-surface">
             <header className="mb-2 flex items-center justify-between text-ui-12 font-bold">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: column.dot }} />
@@ -375,35 +342,28 @@ function Pipeline({ onDemo, overlayOn, selectedId }: { onDemo: () => void; overl
               <span className="font-medium text-muted">{column.total}</span>
             </header>
             {column.cards.map((card) => {
-              const body = (
-                <>
-                  <span>{card}</span>
-                  <Icon name="grip" size={14} className="shrink-0 text-[#C9CEC8]" />
-                </>
-              );
               if (card.startsWith("Globex")) {
                 const selected = overlayOn && selectedId === jobDetail.id;
-                const className = `card mb-1.5 flex w-full items-start justify-between p-2.5 text-left text-ui-12 font-semibold${
+                const className = `card mb-1.5 block w-full p-2.5 text-left text-ui-12 font-semibold${
                   overlayOn ? " min-h-11 text-ink hover:text-ink focus:text-ink" : ""
                 }${selected ? " row-selected" : ""}`;
                 return (
                   <Link key={card} href="/jobs/globex" data-job="globex" className={className} style={{ borderRadius: 12 }}>
-                    {body}
+                    {card}
                   </Link>
                 );
               }
               return (
-                <p key={card} className="card mb-1.5 flex w-full items-start justify-between p-2.5 text-left text-ui-12 font-semibold" style={{ borderRadius: 12 }}>
-                  {body}
+                <p key={card} className="card mb-1.5 w-full p-2.5 text-left text-ui-12 font-semibold" style={{ borderRadius: 12 }}>
+                  {card}
                 </p>
               );
             })}
           </section>
         ))}
       </div>
-      <div id="matches" className="mt-5 flex min-w-0 items-end justify-between gap-2 px-5">
+      <div id="matches" className="mt-5 px-5">
         <h2 className="text-ui-17 font-bold text-ink">Top matches</h2>
-        <span className="text-ui-13 font-semibold text-support-linkBlue">See all 24</span>
       </div>
       <ul className="mt-2.5 space-y-2.5 px-4">
         {pipeline.matches.map((match) => (
@@ -428,18 +388,6 @@ function Pipeline({ onDemo, overlayOn, selectedId }: { onDemo: () => void; overl
                   {tag.label}
                 </span>
               ))}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                className="flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-xl bg-support-linkBlue px-3 text-ui-13 font-bold text-white"
-                onClick={onDemo}
-              >
-                Save to pipeline
-              </button>
-              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line" aria-label={`Dismiss ${match.title}`} onClick={onDemo}>
-                <Icon name="close" size={16} className="text-muted" />
-              </button>
             </div>
           </li>
         ))}

@@ -2,13 +2,10 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
 import { Icon } from "../../../components/Icon";
 import { JobsScreen } from "../../../components/JobsScreen";
 import { useOverlays } from "../../../components/LivePages";
 import { jobDetail } from "../../../lib/design-fixtures";
-
-const DEMO = "Demo only. Nothing was saved.";
 
 export default function JobDetailPage() {
   const overlayOn = useOverlays();
@@ -19,8 +16,6 @@ export default function JobDetailPage() {
 
 function LegacyJobDetail() {
   const params = useParams<{ id: string }>();
-  const [notice, setNotice] = useState("");
-  const [draft, setDraft] = useState("Prep: STAR stories for stakeholder conflict");
   if (params.id !== jobDetail.id) {
     return (
       <div className="px-5">
@@ -39,15 +34,8 @@ function LegacyJobDetail() {
           <Icon name="back" size={24} />
         </Link>
         <h1 className="flex-1 text-center text-ui-15 font-semibold text-muted">Job</h1>
-        <button type="button" className="grid h-11 w-11 place-items-center" aria-label="More actions" onClick={() => setNotice(DEMO)}>
-          <Icon name="more" size={22} />
-        </button>
+        <span className="h-11 w-11" aria-hidden="true" />
       </header>
-      {notice ? (
-        <p className="mx-5 mt-3 text-ui-13 font-semibold text-support-linkBlue" role="status">
-          {notice}
-        </p>
-      ) : null}
       <div className="mt-3 flex items-start gap-3 px-5">
         <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-ink text-ui-22 font-bold text-page">{jobDetail.initial}</span>
         <div className="min-w-0">
@@ -60,7 +48,6 @@ function LegacyJobDetail() {
           <h2 id="status-heading" className="text-ui-13 font-semibold">
             Status
           </h2>
-          <p className="text-ui-12 text-muted">tap to change</p>
         </div>
         <ol className="mt-3 grid grid-cols-4 gap-1">
           {jobDetail.statuses.map((item) => {
@@ -110,11 +97,8 @@ function LegacyJobDetail() {
           <p className="text-ui-12 text-muted">{jobDetail.nextNote}</p>
         </section>
       </div>
-      <div id="notes" className="mt-5 flex items-end justify-between px-5">
+      <div id="notes" className="mt-5 px-5">
         <h2 className="text-ui-16 font-bold">Notes</h2>
-        <button type="button" className="min-h-11 px-1 text-ui-13 font-semibold text-support-linkBlue" onClick={() => setNotice(DEMO)}>
-          + Add
-        </button>
       </div>
       <ul className="mt-2 space-y-2 px-4">
         {jobDetail.notes.map((note) => (
@@ -124,46 +108,6 @@ function LegacyJobDetail() {
           </li>
         ))}
       </ul>
-      <form
-        className="mx-4 mt-3 rounded-2xl border-2 border-jobs bg-white p-3.5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setNotice(DEMO);
-        }}
-      >
-        <label className="block text-ui-14" htmlFor="note-draft">
-          <span className="sr-only">Note draft</span>
-          <textarea
-            id="note-draft"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            rows={2}
-            className="w-full resize-none bg-transparent text-ui-14 outline-none"
-          />
-        </label>
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-ui-11 text-muted">editing…</span>
-          <button type="submit" className="min-h-11 rounded-lg bg-support-linkBlue px-4 text-ui-12 font-bold text-white">
-            Save
-          </button>
-        </div>
-      </form>
-      <div className="mt-4 grid grid-cols-2 gap-2 px-4">
-        <button
-          type="button"
-          className="flex h-11 items-center justify-center rounded-xl border border-line bg-white px-2 text-ui-14 font-semibold"
-          onClick={() => setNotice(DEMO)}
-        >
-          Open posting
-        </button>
-        <button
-          type="button"
-          className="flex h-11 items-center justify-center rounded-xl bg-finance-primary px-2 text-ui-14 font-bold text-white"
-          onClick={() => setNotice(DEMO)}
-        >
-          Mark offer
-        </button>
-      </div>
       <p className="mb-4 mt-6 text-center text-ui-10 text-muted">SYNTHETIC DATA · design reference</p>
     </div>
   );

@@ -130,12 +130,6 @@ export default async function HomePage({
         </div>
         <h2 className="mt-2 text-ui-20 font-extrabold">{home.streak}</h2>
         <p className="text-ui-12.5 mut">{home.streakNote}</p>
-        <Link
-          href="/journal?compose=1"
-          className="mt-3 flex h-10 items-center justify-center rounded-xl bg-journal text-ui-14 font-bold text-white"
-        >
-          Log tonight&apos;s wins
-        </Link>
       </section>}
 
       <Link href="/tasks" className="tasks-type block card border-[1.5px] border-ink p-4 shadow-[0_0_0_3px_rgba(31,42,36,0.08)]">
