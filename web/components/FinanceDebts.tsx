@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { useOverlayHolds, useOverlays } from "./LivePages";
 import { FinanceTabs } from "./FinanceTabs";
-import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
+import { OverlayPanel } from "./OverlayPanel";
 
 type Debt = {
   id: string;
@@ -21,7 +21,6 @@ type Debt = {
   nextDue?: string;
   paymentsLeft?: number;
   paymentsTotal?: number;
-  notes?: string;
 };
 
 type StudentGroup = {
@@ -90,15 +89,6 @@ function metaLine(debt: Debt) {
   if (debt.type === "credit card") return "Credit card";
   if (debt.institution) return debt.institution;
   return typeLabel(debt);
-}
-
-function centsFromInput(value: string) {
-  const text = value.trim().replace(/[$,\s]/g, "");
-  if (!/^\d+(\.\d{0,2})?$/.test(text)) return null;
-  const [whole, frac = ""] = text.split(".");
-  const cents = Number(whole) * 100 + Number(frac.padEnd(2, "0"));
-  if (!Number.isSafeInteger(cents) || cents > 100_000_000) return null;
-  return cents;
 }
 
 function Glyph({ type, size = 40 }: { type: string; size?: number }) {
@@ -178,14 +168,6 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
   const [open, setOpen] = useState<boolean | null>(null);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [name, setName] = useState("");
-  const [balance, setBalance] = useState("");
-  const [institution, setInstitution] = useState("");
-  const formDomId = useId();
 
   const query = new URLSearchParams();
   if (asOf) query.set("asOf", asOf);
@@ -253,77 +235,7 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
 
   function closeOverlay() {
     if (selectedId) sessionStorage.setItem("joehub.debts.return", selectedId);
-    setEditing(false);
-    setConfirming(false);
-    setError("");
     router.push(listHref);
-  }
-
-  function closeForm() {
-    setEditing(false);
-    setError("");
-  }
-
-  function openEdit(debt: Debt) {
-    if (panelOffline) return;
-    setName(debt.name);
-    setBalance((Math.abs(debt.balanceCents) / 100).toFixed(2));
-    setInstitution(debt.institution || "");
-    setError("");
-    setConfirming(false);
-    setEditing(true);
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    if (!selected || panelOffline || saving) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError("Name required.");
-      return;
-    }
-    const cents = centsFromInput(balance);
-    if (cents == null) {
-      setError("Enter a valid balance.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    const response = await fetch(`/api/finance/accounts/${selected.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: trimmed,
-        type: selected.type,
-        balanceCents: selected.balanceCents < 0 ? -cents : cents,
-        institution: institution.trim(),
-      }),
-    });
-    setSaving(false);
-    if (!response.ok) {
-      const failed = (await response.json().catch(() => null)) as { detail?: string } | null;
-      setError(failed?.detail || "Couldn’t save that debt.");
-      return;
-    }
-    closeForm();
-    await load();
-  }
-
-  async function remove() {
-    if (!selected || panelOffline || saving) return;
-    setSaving(true);
-    const response = await fetch(`/api/finance/accounts/${selected.id}`, { method: "DELETE" });
-    setSaving(false);
-    if (!response.ok) {
-      const failed = (await response.json().catch(() => null)) as { detail?: string } | null;
-      setError(failed?.detail || "Couldn’t delete that debt.");
-      return;
-    }
-    setConfirming(false);
-    setEditing(false);
-    setError("");
-    router.push(listHref);
-    await load();
   }
 
   function rowClass(id: string, nested: boolean) {
@@ -417,88 +329,27 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
     </p>
   ) : null;
 
-  const editForm = selected ? (
-    <form id={formDomId} onSubmit={save} className="min-w-0">
-      <label className="mb-4 block">
-        <span className="mb-1.5 block text-body">Name</span>
-        <input
-          id="debt-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          autoComplete="off"
-          data-autofocus="true"
-          className="h-[52px] w-full rounded-2xl border border-line bg-surface px-4 text-base text-ink outline-none focus:border-2 focus:border-ink"
-        />
-      </label>
-      <label className="mb-4 block">
-        <span className="mb-1.5 block text-body">Balance</span>
-        <input
-          value={balance}
-          onChange={(event) => setBalance(event.target.value)}
-          inputMode="decimal"
-          className="h-[52px] w-full rounded-2xl border border-line bg-surface px-4 text-base text-ink outline-none focus:border-2 focus:border-ink"
-        />
-      </label>
-      <label className="mb-4 block">
-        <span className="mb-1.5 block text-body">Servicer</span>
-        <input
-          value={institution}
-          onChange={(event) => setInstitution(event.target.value)}
-          autoComplete="off"
-          className="h-[52px] w-full rounded-2xl border border-line bg-surface px-4 text-base text-ink outline-none focus:border-2 focus:border-ink"
-        />
-      </label>
-      {error && !confirming ? <p role="alert" className="mb-3 text-meta font-medium text-warn">{error}</p> : null}
-      <button
-        type="button"
-        disabled={panelOffline || saving}
-        onClick={() => {
-          if (!panelOffline) setConfirming(true);
-        }}
-        className="mt-2 flex min-h-11 items-center text-body font-medium disabled:opacity-40"
-        style={{ color: "var(--ink)" }}
-      >
-        Delete
-      </button>
-    </form>
-  ) : null;
+  const overlayRows = selected
+    ? [["Type", typeLabel(selected)], ...fieldRows(selected)]
+    : [];
 
   const overlayBody = selected ? (
-    <div className="px-5 py-4" data-debt-detail={editing ? undefined : "true"}>
-      {editing ? (
-        <>
-          {editForm}
-          {offlineBanner}
-        </>
-      ) : overlayHold === "error" ? (
+    <div className="px-5 py-4" data-debt-detail="true">
+      {overlayHold === "error" ? (
         <p role="alert" className="text-body">Couldn’t load that debt.</p>
       ) : (
         <>
-          <span data-debt-type={typeLabel(selected)} className="inline-flex shrink-0 rounded-full px-2.5 py-1 text-meta font-medium" style={{ color: "var(--ink)", background: "var(--table-header)" }}>
-            {typeLabel(selected)}
-          </span>
-          <p data-item-meta="true" className="mt-2 text-meta text-muted">{metaLine(selected)}</p>
-          {selected.notes ? <p className="mt-3 text-body">{selected.notes}</p> : <p className="mt-3 text-body text-muted" data-state="empty">No notes.</p>}
-          <p className="mt-4 text-meta text-muted">Balance</p>
+          <p className="text-meta text-muted">Balance</p>
           <p className="mt-0.5 text-title font-medium tabular-nums" data-debt-balance={selected.balanceCents}>{money(selected.balanceCents)}</p>
           {selected.balanceAsOf ? <p className="mt-1 text-meta text-muted">As of {stamp(selected.balanceAsOf)}</p> : null}
-          <dl className="mt-4 divide-y divide-line">
-            {fieldRows(selected).map(([label, value]) => (
-              <div key={label} className="flex min-h-11 items-center justify-between gap-4 text-body">
+          <dl className="card mt-4 divide-y divide-line">
+            {overlayRows.map(([label, value]) => (
+              <div key={label} className="flex min-h-11 items-center justify-between gap-4 px-4 text-body">
                 <dt className="text-muted">{label}</dt>
                 <dd className="font-medium tabular-nums">{value}</dd>
               </div>
             ))}
           </dl>
-          <button
-            type="button"
-            data-primary="edit"
-            disabled={panelOffline}
-            onClick={() => openEdit(selected)}
-            className="mt-5 flex h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-40"
-          >
-            Edit
-          </button>
           {offlineBanner}
         </>
       )}
@@ -507,22 +358,7 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
 
   const panel = (panelWide: boolean) =>
     selected ? (
-      <OverlayPanel
-        wide={panelWide}
-        depth={editing ? 1 : 0}
-        title={editing ? "Edit debt" : selected.name}
-        onClose={closeOverlay}
-        onBack={editing ? closeForm : undefined}
-        form={editing}
-        confirming={confirming}
-        slim={editing}
-        sheet={editing}
-        action={editing ? (
-          <button type="submit" form={formDomId} disabled={panelOffline || saving} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
-            <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
-          </button>
-        ) : null}
-      >
+      <OverlayPanel wide={panelWide} title={selected.name} onClose={closeOverlay}>
         {overlayBody}
       </OverlayPanel>
     ) : null;
@@ -569,19 +405,6 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
         ) : null}
       </div>
       {overlayOn && !wide && selected ? panel(false) : null}
-      {overlayOn && confirming && selected ? (
-        <ConfirmDialog
-          title="Delete this debt?"
-          detail={selected.name}
-          error={error}
-          confirmDisabled={panelOffline || saving}
-          onCancel={() => {
-            setConfirming(false);
-            setError("");
-          }}
-          onConfirm={() => void remove()}
-        />
-      ) : null}
     </main>
   );
 }

@@ -124,9 +124,8 @@ async function size(send, width, height) {
 }
 
 const settled = `(() => { const panel = document.querySelector("[data-overlay='panel']"); if (!panel) return ""; const box = panel.getBoundingClientRect(); const busy = panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"); return !busy && panel.getAttribute("data-state") === "open" && box.width > 200 ? "yes" : ""; })()`;
-const stackSettled = `(() => { const panel = document.querySelector("[data-overlay='panel']"); if (!panel || panel.getAttribute("data-state") !== "open") return ""; const stack = panel.querySelector("[data-stack]"); if (!stack || stack.getAttribute("data-stack") === "idle") return ""; return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running") ? "" : "yes"; })()`;
 
-test("debts overlay detail, edit, and delete confirm", { timeout: 180000, skip }, async () => {
+test("debts overlay is a read-only detail", { timeout: 180000, skip }, async () => {
   let page = null;
   try {
     const cookie = await boot();
@@ -151,19 +150,20 @@ test("debts overlay detail, edit, and delete confirm", { timeout: 180000, skip }
       const heading = panel?.querySelector("h2");
       const body = panel?.querySelector("[data-stack]")?.firstElementChild;
       const close = panel?.querySelector("[aria-label='Close']");
-      const edit = panel?.querySelector("[data-primary='edit']");
       const row = document.querySelector("[data-debt='acct-student-15']");
+      const rows = [...(panel?.querySelectorAll("dl div") || [])].map((el) => (el.innerText || "").replace(/\\s+/g, " ").trim());
+      const controls = [...(panel?.querySelectorAll("button") || [])].map((el) => (el.getAttribute("aria-label") || el.innerText || "").replace(/\\s+/g, " ").trim());
       return JSON.stringify({
         title: heading ? heading.textContent : "",
         align: heading ? getComputedStyle(heading).textAlign : "",
         width: panel ? Math.round(panel.getBoundingClientRect().width) : 0,
         pad: body ? getComputedStyle(body).paddingLeft : "",
         padY: body ? getComputedStyle(body).paddingTop : "",
-        pill: panel?.querySelector("[data-debt-type]")?.textContent || "",
-        meta: panel?.querySelector("[data-item-meta]")?.textContent || "",
-        notes: panel?.querySelector("[data-state='empty']")?.textContent || "",
         balance: panel?.querySelector("[data-debt-balance]")?.textContent || "",
-        edit: edit ? Math.round(edit.getBoundingClientRect().height) : 0,
+        asOf: panel?.innerText?.includes("As of Nov 11, 2026, 8:30 AM") ? "yes" : "no",
+        rows,
+        controls,
+        text: panel?.innerText || "",
         focusRing: close?.matches(":focus-visible") ? "yes" : "no",
         row: row?.classList.contains("row-selected") ? "yes" : "no",
         rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
@@ -174,84 +174,28 @@ test("debts overlay detail, edit, and delete confirm", { timeout: 180000, skip }
     assert.equal(detail.width, 342);
     assert.equal(detail.pad, "20px");
     assert.equal(detail.padY, "16px");
-    assert.equal(detail.pill, "Graduate");
-    assert.equal(detail.meta, "Graduate · 3.73%");
-    assert.equal(detail.notes, "No notes.");
     assert.equal(detail.balance, "$11,460.00");
-    assert.equal(detail.edit, 44);
+    assert.equal(detail.asOf, "yes");
+    assert.deepEqual(detail.rows, ["Type Graduate", "Interest rate 3.73%", "Minimum payment $85.95", "Next due Dec 1, 2026", "Servicer Example Servicer"]);
+    assert.deepEqual(detail.controls, ["Close"]);
+    assert.doesNotMatch(detail.text, /No notes/);
+    assert.doesNotMatch(detail.text, /4,204/);
     assert.equal(detail.focusRing, "no");
     assert.equal(detail.row, "yes");
     assert.ok(detail.rowH >= 44);
 
-    await evalPage(send, "document.querySelector(\"[data-overlay='panel'] [data-primary='edit']\")?.click()");
-    await waitFor(send, `${stackSettled} && document.getElementById("debt-name") ? "yes" : ""`, "edit form");
-    await send("Emulation.setFocusEmulationEnabled", { enabled: true });
-    const edit = JSON.parse(await evalPage(send, `(() => {
-      const panel = document.querySelector("[data-overlay='panel']");
-      const name = document.getElementById("debt-name");
-      const style = name ? getComputedStyle(name) : null;
-      const heading = panel?.querySelector("h2");
-      const del = [...(panel?.querySelectorAll("button") || [])].find((el) => (el.innerText || "").trim() === "Delete");
-      const nameBox = name?.getBoundingClientRect();
-      const delBox = del?.getBoundingClientRect();
-      return JSON.stringify({
-        title: heading ? heading.textContent : "",
-        focused: document.activeElement === name ? "yes" : "no",
-        border: style ? style.borderTopWidth : "",
-        color: style ? style.borderTopColor : "",
-        below: Boolean(nameBox && delBox && delBox.top >= nameBox.bottom),
-        value: name ? name.value : "",
-      });
-    })()`));
-    assert.equal(edit.title, "Edit debt");
-    assert.equal(edit.focused, "yes");
-    assert.equal(edit.border, "2px");
-    assert.equal(edit.color, "rgb(31, 42, 36)");
-    assert.equal(edit.below, true);
-    assert.equal(edit.value, "Federal loan 15");
-
-    await evalPage(send, "document.querySelector(\"[data-overlay='panel'] button[type='submit']\")?.click()");
-    await waitFor(send, "document.querySelector(\"[data-overlay='panel'] [role='alert']\")?.textContent?.includes('Ledger') ? 'yes' : ''", "ledger save");
-
-    await evalPage(send, "[...document.querySelectorAll(\"[data-overlay='panel'] button\")].find((el) => (el.innerText || '').trim() === 'Delete')?.click()");
-    await waitFor(send, "document.querySelector(\"[role='alertdialog']\") ? 'yes' : ''", "delete confirm");
-    const confirm = JSON.parse(await evalPage(send, `(() => {
-      const dialog = document.querySelector("[role='alertdialog']");
-      const buttons = [...(dialog?.querySelectorAll("button") || [])];
-      const del = buttons.find((el) => (el.innerText || "").trim() === "Delete");
-      const style = del ? getComputedStyle(del) : null;
-      return JSON.stringify({
-        title: dialog?.querySelector("h2")?.textContent || "",
-        detail: dialog?.querySelector("p")?.textContent || "",
-        order: buttons.map((el) => (el.innerText || "").trim()),
-        color: style ? style.color : "",
-        background: style ? style.backgroundColor : "",
-      });
-    })()`));
-    assert.equal(confirm.title, "Delete this debt?");
-    assert.equal(confirm.detail, "Federal loan 15");
-    assert.deepEqual(confirm.order, ["Delete", "Cancel"]);
-    assert.equal(confirm.color, "rgb(255, 255, 255)");
-    assert.equal(confirm.background, "rgb(224, 122, 95)");
-
-    await evalPage(send, "[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => (el.innerText || '').trim() === 'Delete')?.click()");
-    await waitFor(send, "document.querySelector(\"[role='alertdialog']\")?.innerText?.includes('Ledger') ? 'yes' : ''", "ledger delete");
-    assert.match(await evalPage(send, "document.body.innerText"), /Federal loan 15/);
-    assert.doesNotMatch(await evalPage(send, "document.body.innerText"), /4,204/);
-
     await size(send, 390, 844);
     await send("Page.navigate", { url: `${base()}/finance/debts/acct-student-15?xe=offline` });
-    await waitFor(send, `${settled} && document.querySelector("[data-state='offline']") ? "yes" : ""`, "offline banner");
-    const offline = JSON.parse(await evalPage(send, `(() => {
-      const edit = document.querySelector("[data-primary='edit']");
-      const banner = document.querySelector("[data-overlay='panel'] [data-state='offline']");
-      return JSON.stringify({
-        disabled: edit?.disabled ? "yes" : "no",
-        banner: banner?.textContent?.trim() || "",
-      });
-    })()`));
-    assert.equal(offline.disabled, "yes");
-    assert.equal(offline.banner, "You are offline.");
+    await waitFor(send, `${settled} && document.querySelector("[data-overlay='panel'] [data-state='offline']") ? "yes" : ""`, "offline banner");
+    const offline = await evalPage(send, `(() => {
+      const panel = document.querySelector("[data-overlay='panel']");
+      const banner = panel?.querySelector("[data-state='offline']");
+      const controls = [...(panel?.querySelectorAll("button") || [])].map((el) => (el.innerText || el.getAttribute("aria-label") || "").trim());
+      return JSON.stringify({ banner: banner?.textContent?.trim() || "", controls });
+    })()`);
+    const offlineBody = JSON.parse(offline);
+    assert.equal(offlineBody.banner, "You are offline.");
+    assert.deepEqual(offlineBody.controls, ["Close"]);
 
     await size(send, 1280, 800);
     await send("Page.navigate", { url: `${base()}/finance/debts/acct-student-15` });
