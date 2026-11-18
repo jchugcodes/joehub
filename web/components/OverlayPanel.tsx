@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode, type TouchEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { OVERLAY_EASE, overlayDurations, overlayEscape, shouldCloseOutside, shouldDismissSwipe } from "../lib/overlay-motion.mjs";
 
 function useReducedMotion() {
@@ -59,6 +59,43 @@ export function PanelHeader({
       {dismissControl}
       <h2 className="min-w-0 flex-1 truncate text-left text-section font-medium">{title}</h2>
       {action ? <div className="flex shrink-0 items-center">{action}</div> : null}
+    </div>
+  );
+}
+
+function DesktopPin({ children }: { children: ReactNode }) {
+  const slotRef = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState({ top: 0, height: 0, right: 0, width: 440 });
+  useLayoutEffect(() => {
+    const update = () => {
+      const node = slotRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const top = Math.max(0, Math.round(rect.top));
+      const next = {
+        top,
+        height: Math.max(0, Math.round(window.innerHeight - top)),
+        right: Math.max(0, Math.round(window.innerWidth - rect.right)),
+        width: Math.round(rect.width) || 440,
+      };
+      setPlace((prev) => (prev.top === next.top && prev.height === next.height && prev.right === next.right && prev.width === next.width ? prev : next));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(document.body);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  return (
+    <div ref={slotRef} className="w-[440px] shrink-0 self-start" data-overlay="slot">
+      <div className="fixed z-40" data-overlay="desktop" style={{ top: place.top, height: place.height, right: place.right, width: place.width, overflow: "clip" }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -305,7 +342,7 @@ export function OverlayPanel({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden bg-surface ${wide ? "h-fit max-h-[calc(100vh-16px)] w-full rounded-[20px] border border-line" : "absolute inset-y-0 right-0 w-[342px] shadow-2xl"}`}
+      className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden bg-surface ${wide ? "h-full w-full border-l border-line" : "absolute inset-y-0 right-0 w-[342px] shadow-2xl"}`}
       style={{
         transform: reduced ? "none" : parked ? "translateX(100%)" : "translateX(0)",
         opacity: reduced ? (parked ? 0 : 1) : 1,
@@ -323,13 +360,7 @@ export function OverlayPanel({
     </div>
   );
 
-  if (wide) {
-    return (
-      <div className="sticky top-2 w-[440px] shrink-0 self-start" style={{ overflow: "clip" }}>
-        {panel}
-      </div>
-    );
-  }
+  if (wide) return <DesktopPin>{panel}</DesktopPin>;
   return (
     <div
       className="fixed inset-0 z-40"
@@ -341,7 +372,7 @@ export function OverlayPanel({
     >
       <button
         type="button"
-        aria-label="Close account"
+        aria-label="Close"
         onClick={dismiss}
         className="pointer-events-auto absolute bottom-0 top-0 w-12 bg-black/40 dark:bg-black/60"
         style={{ right: 342, opacity: phase === "open" ? 1 : phase === "leave" ? 0 : 0, transition: phase === "enter" ? "none" : `opacity ${travel}ms ${OVERLAY_EASE}` }}

@@ -309,6 +309,27 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await pointerClick(send, evalPage, "document.querySelector(\"a[href*='acct-checking']\")");
     await waitFor(send, "document.body.innerText.includes('Payroll (example)') && document.body.innerText.includes('Select an account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "desktop detail");
     await shot(send, "A11-app.png");
+    await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await waitFor(send, "document.documentElement.scrollHeight > window.innerHeight + 200 ? 'yes' : ''", "page can scroll");
+    await evalPage(send, "window.scrollTo(0, 520); 'yes'");
+    await waitFor(send, "window.scrollY > 200 ? 'yes' : ''", "scrolled");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const pinned = await evalPage(
+      send,
+      `(() => {
+        const panel = document.querySelector('[data-overlay="panel"]');
+        const close = panel && panel.querySelector('[aria-label="Close"]');
+        const body = panel && panel.querySelector('[data-stack]');
+        const box = panel ? panel.getBoundingClientRect() : null;
+        const hit = close ? close.getBoundingClientRect() : null;
+        const scrolls = body ? getComputedStyle(body).overflowY : "";
+        const ok = Boolean(box && hit && window.scrollY > 200 && box.top <= 1 && box.height >= window.innerHeight - 2 && hit.top >= -1 && hit.bottom <= 64 && hit.width >= 44 && hit.height >= 44 && (scrolls === "auto" || scrolls === "scroll"));
+        return JSON.stringify({ ok, scrollY: window.scrollY, top: box && box.top, height: box && box.height, inner: window.innerHeight, hitTop: hit && hit.top, hitBottom: hit && hit.bottom, hitW: hit && hit.width, hitH: hit && hit.height, scrolls });
+      })()`,
+    );
+    assert.equal(JSON.parse(pinned).ok, true, pinned);
+    await evalPage(send, "window.scrollTo(0, 0); 'yes'");
+    await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1400, deviceScaleFactor: 1, mobile: false });
     await pressLabel(send, evalPage, "Add a manual account");
     await waitFor(send, `document.body.innerText.includes('Add account') && document.querySelector('input') === document.activeElement && ${overlaySettled} ? 'yes' : ''`, "desktop add");
     await shot(send, "A12-app.png");
@@ -319,6 +340,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, `document.body.innerText.includes("Joe's Pizza") && document.body.innerText.includes("You are offline.") && document.body.innerText.includes("Recent") && ${overlaySettled} ? 'yes' : ''`, "offline detail");
     assert.equal(await evalPage(send, "document.querySelector(\"[aria-label='Hide from net worth']\").disabled ? 'yes' : 'no'"), "yes");
     assert.equal(await evalPage(send, "document.querySelector(\"[data-state='offline']\") && document.querySelector(\"[data-state='offline']\").innerText.trim() === 'You are offline.' ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "getComputedStyle(document.querySelector(\"[data-state='offline']\")).textAlign"), "left");
     await open(send, "/finance/accounts/acct-cash?xe=offline", 390, 1100);
     await waitFor(send, `document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('You are offline.') && ${overlaySettled} ? 'yes' : ''`, "offline cash");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit' && el.disabled) ? 'yes' : 'no'"), "yes");

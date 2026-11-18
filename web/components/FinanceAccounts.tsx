@@ -594,7 +594,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const openTxn = rows.find((row) => row.id === txnId) || null;
   const panelHold = overlayOn ? overlayHold : "";
   const offlineBanner = panelOffline ? (
-    <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-center text-body text-ink dark:bg-white/10">
+    <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
       You are offline.
     </p>
   ) : null;

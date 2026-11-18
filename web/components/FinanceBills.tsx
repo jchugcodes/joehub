@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { billMoney } from "../lib/bills.mjs";
+import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
-import { BillsSkeleton, LoadError, RefreshBar } from "./Skeleton";
+import { BillsSkeleton, LoadError, RefreshBar, TextLine } from "./Skeleton";
 import { useSkeletonPhase } from "./SkeletonHold";
-import { useSkeletonHolds, useSkeletons } from "./LivePages";
+import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "./LivePages";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
+import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { Sheet } from "./Sheet";
 
 type Payment = { id: string; amountCents: number; accountName: string; label: string };
@@ -75,20 +77,22 @@ function centsFromInput(value: string) {
   return cents;
 }
 
-function PaidSwitch({ on, muted, onToggle }: { on: boolean; muted: boolean; onToggle: () => void }) {
+function PaidSwitch({ on, muted, disabled = false, onToggle }: { on: boolean; muted: boolean; disabled?: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label="Paid"
-      aria-disabled={muted || undefined}
+      aria-disabled={muted || disabled || undefined}
+      disabled={disabled}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (disabled) return;
         onToggle();
       }}
-      className={`inline-flex min-h-11 min-w-11 items-center justify-end ${muted ? "opacity-40" : ""}`}
+      className={`inline-flex min-h-11 min-w-11 items-center justify-end ${muted || disabled ? "opacity-40" : ""}`}
     >
       <span className={`relative h-[31px] w-[51px] rounded-full ${on ? "bg-finance-primary" : "bg-subtle-border"}`}>
         <span className={`absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow ${on ? "left-[22px]" : "left-[2px]"}`} />
@@ -105,6 +109,8 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   const skeletonOn = useSkeletons();
   const holdsOn = useSkeletonHolds();
   const hold = readSkeletonHold(search, holdsOn);
+  const overlayOn = useOverlays();
+  const overlayHold = readOverlayHold(search, useOverlayHolds());
   const [reloading, setReloading] = useState(false);
   const seenRef = useRef(false);
   const skeletonRef = useRef(false);
@@ -157,6 +163,19 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   }, [suffix]);
 
   useEffect(() => {
+    if (!overlayOn) return;
+    const y = sessionStorage.getItem("joehub.bills.scroll");
+    if (y) window.scrollTo(0, Number(y));
+    if (selectedId) return;
+    const back = sessionStorage.getItem("joehub.bills.return");
+    if (!back) return;
+    const selector = focusReturnSelector(back);
+    const link = selector ? document.querySelector(selector) : null;
+    if (link instanceof HTMLElement) link.focus();
+    sessionStorage.removeItem("joehub.bills.return");
+  }, [overlayOn, selectedId]);
+
+  useEffect(() => {
     const media = window.matchMedia("(min-width: 1024px)");
     const apply = () => setWide(media.matches);
     apply();
@@ -203,7 +222,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
     if (!mode) return;
     const timer = window.setTimeout(() => document.querySelector<HTMLElement>("[data-autofocus]")?.focus(), 0);
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && wide && !confirming) {
+      if (event.key === "Escape" && wide && !confirming && !overlayOn) {
         event.preventDefault();
         setMode("");
         setError("");
@@ -214,7 +233,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
       window.clearTimeout(timer);
       document.removeEventListener("keydown", onKey);
     };
-  }, [mode, wide, confirming]);
+  }, [mode, wide, confirming, overlayOn]);
 
   useEffect(() => {
     if (!confirming) return;
@@ -252,6 +271,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   const shownTone = previewLink || tone;
   const amountOk = centsFromInput(amount) != null;
   const canSave = name.trim().length > 0 && amountOk && !saving && !blocked;
+  const panelOffline = overlayOn && (overlayHold === "offline" || blocked);
 
   function clockQuery(path: string) {
     if (!asOf) return path;
@@ -276,7 +296,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   }
 
   function openEdit(bill: Bill) {
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -288,7 +308,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
     setAccountId(bill.accountId);
     setError("");
     setConfirming(false);
-    setMode("edit");
+    window.setTimeout(() => setMode("edit"), 0);
   }
 
   function closeForm() {
@@ -297,8 +317,30 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
     setConfirming(false);
   }
 
+  function rememberBill(id: string) {
+    if (!overlayOn) return;
+    try {
+      sessionStorage.setItem("joehub.bills.scroll", String(window.scrollY));
+      sessionStorage.setItem("joehub.bills.return", id);
+    } catch {
+      // Private mode can reject storage. The route still opens.
+    }
+  }
+
+  function closeOverlay() {
+    setMode("");
+    setConfirming(false);
+    if (!selectedId) return;
+    try {
+      sessionStorage.setItem("joehub.bills.return", selectedId);
+    } catch {
+      // The list still opens without restoring focus.
+    }
+    router.push(listHref);
+  }
+
   async function togglePaid(bill: Bill) {
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -318,7 +360,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -369,7 +411,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
 
   async function remove() {
     if (!selected) return;
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       setConfirming(false);
       return;
@@ -532,6 +574,77 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
     </button>
   );
 
+  const panelHold = overlayOn ? overlayHold : "";
+  const offlineBanner = panelOffline ? (
+    <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+      You are offline.
+    </p>
+  ) : null;
+  const overlayBody = panelHold === "error" ? (
+    <LoadError onRetry={() => void load()} />
+  ) : panelHold === "skel" ? (
+    <div data-skeleton="bill" aria-busy="true" className="px-5 py-4">
+      <TextLine height={24} width={150} />
+      <TextLine height={12} width={180} className="mt-3" />
+      <TextLine height={12} width={140} className="mt-3" />
+      <div className="mt-4 flex items-center justify-between">
+        <TextLine height={13} width={48} />
+        <TextLine height={24} width={51} />
+      </div>
+    </div>
+  ) : mode ? (
+    <div className="px-5 py-4">
+      {form}
+      {mode === "edit" ? (
+        <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirming(true); }} className="mt-2 flex min-h-11 items-center text-body font-medium" style={{ color: "var(--ink)", opacity: panelOffline ? 0.4 : 1 }}>
+          Delete
+        </button>
+      ) : null}
+    </div>
+  ) : selected ? (
+    <div className="px-5 py-4">
+      <p className={`text-title font-medium tabular-nums ${selected.group === "Overdue" ? "text-finance-dining" : ""}`}>{money(selected.amountCents)}</p>
+      <p className={`mt-1 text-meta ${selected.group === "Overdue" ? "text-finance-dining" : "text-muted"}`}>{selected.dueLabel}</p>
+      <p className="mt-1 text-meta text-muted">
+        {selected.categoryName} · {selected.accountName}
+      </p>
+      <div className="mt-4 flex min-h-14 items-center justify-between gap-3 rounded-[20px] border border-line px-4">
+        <span className="text-body font-medium">Paid</span>
+        <PaidSwitch on={selected.paid} muted={blocked} disabled={panelOffline} onToggle={() => void togglePaid(selected)} />
+      </div>
+      {panelHold === "empty" ? <p className="py-6 text-body text-muted" data-state="empty">No payments.</p> : null}
+      {panelHold !== "empty" && selected.payments.length ? (
+        <>
+          <h2 className="mt-5 text-section font-medium">Recent payments</h2>
+          <ul>
+            {selected.payments.map((payment) => (
+              <li key={payment.id} className="flex items-center gap-3 py-2.5">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium">{payment.accountName}</span>
+                  <span className="mt-0.5 block text-meta text-muted">{payment.label}</span>
+                </span>
+                <span className="shrink-0 text-body font-medium tabular-nums">{money(payment.amountCents)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {offlineBanner}
+    </div>
+  ) : (
+    <p className="px-5 py-16 text-center text-body text-muted">Select a bill</p>
+  );
+
+  const panelAction = mode ? (
+    <button type="submit" form="bill-form" disabled={!canSave} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+      <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">Save</span>
+    </button>
+  ) : selected ? (
+    <button type="button" disabled={panelOffline} aria-disabled={panelOffline || undefined} onClick={() => openEdit(selected)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>
+      Edit
+    </button>
+  ) : null;
+
   return (
     <main className="finance-type min-w-0 text-ink" data-ready={snapshot && !(skeletonOn && phase === "skeleton" && hold !== "skel") ? "true" : undefined} data-bills={empty ? "empty" : "list"}>
       {shownTone === "offline" && snapshot?.updatedAt ? (
@@ -559,7 +672,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
         </p>
       ) : null}
 
-      {wide || !selected ? (
+      {wide || !selected || overlayOn ? (
         <>
           <header className="relative flex items-center justify-between px-5 pt-2">
             {showBar ? <RefreshBar /> : null}
@@ -590,7 +703,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
       )}
 
       <div className={wide ? "mt-3 flex min-w-0 items-start gap-4 px-4" : ""}>
-        {wide || !selected ? (
+        {wide || !selected || overlayOn ? (
           <div className="min-w-0 flex-1">
             {showError ? <LoadError onRetry={() => void load()} /> : null}
             {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No bills.</p> : null}
@@ -616,7 +729,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                           <li key={bill.id}>
                             {index > 0 ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
                             <div className="flex min-h-16 items-center gap-3 px-4 py-2.5">
-                            <Link href={`/finance/bills/${bill.id}${suffix}`} className="flex min-w-0 flex-1 items-center gap-3">
+                            <Link href={`/finance/bills/${bill.id}${suffix}`} onClick={() => rememberBill(bill.id)} aria-current={overlayOn && bill.id === selectedId ? "true" : undefined} className="flex min-w-0 flex-1 items-center gap-3">
                               <CategoryMark category={bill.category} />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-body font-medium">{bill.name}</span>
@@ -640,7 +753,28 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
           <div className="px-5 pt-3">{detail}</div>
         )}
 
-        {wide ? (
+        {wide && overlayOn && (selected || mode) ? (
+          <OverlayPanel
+            wide
+            depth={mode ? 1 : 0}
+            title={mode ? (mode === "edit" ? "Edit bill" : "Add a bill") : selected?.name || "Bill"}
+            onClose={selected ? closeOverlay : closeForm}
+            onBack={mode && selected ? closeForm : undefined}
+            form={Boolean(mode)}
+            confirming={confirming}
+            slim={Boolean(mode)}
+            sheet={Boolean(mode)}
+            action={panelAction}
+          >
+            {overlayBody}
+          </OverlayPanel>
+        ) : wide && overlayOn ? (
+          <aside className="sticky top-2 w-[440px] shrink-0">
+            <div className="flex min-h-[520px] items-center justify-center rounded-[20px] border border-line bg-surface p-8">
+              <p className="text-body text-muted">Select a bill</p>
+            </div>
+          </aside>
+        ) : wide ? (
           <aside className="sticky top-2 w-[420px] shrink-0">
             {mode === "add" || (mode === "edit" && selected) ? (
               <div className="overflow-hidden rounded-[20px] border border-line bg-surface shadow-2xl">
@@ -675,7 +809,24 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
         ) : null}
       </div>
 
-      {!wide && mode ? (
+      {overlayOn && !wide && (selected || mode) ? (
+        <OverlayPanel
+          wide={false}
+          depth={mode ? 1 : 0}
+          title={mode ? (mode === "edit" ? "Edit bill" : "Add a bill") : selected?.name || "Bill"}
+          onClose={selected ? closeOverlay : closeForm}
+          onBack={mode && selected ? closeForm : undefined}
+          form={Boolean(mode)}
+          confirming={confirming}
+          slim={Boolean(mode)}
+          sheet={Boolean(mode)}
+          action={panelAction}
+        >
+          {overlayBody}
+        </OverlayPanel>
+      ) : null}
+
+      {!overlayOn && !wide && mode ? (
         <Sheet
           title={mode === "edit" ? "Edit bill" : "Add a bill"}
           formId="bill-form"
@@ -687,7 +838,13 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
         </Sheet>
       ) : null}
 
-      {confirming ? (
+      {overlayOn && confirming ? (
+        <div ref={confirmRef}>
+          <ConfirmDialog title="Delete this bill?" onCancel={() => setConfirming(false)} onConfirm={() => void remove()} />
+        </div>
+      ) : null}
+
+      {!overlayOn && confirming ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div ref={confirmRef} role="alertdialog" aria-modal="true" aria-labelledby="delete-bill-title" className="w-full max-w-sm rounded-[20px] bg-surface p-5">
             <h2 id="delete-bill-title" className="text-section font-medium">

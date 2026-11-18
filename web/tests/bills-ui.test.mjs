@@ -101,6 +101,8 @@ async function open(send, path, width, height) {
   await evalPage(send, "document.querySelectorAll('nextjs-portal').forEach((node) => node.style.setProperty('display', 'none', 'important')); 'yes'");
 }
 
+const overlaySettled = `(function(){const panel=document.querySelector('[data-overlay="panel"]');if(!panel)return false;const box=panel.getBoundingClientRect();return box.width>200&&box.right<=window.innerWidth+2&&box.left>=-2;})()`;
+
 function setField(label, value) {
   return `(() => {
     const row = [...document.querySelectorAll("label")].find((el) => (el.innerText || "").trim().startsWith(${JSON.stringify(label)}));
@@ -151,7 +153,7 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await shot(send, "B02-app.png");
 
     await open(send, "/finance/bills/bill-phone", 390, 1100);
-    await waitFor(send, "document.body.innerText.includes('Phone (example)') && document.body.innerText.includes('$55.00') ? 'yes' : ''", "phone");
+    await waitFor(send, `document.body.innerText.includes('Phone (example)') && document.body.innerText.includes('$55.00') && ${overlaySettled} ? 'yes' : ''`, "phone");
     await pressLabel(send, evalPage, "Edit");
     await waitFor(send, "document.querySelector('[data-sheet]') && document.body.innerText.includes('Subscriptions') && document.body.innerText.includes('Delete') ? 'yes' : ''", "edit sheet");
     await shot(send, "B04-app.png");
@@ -196,7 +198,7 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await waitFor(send, "document.body.innerText.includes('Gym (example)') ? 'yes' : ''", "listed");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('a')].filter((el) => (el.innerText || '').includes('Gym (example)')).length"), 1);
     await pointerClick(send, evalPage, "[...document.querySelectorAll('a')].find((el) => (el.innerText || '').includes('Gym (example)'))");
-    await waitFor(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : ''", "gym detail");
+    await waitFor(send, `[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') && ${overlaySettled} ? 'yes' : ''`, "gym detail");
     await pressLabel(send, evalPage, "Edit");
     await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "gym edit");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
@@ -236,13 +238,22 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     assert.equal(await evalPage(send, "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 ? 'yes' : 'no'"), "yes");
     await shot(send, "B09-app.png");
     await pointerClick(send, evalPage, "document.querySelector(\"a[href*='bill-water']\")");
-    await waitFor(send, "document.body.innerText.includes('Recent payments') && document.body.innerText.includes('Select a bill') ? '' : document.body.innerText.includes('Recent payments') ? 'yes' : ''", "desktop detail");
+    await waitFor(send, `document.body.innerText.includes('Recent payments') && document.body.innerText.includes('Select a bill') ? '' : document.body.innerText.includes('Recent payments') && ${overlaySettled} ? 'yes' : ''`, "desktop detail");
     await shot(send, "B10-app.png");
     await pressLabel(send, evalPage, "Add");
     await waitFor(send, "document.body.innerText.includes('Add a bill') && document.querySelector('[data-autofocus]') === document.activeElement ? 'yes' : ''", "desktop add");
     await shot(send, "B11-app.png");
     await pressLabel(send, evalPage, "Cancel");
     await waitFor(send, "document.body.innerText.includes('Add a bill') ? '' : document.body.innerText.includes('Recent payments') ? 'yes' : ''", "cancel add");
+
+    await open(send, "/finance/bills/bill-water?xe=offline", 390, 1100);
+    await waitFor(send, "document.body.innerText.includes('City Water (example)') && document.body.innerText.includes('Recent payments') && document.body.innerText.includes('You are offline.') && document.querySelector('[data-overlay=panel]') && document.querySelector('[data-overlay=panel]').getBoundingClientRect().right <= window.innerWidth + 2 ? 'yes' : ''", "offline bill");
+    assert.equal(await evalPage(send, "document.querySelector(\"[data-state='offline']\") && document.querySelector(\"[data-state='offline']\").innerText.trim() === 'You are offline.' ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "getComputedStyle(document.querySelector(\"[data-state='offline']\")).textAlign"), "left");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('[data-overlay=panel] button')].some((el) => (el.innerText || '').trim() === 'Edit' && el.disabled) ? 'yes' : 'no'"), "yes");
+    await pressLabel(send, evalPage, "Edit");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(await evalPage(send, "document.querySelector('[data-sheet]') ? 'yes' : 'no'"), "no");
 
     const headers = { cookie: `joehub_session=${cookie}`, "content-type": "application/json" };
     const pay = async (paid) => {
