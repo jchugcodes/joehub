@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { LIST_PALETTE, tasksMoveCopy } from "../lib/list-display.mjs";
 import { Icon } from "./Icon";
+import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { Sheet } from "./Sheet";
 
 export interface TaskList {
@@ -24,18 +25,19 @@ export function Swatch({ color, size = 16 }: { color: string | null; size?: numb
   return (
     <span
       aria-hidden="true"
+      data-swatch={color ? "fill" : "ring"}
       className="inline-block shrink-0 rounded-full"
       style={{
         width: size,
         height: size,
         background: color ? listAccent(color) : "transparent",
-        boxShadow: color ? undefined : "inset 0 0 0 1.5px var(--inactive)",
+        boxShadow: color ? undefined : "inset 0 0 0 1.5px var(--subtle-border)",
       }}
     />
   );
 }
 
-function Palette({ value, onPick }: { value: string | null; onPick: (color: string) => void }) {
+function Palette({ value, onPick, disabled = false }: { value: string | null; onPick: (color: string) => void; disabled?: boolean }) {
   return (
     <div className="mt-2 grid grid-cols-4 gap-2" role="listbox" aria-label="List color">
       {LIST_PALETTE.map((slot) => {
@@ -47,8 +49,11 @@ function Palette({ value, onPick }: { value: string | null; onPick: (color: stri
             role="option"
             aria-selected={selected}
             aria-label={slot.name}
-            className="flex min-h-11 flex-col items-center gap-1 rounded-xl py-1"
-            onClick={() => onPick(slot.light)}
+            className="flex min-h-11 flex-col items-center gap-1 rounded-xl py-1 disabled:opacity-50"
+            disabled={disabled}
+            onClick={() => {
+              if (!disabled) onPick(slot.light);
+            }}
           >
             <span
               className="grid h-11 w-11 place-items-center rounded-full"
@@ -208,6 +213,9 @@ export function ManageLists({
   moved,
   wide,
   saving,
+  overlay = false,
+  offline = false,
+  selectedId = "",
   onClose,
   onOpen,
   onName,
@@ -226,6 +234,9 @@ export function ManageLists({
   moved: number;
   wide: boolean;
   saving: boolean;
+  overlay?: boolean;
+  offline?: boolean;
+  selectedId?: string;
   onClose: () => void;
   onOpen: (list: TaskList) => void;
   onName: (name: string) => void;
@@ -236,6 +247,132 @@ export function ManageLists({
   onBack: () => void;
   onNew: () => void;
 }) {
+  const homeList = (
+    lists.length ? (
+      <ul>
+        {lists.map((list) => {
+          const selected = overlay && mode === "home" && selectedId === list.id;
+          return (
+            <li key={list.id} className={selected ? "row-selected rounded-2xl" : undefined} aria-current={selected ? "true" : undefined} data-selected={selected ? "true" : undefined}>
+              <button
+                type="button"
+                disabled={offline}
+                className="flex min-h-11 w-full items-center gap-3 rounded-2xl px-2 text-left disabled:opacity-50"
+                onClick={() => {
+                  if (!offline) onOpen(list);
+                }}
+              >
+                <Swatch color={list.color} />
+                <span className="min-w-0 flex-1 truncate text-body">{list.name}</span>
+                <span className="text-meta text-muted-aa">{list.count || 0}</span>
+                <span aria-hidden="true" className="text-muted">›</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    ) : (
+      <div className="px-1 py-8 text-center">
+        <p className="text-section font-medium">No lists yet</p>
+        <button type="button" disabled={offline} className="mt-6 flex min-h-12 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-50" onClick={() => { if (!offline) onNew(); }}>
+          New list
+        </button>
+      </div>
+    )
+  );
+  const editForm = (
+    <form
+      id="list-edit-form"
+      className="space-y-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!offline) onSave();
+      }}
+    >
+      <div>
+        <label className="block text-meta font-medium" htmlFor="list-name">
+          Name
+        </label>
+        <input
+          id="list-name"
+          value={name}
+          data-autofocus=""
+          placeholder="List name"
+          inputMode="text"
+          enterKeyHint="done"
+          disabled={offline}
+          onChange={(event) => onName(event.target.value)}
+          className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-base outline-none focus:border-2 focus:border-ink disabled:opacity-50"
+          autoComplete="off"
+        />
+      </div>
+      {!color ? (
+        <div className="flex min-h-11 items-center gap-3" data-list-color="none">
+          <Swatch color={null} size={28} />
+          <span className="text-body text-muted">No color</span>
+        </div>
+      ) : null}
+      <p className="text-meta font-medium">Color</p>
+      <Palette value={color} disabled={offline} onPick={onColor} />
+      {error ? <p className="text-meta font-medium text-warn">{error}</p> : null}
+      <button type="button" className="flex min-h-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => { if (!offline) onAskDelete(); }} disabled={offline || saving}>
+        Delete list
+      </button>
+    </form>
+  );
+  if (overlay) {
+    const editing = mode === "edit" || mode === "delete";
+    return (
+      <>
+        <OverlayPanel
+          wide={wide}
+          depth={editing ? 1 : 0}
+          title={editing ? "Edit list" : "Lists"}
+          onClose={onClose}
+          onBack={editing ? onBack : undefined}
+          form={editing}
+          confirming={mode === "delete"}
+          slim={editing}
+          sheet={editing}
+          action={
+            editing ? (
+              <button
+                type="button"
+                disabled={offline || saving}
+                className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50"
+                onClick={() => {
+                  if (!offline && !saving) onSave();
+                }}
+              >
+                <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
+              </button>
+            ) : null
+          }
+        >
+          <div className="px-5 py-4">
+            {offline ? (
+              <p role="status" data-state="offline" className="mb-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+                You are offline.
+              </p>
+            ) : null}
+            {mode === "home" ? homeList : editForm}
+          </div>
+        </OverlayPanel>
+        {mode === "delete" ? (
+          <ConfirmDialog
+            title="Delete this list?"
+            detail={tasksMoveCopy(moved)}
+            error={error}
+            confirmDisabled={offline || saving}
+            onCancel={onBack}
+            onConfirm={() => {
+              if (!offline) onDelete();
+            }}
+          />
+        ) : null}
+      </>
+    );
+  }
   const title = mode === "delete" ? "Delete list" : mode === "edit" ? "Edit list" : "Lists";
   const formId = mode === "delete" ? "list-delete-form" : mode === "edit" ? "list-edit-form" : undefined;
   return (
@@ -317,10 +454,16 @@ export function ManageLists({
               inputMode="text"
               enterKeyHint="done"
               onChange={(event) => onName(event.target.value)}
-              className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-base"
+              className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-base outline-none focus:border-2 focus:border-ink"
               autoComplete="off"
             />
           </div>
+          {!color ? (
+            <div className="flex min-h-11 items-center gap-3" data-list-color="none">
+              <Swatch color={null} size={28} />
+              <span className="text-body text-muted">No color</span>
+            </div>
+          ) : null}
           <p className="text-meta font-medium">Color</p>
           <Palette value={color} onPick={onColor} />
           {error ? <p className="text-meta font-medium text-warn">{error}</p> : null}

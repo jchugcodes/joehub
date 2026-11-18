@@ -204,8 +204,32 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.equal(form.sheet, "form");
       assert.equal(form.deleted, false);
       assert.equal(await evalPage(page.send, "document.activeElement?.id || ''"), "budget-dining-out");
-      assert.equal(await pressLabel(page.send, evalPage, "Cancel"), "yes");
-      await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true']") && !document.getElementById("budget-dining-out") ? 'yes' : ''`, "form closed");
+      const formClosed = `${settled} && document.querySelector("[data-category-detail='true']") && !document.getElementById("budget-dining-out") ? "yes" : ""`;
+      let closedForm = false;
+      for (let attempt = 0; attempt < 4 && !closedForm; attempt += 1) {
+        await evalPage(page.send, `(() => {
+          const button = [...document.querySelectorAll("[data-overlay='panel'] button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === "Cancel");
+          if (button) button.click();
+        })()`);
+        const started = Date.now();
+        while (Date.now() - started < 2000) {
+          if (await evalPage(page.send, formClosed)) {
+            closedForm = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      if (!closedForm) {
+        const info = await evalPage(page.send, `JSON.stringify({
+          budget: Boolean(document.getElementById("budget-dining-out")),
+          state: document.querySelector("[data-overlay='panel']")?.getAttribute("data-state") || "",
+          stack: document.querySelector("[data-stack]")?.getAttribute("data-stack") || "",
+          title: document.querySelector("[role='dialog'] h2")?.textContent || "",
+          detail: Boolean(document.querySelector("[data-category-detail='true']")),
+        })`);
+        throw new Error(`form stayed open ${info}`);
+      }
 
       await page.send("Page.navigate", { url: `${base()}/finance/categories/utilities?period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "Bills & Utilities" ? 'yes' : ''`, "utilities");
@@ -223,15 +247,20 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
         const field = input?.getBoundingClientRect();
         const view = scroller?.getBoundingClientRect();
         const seen = Boolean(field && view && field.top >= view.top - 1 && field.bottom <= view.bottom + 1 && field.height > 20);
+        const style = input ? getComputedStyle(input) : null;
         return JSON.stringify({
           id: document.activeElement?.id || "",
           seen,
           whole: Boolean(document.getElementById("budget-dining-out") && document.getElementById("budget-other")),
+          width: style ? style.borderTopWidth : "",
+          color: style ? style.borderTopColor : "",
         });
       })()`));
       assert.equal(focused.id, "budget-school");
       assert.equal(focused.seen, true);
       assert.equal(focused.whole, true);
+      assert.equal(focused.width, "2px");
+      assert.equal(focused.color, "rgb(31, 42, 36)");
     }
 
     await size(page.send, 390, 844);

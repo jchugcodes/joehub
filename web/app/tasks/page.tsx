@@ -489,7 +489,7 @@ export default function TasksPage() {
   }
 
   async function saveListEdit() {
-    if (!editList || manageSaving) return;
+    if (!editList || manageSaving || offline || (overlayOn && overlayHold === "offline")) return;
     setManageSaving(true);
     setManageError("");
     try {
@@ -513,7 +513,7 @@ export default function TasksPage() {
   }
 
   async function removeList() {
-    if (!editList || manageSaving) return;
+    if (!editList || manageSaving || offline || (overlayOn && overlayHold === "offline")) return;
     setManageSaving(true);
     setManageError("");
     try {
@@ -724,7 +724,7 @@ export default function TasksPage() {
     const meta = taskMeta(task, lists);
     const statusColor = STATUS_VAR[task.status] || "var(--muted)";
     const listColor = listAccent(resolveTaskList(task.project, lists).color);
-    const accent = activeQuery ? "" : group === "status" ? statusColor : group === "project" ? listColor : "";
+    const accent = activeQuery ? "" : group === "status" ? statusColor : group === "project" && listColor ? listColor : "";
     const created = createdLabel(task.createdAt);
     const selected = overlayOn && wide && task.id === selectedId;
     return (
@@ -733,7 +733,7 @@ export default function TasksPage() {
         aria-current={selected ? "true" : undefined}
         data-selected={selected ? "true" : undefined}
         className="card flex min-w-0 items-start gap-1 p-2"
-        style={accent || selected ? { boxShadow: [accent ? `inset 4px 0 0 ${accent}` : "", selected ? "inset 0 0 0 1px var(--selected-row-line)" : ""].filter(Boolean).join(", "), backgroundColor: selected ? "var(--selected-row)" : `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
+        style={accent || selected ? { boxShadow: [accent ? `inset 4px 0 0 ${accent}` : "", selected ? "inset 0 0 0 1px var(--selected-row-line)" : ""].filter(Boolean).join(", "), backgroundColor: selected ? "var(--selected-row)" : accent ? `color-mix(in srgb, ${accent} 8%, transparent)` : undefined } : undefined}
       >
         <button
           type="button"
@@ -1263,22 +1263,28 @@ export default function TasksPage() {
           moved={editList ? lists.find((list) => list.id === editList.id)?.count ?? 0 : 0}
           wide={wide}
           saving={manageSaving}
+          overlay={overlayOn}
+          offline={panelOffline || offline}
+          selectedId={editList?.id || ""}
           onClose={() => setManage(null)}
           onNew={() => {
+            if (offline || panelOffline) return;
             setManage(null);
             openListMenu();
           }}
           onOpen={(list) => {
+            if (offline || panelOffline) return;
             setEditList(list);
             setEditName(list.name);
             setEditColor(list.color);
             setManageError("");
-            setManage("edit");
+            window.setTimeout(() => setManage("edit"), 0);
           }}
           onName={setEditName}
           onColor={setEditColor}
           onSave={() => void saveListEdit()}
           onAskDelete={() => {
+            if (offline || panelOffline) return;
             setManageError("");
             setManage("delete");
           }}
