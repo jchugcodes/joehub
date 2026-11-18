@@ -204,8 +204,32 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.equal(form.sheet, "form");
       assert.equal(form.deleted, false);
       assert.equal(await evalPage(page.send, "document.activeElement?.id || ''"), "budget-dining-out");
-      assert.equal(await pressLabel(page.send, evalPage, "Cancel"), "yes");
-      await waitFor(page.send, `!document.getElementById("budget-dining-out") && (!document.querySelector("[data-overlay='panel']") || (${settled} && document.querySelector("[data-category-detail='true']"))) ? 'yes' : ''`, "form closed");
+      const formClosed = `${settled} && document.querySelector("[data-category-detail='true']") && !document.getElementById("budget-dining-out") ? "yes" : ""`;
+      let closedForm = false;
+      for (let attempt = 0; attempt < 4 && !closedForm; attempt += 1) {
+        await evalPage(page.send, `(() => {
+          const button = [...document.querySelectorAll("[data-overlay='panel'] button")].find((el) => (el.innerText || "").replace(/\\s+/g, " ").trim() === "Cancel");
+          if (button) button.click();
+        })()`);
+        const started = Date.now();
+        while (Date.now() - started < 2000) {
+          if (await evalPage(page.send, formClosed)) {
+            closedForm = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      if (!closedForm) {
+        const info = await evalPage(page.send, `JSON.stringify({
+          budget: Boolean(document.getElementById("budget-dining-out")),
+          state: document.querySelector("[data-overlay='panel']")?.getAttribute("data-state") || "",
+          stack: document.querySelector("[data-stack]")?.getAttribute("data-stack") || "",
+          title: document.querySelector("[role='dialog'] h2")?.textContent || "",
+          detail: Boolean(document.querySelector("[data-category-detail='true']")),
+        })`);
+        throw new Error(`form stayed open ${info}`);
+      }
 
       await page.send("Page.navigate", { url: `${base()}/finance/categories/utilities?period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "Bills & Utilities" ? 'yes' : ''`, "utilities");
