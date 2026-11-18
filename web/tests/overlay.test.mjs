@@ -96,10 +96,11 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(grocery, /Delete this item\?/);
   assert.match(grocery, /text-left text-body text-ink/);
   assert.match(grocery, /row-selected/);
+  assert.match(grocery, /Check off/);
   assert.doesNotMatch(grocery, /overlay-flag/);
   assert.doesNotMatch(grocery, /NEXT_PUBLIC_/);
   assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.1\)/);
-  assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.34\)/);
+  assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.22\)/);
   assert.match(css, /--selected-row-line: transparent/);
   assert.match(css, /--selected-row-line: rgb\(var\(--finance-rgb\) \/ 0\.9\)/);
   assert.match(layout, /overlays=\{overlaysEnabled\(\)\}/);

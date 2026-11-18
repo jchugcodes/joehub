@@ -167,6 +167,27 @@ test("grocery overlay shows the detail, keeps check-off, and pushes edit", { ski
       assert.equal(detail.pill, "To get");
       assert.equal(detail.meta, "1 carton · Dairy");
       assert.equal(detail.notes, true);
+      assert.equal(await evalPage(page.send, "document.querySelector(\"[data-item-detail='true'] button\")?.textContent.trim()"), "Check off");
+
+      assert.equal(await pressLabel(page.send, evalPage, "Check off"), "yes");
+      await waitFor(page.send, `(() => {
+        const root = document.querySelector("[data-item-detail='true']");
+        const row = document.querySelector('[aria-label="Uncheck ${ITEM}"]');
+        if (!root || root.querySelector("[data-status]")?.textContent !== "Checked") return "";
+        if (root.querySelector("button")?.textContent.trim() !== "Uncheck") return "";
+        if (row?.getAttribute("aria-checked") !== "true") return "";
+        const panel = document.querySelector("[data-overlay='panel']");
+        return panel && panel.getAttribute("data-state") === "open" ? "yes" : "";
+      })()`, "checked in place");
+      assert.equal(await pressLabel(page.send, evalPage, "Uncheck"), "yes");
+      await waitFor(page.send, `(() => {
+        const root = document.querySelector("[data-item-detail='true']");
+        const row = document.querySelector('[aria-label="Check ${ITEM}"]');
+        if (!root || root.querySelector("[data-status]")?.textContent !== "To get") return "";
+        if (root.querySelector("button")?.textContent.trim() !== "Check off") return "";
+        if (row?.getAttribute("aria-checked") !== "false") return "";
+        return document.querySelector("[data-overlay='panel']")?.getAttribute("data-state") === "open" ? "yes" : "";
+      })()`, "unchecked in place");
 
       const row = JSON.parse(await evalPage(page.send, `(() => {
         const current = document.querySelector('[aria-label="Edit ${ITEM}"]')?.closest("li");
@@ -223,8 +244,21 @@ test("grocery overlay shows the detail, keeps check-off, and pushes edit", { ski
       assert.equal(opened.heading, "Edit item");
       assert.equal(opened.sheet, "form");
       if (viewport.pin) {
-        assert.equal(await pressLabel(page.send, evalPage, "Delete"), "yes");
-        await waitFor(page.send, "document.querySelector(\"[role='alertdialog'] h2\")?.textContent === 'Delete this item?' ? 'yes' : ''", "confirm");
+        const confirmBy = Date.now() + 12000;
+        let lastDelete = "";
+        while (Date.now() < confirmBy) {
+          if ((await evalPage(page.send, "document.querySelector(\"[role='alertdialog'] h2\")?.textContent === 'Delete this item?' ? 'yes' : ''")) === "yes") break;
+          try {
+            await pressLabel(page.send, evalPage, "Delete", "([...document.querySelectorAll(\"[role='dialog']\")].find((node) => !node.closest(\"[role='alertdialog']\")) || document)");
+            lastDelete = "clicked";
+          } catch (error) {
+            lastDelete = error instanceof Error ? error.message.slice(0, 160) : "miss";
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        if ((await evalPage(page.send, "document.querySelector(\"[role='alertdialog'] h2\")?.textContent === 'Delete this item?' ? 'yes' : ''")) !== "yes") {
+          throw new Error(`delete confirm did not open; last=${lastDelete}`);
+        }
         assert.equal(await pressLabel(page.send, evalPage, "Cancel", "document.querySelector(\"[role='alertdialog']\")"), "yes");
         await waitFor(page.send, "!document.querySelector(\"[role='alertdialog']\") && document.getElementById('grocery-name') ? 'yes' : ''", "confirm closed");
       }
@@ -236,6 +270,20 @@ test("grocery overlay shows the detail, keeps check-off, and pushes edit", { ski
         return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running") ? "" : "detail";
       })()`, "back to detail");
     }
+
+    await size(page.send, 390, 844);
+    await page.send("Page.navigate", { url: `${base()}/grocery?xe=offline` });
+    await waitFor(page.send, "document.querySelector(\"[data-ready='true'] h1\")?.textContent === 'Grocery' ? 'yes' : ''", "grocery offline");
+    assert.equal(await pressLabel(page.send, evalPage, `Edit ${ITEM}`), "yes");
+    await waitFor(page.send, `(() => {
+      const panel = document.querySelector("[data-overlay='panel']");
+      const root = panel?.querySelector("[data-item-detail='true']");
+      const action = root?.querySelector("button");
+      const edit = [...(panel?.querySelectorAll("button") || [])].find((button) => (button.innerText || "").trim() === "Edit");
+      if (!panel || panel.getAttribute("data-state") !== "open" || !root || !action || !edit) return "";
+      if (panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running")) return "";
+      return action.disabled && action.textContent.trim() === "Check off" && edit.disabled && root.querySelector("[data-state='offline']")?.textContent.includes("You are offline.") ? "yes" : "";
+    })()`, "check off disabled offline");
   } finally {
     if (page) await page.close();
     await stopProcess(chrome);

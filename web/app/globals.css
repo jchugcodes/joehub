@@ -75,7 +75,7 @@ html.dark,
   --tab-bg: rgb(20 26 22 / 0.95);
   --tab-line: #2a332d;
   --finance-rgb: 78 174 134;
-  --selected-row: rgb(var(--finance-rgb) / 0.34);
+  --selected-row: rgb(var(--finance-rgb) / 0.22);
   --selected-row-line: rgb(var(--finance-rgb) / 0.9);
   --jobs-rgb: 125 179 224;
   --journal-rgb: 224 122 154;

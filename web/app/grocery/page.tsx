@@ -779,6 +779,14 @@ export default function GroceryPage() {
             </span>
             {detailMeta ? <p data-item-meta="true" className="mt-2 text-meta text-muted">{detailMeta}</p> : null}
             {overlayHold === "empty" ? <p className="mt-3 text-body text-muted" data-state="empty">No notes.</p> : selectedItem.notes ? <p className="mt-3 text-body">{selectedItem.notes}</p> : null}
+            <button
+              type="button"
+              disabled={panelOffline}
+              onClick={() => { if (!panelOffline) void toggle(selectedItem); }}
+              className="mt-5 flex h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-40"
+            >
+              {selectedItem.checked ? "Uncheck" : "Check off"}
+            </button>
             {panelOffline ? (
               <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
                 You are offline.
