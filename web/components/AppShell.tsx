@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { Icon } from "./Icon";
 import { applyAppearance } from "../lib/appearance.mjs";
 import { DEV_PRIMARY, LIVE_PRIMARY } from "../lib/live-pages.mjs";
-import { useProductionNav } from "./LivePages";
+import { useOverlays, useProductionNav } from "./LivePages";
 
 function matches(tab: { href: string; label: string }, pathname: string) {
   if (tab.label === "Home") return pathname === "/" || pathname.startsWith("/tasks") || pathname.startsWith("/grocery");
@@ -58,7 +58,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const outfitScreen = tasksScreen || groceryScreen || financeScreen;
   const navRef = useRef<HTMLElement>(null);
   const production = useProductionNav();
+  const overlays = useOverlays();
   const tabs = production ? LIVE_PRIMARY : DEV_PRIMARY;
+  const wideColumn = pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") || (overlays && pathname.startsWith("/jobs"));
 
   useEffect(() => {
     const nav = navRef.current;
@@ -81,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Tasks and Grocery widen on desktop. The tab bar stays a full-width bar so it does not cover the column. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 pt-2 ${pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${wideColumn ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
       >
         {children}
       </main>

@@ -4,11 +4,20 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { Icon } from "../../../components/Icon";
+import { JobsScreen } from "../../../components/JobsScreen";
+import { useOverlays } from "../../../components/LivePages";
 import { jobDetail } from "../../../lib/design-fixtures";
 
 const DEMO = "Demo only. Nothing was saved.";
 
 export default function JobDetailPage() {
+  const overlayOn = useOverlays();
+  const params = useParams<{ id: string }>();
+  if (overlayOn) return <JobsScreen selectedId={String(params.id || "")} />;
+  return <LegacyJobDetail />;
+}
+
+function LegacyJobDetail() {
   const params = useParams<{ id: string }>();
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState("Prep: STAR stories for stakeholder conflict");

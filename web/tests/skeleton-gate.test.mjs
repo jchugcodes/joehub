@@ -83,7 +83,7 @@ test("new page skeletons stay behind the flag, honor xd holds, and overview has 
     "components/FinanceBills.tsx": ["useSkeletons", "useSkeletonHolds", "BillsSkeleton"],
     "components/FinanceOverview.tsx": ["useSkeletons", "useSkeletonHolds", "OverviewSkeleton"],
     "components/FinanceAccounts.tsx": ["useSkeletons", "useSkeletonHolds", "AccountsSkeleton"],
-    "app/jobs/page.tsx": ["useSkeletons", "useSkeletonHolds", "JobsSkeleton"],
+    "components/JobsScreen.tsx": ["useSkeletons", "useSkeletonHolds", "JobsSkeleton"],
     "app/journal/page.tsx": ["useSkeletons", "useSkeletonHolds", "JournalSkeleton"],
     "app/tasks/page.tsx": ["useSkeletons", "useSkeletonHolds", "TasksSkeleton"],
     "app/grocery/page.tsx": ["useSkeletons", "useSkeletonHolds", "GrocerySkeleton"],
