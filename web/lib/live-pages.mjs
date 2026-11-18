@@ -27,10 +27,11 @@ export const FINANCE_TABS = [
   { href: "/finance/accounts", label: "Accounts", live: true, shipped: true },
   { href: "/finance/debts", label: "Debts", live: false, shipped: true },
   { href: "/finance/bills", label: "Bills", live: true, shipped: true },
+  { href: "/finance/spending", label: "Spending", live: false, shipped: true },
 ];
 
 const LIVE_PREFIXES = ["/tasks", "/grocery", "/finance"];
-const GATED_FINANCE = ["/finance/goals", "/finance/debts"];
+const GATED_FINANCE = ["/finance/goals", "/finance/debts", "/finance/spending"];
 
 export function productionNav(env = process.env) {
   return env.VERCEL_ENV === "production" || env.NEXT_PUBLIC_VERCEL_ENV === "production";

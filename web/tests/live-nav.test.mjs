@@ -128,7 +128,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     const full = await withPage(cdp, `${server.base}/`, 390);
     assert.deepEqual(full.labels, ["Home", "Finance", "Jobs", "Journal", "More"]);
     const previewFinance = await withPage(cdp, `${server.base}/finance`, 390);
-    assert.deepEqual(previewFinance.finance, ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills"]);
+    assert.deepEqual(previewFinance.finance, ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills", "Spending"]);
     await stopProcess(server.child);
     server = await boot(true);
 
@@ -159,7 +159,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.equal(finance.active.color, "rgb(46, 139, 106)");
     assert.match(finance.active.bg, /rgba\(46,\s*139,\s*106/);
 
-    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/not-a-page"]) {
+    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/finance/spending", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
       assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);
