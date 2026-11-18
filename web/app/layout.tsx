@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { AppShell } from "../components/AppShell";
 import { LivePagesProvider } from "../components/LivePages";
 import { productionNav } from "../lib/live-pages.mjs";
+import { overlayHoldsEnabled, overlaysEnabled } from "../lib/overlay-flag.mjs";
 import { skeletonHoldsEnabled, skeletonsEnabled } from "../lib/skeleton-flag.mjs";
 import "./globals.css";
 
@@ -37,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {`(function(){try{var mode=localStorage.getItem("joehub-appearance");if(mode!=="light"&&mode!=="dark"&&mode!=="system")mode="system";var dark=mode==="dark"||(mode==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark);document.documentElement.dataset.appearance=mode;document.documentElement.dataset.theme=dark?"dark":"light";}catch(e){}})();`}
         </Script>
         <Suspense fallback={<main className="p-4">Loading joehub</main>}>
-          <LivePagesProvider production={productionNav()} skeletons={skeletonsEnabled()} holds={skeletonHoldsEnabled()}>
+          <LivePagesProvider production={productionNav()} skeletons={skeletonsEnabled()} holds={skeletonHoldsEnabled()} overlays={overlaysEnabled()} overlayHolds={overlayHoldsEnabled()}>
             <AppShell>{children}</AppShell>
           </LivePagesProvider>
         </Suspense>

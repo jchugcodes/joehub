@@ -89,7 +89,7 @@ async function waitFor(send, expression, label, budget = 45000) {
 async function shot(send, name) {
   await evalPage(send, "document.querySelectorAll('nextjs-portal').forEach((node) => node.style.setProperty('display', 'none', 'important')); 'yes'");
   await new Promise((resolve) => setTimeout(resolve, 200));
-  const image = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  const image = await send("Page.captureScreenshot", { format: "png" });
   mkdirSync(SHOTS, { recursive: true });
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(image.result.data, "base64"));
 }
@@ -98,6 +98,12 @@ async function open(send, path, width, height) {
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 500 });
   await send("Page.navigate", { url: `${base()}${path}${path.includes("?") ? "&" : "?"}asOf=${encodeURIComponent(AS_OF)}` });
   await waitFor(send, "document.querySelector('[data-ready]') ? 'yes' : ''", path);
+}
+
+const overlaySettled = `(function(){const panel=document.querySelector('[data-overlay="panel"]');if(!panel)return true;const box=panel.getBoundingClientRect();return box.width>200&&box.right<=window.innerWidth+2&&box.left>=-2;})()`;
+
+function hittable(finder) {
+  return `(function(){const el=${finder};if(!el)return false;const rect=el.getBoundingClientRect();const x=rect.left+rect.width/2;const y=rect.top+rect.height/2;const top=document.elementFromPoint(x,y);return rect.width>1&&x>=0&&y>=0&&x<=window.innerWidth&&y<=window.innerHeight&&!!(top&&(top===el||el.contains(top)));})()`;
 }
 
 function setField(label, value) {
@@ -145,7 +151,39 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await shot(send, "A01-app.png");
 
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
-    await waitFor(send, "document.body.innerText.includes('Joe\\'s Pizza') && document.body.innerText.includes('Nov 8, 2026') ? 'yes' : ''", "ledger");
+    const tappable = await evalPage(send, `new Promise((resolve) => {
+      let node = null;
+      let born = 0;
+      const tick = () => {
+        const panel = document.querySelector("[data-overlay='panel']");
+        if (panel !== node) {
+          node = panel;
+          born = panel ? performance.now() : 0;
+        }
+        const button = panel && panel.querySelector("[aria-label='Hide from net worth']");
+        const elapsed = born ? performance.now() - born : 0;
+        if (button && born) {
+          const rect = button.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const top = document.elementFromPoint(x, y);
+          const hit = top && (top === button || button.contains(top));
+          if (hit && x >= 0 && x <= window.innerWidth && rect.width > 1) {
+            const transform = getComputedStyle(panel).transform;
+            resolve({ ok: true, ms: Math.round(elapsed), state: panel.getAttribute("data-state"), transform });
+            return;
+          }
+        }
+        if (born && elapsed > 450) resolve({ ok: false, ms: Math.round(elapsed), state: panel && panel.getAttribute("data-state") });
+        else if (!born && performance.now() > 8000) resolve({ ok: false, reason: "no panel" });
+        else requestAnimationFrame(tick);
+      };
+      tick();
+    })`);
+    assert.equal(tappable.ok, true, JSON.stringify(tappable));
+    assert.ok(tappable.ms <= 450, JSON.stringify(tappable));
+    assert.equal(tappable.state, "open");
+    await waitFor(send, `document.body.innerText.includes('Joe\\'s Pizza') && document.body.innerText.includes('Nov 8, 2026') && ${overlaySettled} ? 'yes' : ''`, "ledger");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : 'no'"), "no");
     await shot(send, "A02-app.png");
     await pressLabel(send, evalPage, "Hide from net worth");
@@ -153,15 +191,18 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await open(send, "/finance/accounts", 390, 1600);
     await waitFor(send, "document.body.innerText.includes('Hidden') && document.body.innerText.includes('131,664') ? 'yes' : ''", "hidden rollup");
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
+    await waitFor(send, `${overlaySettled} && document.querySelector("[aria-label='Hide from net worth']") ? 'yes' : ''`, "checking again");
     await pressLabel(send, evalPage, "Hide from net worth");
     await waitFor(send, "document.querySelector(\"[role='switch']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "shown again");
 
     await open(send, "/finance/accounts/acct-cash", 390, 1100);
-    await waitFor(send, "document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('No transactions') ? 'yes' : ''", "manual");
+    await waitFor(send, `document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('No transactions') && ${overlaySettled} ? 'yes' : ''`, "manual");
     await shot(send, "A03-app.png");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') ? 'yes' : ''", "cash edit");
+    await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') && ${overlaySettled} ? 'yes' : ''`, "cash edit");
+    assert.equal(await evalPage(send, `(() => { const box = (label) => { const el = [...document.querySelectorAll('button')].find((node) => (node.innerText || '').trim() === label); if (!el) return 0; const r = el.getBoundingClientRect(); return Math.min(r.width, r.height); }; return box('Cancel') >= 44 && box('Save') >= 44 ? 'yes' : 'no'; })()`), "yes");
     await shot(send, "A05-app.png");
+    await waitFor(send, `${hittable("[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)")} ? 'yes' : ''`, "delete ready");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "cash confirm");
     await shot(send, "A09-app.png");
@@ -203,14 +244,15 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Trip fund') ? 'yes' : ''", "listed once");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('a')].filter((el) => (el.innerText || '').includes('Trip fund')).length"), 1);
     await pointerClick(send, evalPage, "[...document.querySelectorAll('a')].find((el) => (el.innerText || '').includes('Trip fund'))");
-    await waitFor(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : ''", "trip detail");
+    await waitFor(send, `[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') && ${overlaySettled} ? 'yes' : ''`, "trip detail");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "edit sheet");
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${overlaySettled} ? 'yes' : ''`, "edit sheet");
     assert.equal(await evalPage(send, setField("Name", "Trip cash")), "Trip cash");
     await pressLabel(send, evalPage, "Save");
     await waitFor(send, "document.body.innerText.includes('Trip cash') ? 'yes' : ''", "renamed");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "edit again");
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${overlaySettled} ? 'yes' : ''`, "edit again");
+    await waitFor(send, `${hittable("[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)")} ? 'yes' : ''`, "delete ready");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "confirm");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(0)");
@@ -268,10 +310,21 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Payroll (example)') && document.body.innerText.includes('Select an account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "desktop detail");
     await shot(send, "A11-app.png");
     await pressLabel(send, evalPage, "Add a manual account");
-    await waitFor(send, "document.body.innerText.includes('Add account') && document.querySelector('input') === document.activeElement ? 'yes' : ''", "desktop add");
+    await waitFor(send, `document.body.innerText.includes('Add account') && document.querySelector('input') === document.activeElement && ${overlaySettled} ? 'yes' : ''`, "desktop add");
     await shot(send, "A12-app.png");
     await pressLabel(send, evalPage, "Cancel");
     await waitFor(send, "document.body.innerText.includes('Add account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "cancel add");
+
+    await open(send, "/finance/accounts/acct-checking?xe=offline", 390, 1200);
+    await waitFor(send, `document.body.innerText.includes("Joe's Pizza") && document.body.innerText.includes("You are offline.") && document.body.innerText.includes("Recent") && ${overlaySettled} ? 'yes' : ''`, "offline detail");
+    assert.equal(await evalPage(send, "document.querySelector(\"[aria-label='Hide from net worth']\").disabled ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "document.querySelector(\"[data-state='offline']\") && document.querySelector(\"[data-state='offline']\").innerText.trim() === 'You are offline.' ? 'yes' : 'no'"), "yes");
+    await open(send, "/finance/accounts/acct-cash?xe=offline", 390, 1100);
+    await waitFor(send, `document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('You are offline.') && ${overlaySettled} ? 'yes' : ''`, "offline cash");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit' && el.disabled) ? 'yes' : 'no'"), "yes");
+    await pressLabel(send, evalPage, "Edit");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(await evalPage(send, "document.querySelector('[data-sheet]') ? 'yes' : 'no'"), "no");
   } finally {
     if (chrome) await stopProcess(chrome);
     if (child) await stopProcess(child);
