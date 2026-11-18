@@ -320,11 +320,19 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
         const panel = document.querySelector('[data-overlay="panel"]');
         const close = panel && panel.querySelector('[aria-label="Close"]');
         const body = panel && panel.querySelector('[data-stack]');
+        const bar = document.querySelector('nav[aria-label="Primary"]');
         const box = panel ? panel.getBoundingClientRect() : null;
         const hit = close ? close.getBoundingClientRect() : null;
+        const barBox = bar ? bar.getBoundingClientRect() : null;
         const scrolls = body ? getComputedStyle(body).overflowY : "";
-        const ok = Boolean(box && hit && window.scrollY > 200 && box.top <= 1 && box.height >= window.innerHeight - 2 && hit.top >= -1 && hit.bottom <= 64 && hit.width >= 44 && hit.height >= 44 && (scrolls === "auto" || scrolls === "scroll"));
-        return JSON.stringify({ ok, scrollY: window.scrollY, top: box && box.top, height: box && box.height, inner: window.innerHeight, hitTop: hit && hit.top, hitBottom: hit && hit.bottom, hitW: hit && hit.width, hitH: hit && hit.height, scrolls });
+        const tabs = bar ? [...bar.querySelectorAll("a")] : [];
+        const tabsClear = tabs.length > 0 && tabs.every((tab) => {
+          const rect = tab.getBoundingClientRect();
+          const point = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          return Boolean(point && tab.contains(point));
+        });
+        const ok = Boolean(box && hit && barBox && tabsClear && window.scrollY > 200 && box.top <= 1 && box.bottom <= barBox.top + 1 && box.bottom >= barBox.top - 2 && hit.top >= -1 && hit.bottom <= 64 && hit.width >= 44 && hit.height >= 44 && (scrolls === "auto" || scrolls === "scroll"));
+        return JSON.stringify({ ok, scrollY: window.scrollY, top: box && box.top, bottom: box && box.bottom, barTop: barBox && barBox.top, inner: window.innerHeight, hitTop: hit && hit.top, hitBottom: hit && hit.bottom, hitW: hit && hit.width, hitH: hit && hit.height, scrolls, tabsClear });
       })()`,
     );
     assert.equal(JSON.parse(pinned).ok, true, pinned);

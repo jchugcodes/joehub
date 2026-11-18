@@ -65,27 +65,39 @@ export function PanelHeader({
 
 function DesktopPin({ children }: { children: ReactNode }) {
   const slotRef = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState({ top: 0, height: 0, right: 0, width: 440 });
+  const [place, setPlace] = useState({ top: 0, right: 0, width: 440 });
   useLayoutEffect(() => {
+    const probe = document.createElement("div");
+    probe.setAttribute("data-overlay", "safe-bottom");
+    probe.style.cssText = "position:fixed;left:0;width:0;height:env(safe-area-inset-bottom);pointer-events:none;visibility:hidden";
+    document.body.appendChild(probe);
     const update = () => {
       const node = slotRef.current;
       if (!node) return;
       const rect = node.getBoundingClientRect();
-      const top = Math.max(0, Math.round(rect.top));
+      const bar = document.querySelector('nav[aria-label="Primary"]');
+      const barHeight = bar ? bar.getBoundingClientRect().height : 84;
+      const inset = barHeight + probe.getBoundingClientRect().height;
+      const rawTop = Math.max(0, rect.top);
+      const top = Math.min(Math.round(rawTop), Math.max(0, Math.floor(window.innerHeight - inset)));
       const next = {
         top,
-        height: Math.max(0, Math.round(window.innerHeight - top)),
         right: Math.max(0, Math.round(window.innerWidth - rect.right)),
         width: Math.round(rect.width) || 440,
       };
-      setPlace((prev) => (prev.top === next.top && prev.height === next.height && prev.right === next.right && prev.width === next.width ? prev : next));
+      setPlace((prev) => (prev.top === next.top && prev.right === next.right && prev.width === next.width ? prev : next));
     };
     update();
+    const frame = requestAnimationFrame(update);
     const observer = new ResizeObserver(update);
     observer.observe(document.body);
+    const bar = document.querySelector('nav[aria-label="Primary"]');
+    if (bar) observer.observe(bar);
     window.addEventListener("scroll", update, true);
     window.addEventListener("resize", update);
     return () => {
+      cancelAnimationFrame(frame);
+      probe.remove();
       observer.disconnect();
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
@@ -93,7 +105,11 @@ function DesktopPin({ children }: { children: ReactNode }) {
   }, []);
   return (
     <div ref={slotRef} className="w-[440px] shrink-0 self-start" data-overlay="slot">
-      <div className="fixed z-40" data-overlay="desktop" style={{ top: place.top, height: place.height, right: place.right, width: place.width, overflow: "clip" }}>
+      <div
+        className="fixed z-40"
+        data-overlay="desktop"
+        style={{ top: place.top, bottom: "calc(var(--primary-nav-height, 84px) + env(safe-area-inset-bottom))", right: place.right, width: place.width, overflow: "clip" }}
+      >
         {children}
       </div>
     </div>
@@ -342,7 +358,7 @@ export function OverlayPanel({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden bg-surface ${wide ? "h-full w-full border-l border-line" : "absolute inset-y-0 right-0 w-[342px] shadow-2xl"}`}
+      className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden bg-surface ${wide ? "absolute inset-0 border-l border-line" : "absolute inset-y-0 right-0 w-[342px] shadow-2xl"}`}
       style={{
         transform: reduced ? "none" : parked ? "translateX(100%)" : "translateX(0)",
         opacity: reduced ? (parked ? 0 : 1) : 1,
