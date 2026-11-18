@@ -45,8 +45,8 @@ export function PanelHeader({
     return (
       <div className="flex h-11 shrink-0 items-center border-b border-line px-4">
         <div className="flex min-w-0 flex-1 items-baseline">
-          <button type="button" onClick={onBack || onClose} className="shrink-0 text-body text-ink" style={{ minHeight: 0, minWidth: 0, height: "auto" }}>
-            Cancel
+          <button type="button" onClick={onBack || onClose} className="inline-flex h-11 min-w-11 shrink-0 items-start justify-center px-0 pb-0 pt-3 text-body text-ink">
+            <span>Cancel</span>
           </button>
           <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{title}</h2>
         </div>

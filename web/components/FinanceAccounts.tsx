@@ -905,8 +905,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             slim={Boolean(mode)}
             sheet={Boolean(mode)}
             action={mode ? (
-              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50" style={{ height: 32, minHeight: 32, minWidth: 0 }}>
-                Save
+              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+                <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">Save</span>
               </button>
             ) : selected?.source === "manual" && !openTxn ? (
               <button type="button" disabled={panelOffline} aria-disabled={panelOffline || undefined} onClick={() => openEdit(selected)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>
@@ -978,8 +978,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           slim={Boolean(mode)}
           sheet={Boolean(mode)}
           action={mode ? (
-            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50" style={{ height: 32, minHeight: 32, minWidth: 0 }}>
-              Save
+            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+              <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">Save</span>
             </button>
           ) : selected?.source === "manual" && !openTxn ? (
             <button type="button" disabled={panelOffline} aria-disabled={panelOffline || undefined} onClick={() => openEdit(selected)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>

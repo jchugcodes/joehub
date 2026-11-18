@@ -200,6 +200,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await shot(send, "A03-app.png");
     await pressLabel(send, evalPage, "Edit");
     await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') && ${overlaySettled} ? 'yes' : ''`, "cash edit");
+    assert.equal(await evalPage(send, `(() => { const box = (label) => { const el = [...document.querySelectorAll('button')].find((node) => (node.innerText || '').trim() === label); if (!el) return 0; const r = el.getBoundingClientRect(); return Math.min(r.width, r.height); }; return box('Cancel') >= 44 && box('Save') >= 44 ? 'yes' : 'no'; })()`), "yes");
     await shot(send, "A05-app.png");
     await waitFor(send, `${hittable("[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)")} ? 'yes' : ''`, "delete ready");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
