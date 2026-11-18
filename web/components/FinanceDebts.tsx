@@ -241,7 +241,7 @@ export function FinanceDebts({ selectedId = "" }: { selectedId?: string }) {
   function rowClass(id: string, nested: boolean) {
     const selectedRow = id === selectedId;
     const tint = selectedRow ? (overlayOn ? "row-selected" : "bg-[#2E8B6A14]") : "";
-    return `flex min-h-11 w-full items-center gap-3 text-left text-ink ${nested ? "py-2.5 pl-2" : "py-3"} ${tint}`;
+    return `flex min-h-11 w-full items-center gap-3 text-left text-ink hover:text-ink focus:text-ink ${nested ? "py-2.5 pl-2" : "py-3"} ${tint}`;
   }
 
   const list = (

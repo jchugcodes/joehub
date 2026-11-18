@@ -167,6 +167,8 @@ test("debts overlay is a read-only detail", { timeout: 180000, skip }, async () 
         focusRing: close?.matches(":focus-visible") ? "yes" : "no",
         row: row?.classList.contains("row-selected") ? "yes" : "no",
         rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
+        titleColor: heading ? getComputedStyle(heading).color : "",
+        nameColor: row?.querySelector(".truncate") ? getComputedStyle(row.querySelector(".truncate")).color : "",
       });
     })()`));
     assert.equal(detail.title, "Federal loan 15");
@@ -183,6 +185,8 @@ test("debts overlay is a read-only detail", { timeout: 180000, skip }, async () 
     assert.equal(detail.focusRing, "no");
     assert.equal(detail.row, "yes");
     assert.ok(detail.rowH >= 44);
+    assert.equal(detail.titleColor, "rgb(31, 42, 36)");
+    assert.equal(detail.nameColor, "rgb(31, 42, 36)");
 
     await size(send, 390, 844);
     await send("Page.navigate", { url: `${base()}/finance/debts/acct-student-15?xe=offline` });
@@ -213,6 +217,36 @@ test("debts overlay is a read-only detail", { timeout: 180000, skip }, async () 
     assert.equal(desktop.title, "Federal loan 15");
     assert.equal(desktop.align, "left");
     assert.equal(desktop.pin, "yes");
+    const hovered = JSON.parse(await evalPage(send, `(() => {
+      const title = document.querySelector("[data-overlay='panel'] h2");
+      const selected = document.querySelector("[data-debt='acct-student-15'] .truncate");
+      const other = document.querySelector("[data-debt='acct-student-05']");
+      const name = other?.querySelector(".truncate");
+      if (other) other.scrollIntoView({ block: "center" });
+      const box = name ? name.getBoundingClientRect() : null;
+      return JSON.stringify({
+        title: title ? getComputedStyle(title).color : "",
+        selected: selected ? getComputedStyle(selected).color : "",
+        other: name ? getComputedStyle(name).color : "",
+        x: box ? box.x + box.width / 2 : 0,
+        y: box ? box.y + box.height / 2 : 0,
+      });
+    })()`));
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hovered.x, y: hovered.y });
+    const afterHover = await evalPage(send, `(() => {
+      const title = document.querySelector("[data-overlay='panel'] h2");
+      const name = document.querySelector("[data-debt='acct-student-05'] .truncate");
+      return JSON.stringify({
+        title: title ? getComputedStyle(title).color : "",
+        other: name ? getComputedStyle(name).color : "",
+      });
+    })()`);
+    const hoverBody = JSON.parse(afterHover);
+    assert.equal(hovered.title, "rgb(31, 42, 36)");
+    assert.equal(hovered.selected, "rgb(31, 42, 36)");
+    assert.equal(hovered.other, "rgb(31, 42, 36)");
+    assert.equal(hoverBody.title, "rgb(31, 42, 36)");
+    assert.equal(hoverBody.other, "rgb(31, 42, 36)");
   } finally {
     if (page) await page.close();
     await stopProcess(chrome);
