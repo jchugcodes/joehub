@@ -72,10 +72,10 @@ export function OverviewSkeleton() {
           <TextLine height={12} width={36} />
         </div>
       </Card>
-      <div className="mt-4 flex gap-2">
-        <Block width={76} height={44} radius={999} />
-        <Block width={76} height={44} radius={999} />
-        <Block width={76} height={44} radius={999} />
+      <div className="mt-4 flex gap-1" data-skeleton-pills="5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span key={index} aria-hidden="true" className="skeleton-bone h-11 min-w-0 flex-1 rounded-full" />
+        ))}
       </div>
       <Card className="mt-4 p-4">
         <TextLine height={17} width={148} />
@@ -118,6 +118,159 @@ export function MonthSkeleton() {
         <TextLine height={12} width={180} className="mt-3" />
         <Block height={10} radius={999} className="mt-4" />
       </Card>
+    </div>
+  );
+}
+
+export function HomeSkeleton() {
+  return (
+    <div data-skeleton="home" aria-busy="true" className="px-4 pb-8 pt-2">
+      <div className="flex items-start justify-between px-1">
+        <span className="flex flex-col gap-2">
+          <TextLine height={12} width={120} />
+          <TextLine height={24} width={168} />
+        </span>
+        <Circle size={40} />
+      </div>
+      <Card className="mt-4 p-4">
+        <div className="flex items-center justify-between">
+          <TextLine height={13} width={72} />
+          <TextLine height={12} width={24} />
+        </div>
+        <div className="mt-3 flex gap-3">
+          <Block width={72} height={64} />
+          <Block width={72} height={64} />
+          <Block width={72} height={64} />
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <Circle size={28} />
+          <TextLine height={13} width="46%" />
+          <TextLine height={13} width={48} />
+        </div>
+        <Block height={40} radius={12} className="mt-3" />
+      </Card>
+      <Card className="mt-3 p-4">
+        <TextLine height={13} width={88} />
+        <TextLine height={17} width="55%" className="mt-3" />
+        <TextLine height={12} width="40%" className="mt-2" />
+        <Block height={10} radius={999} className="mt-4" />
+      </Card>
+      <Card className="mt-3 p-4">
+        <TextLine height={13} width={64} />
+        <div className="mt-3 flex gap-4">
+          <Block width={64} height={56} />
+          <Block width={64} height={56} />
+          <Block width={64} height={56} />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+export function BillsSkeleton() {
+  return (
+    <div data-skeleton="bills" aria-busy="true">
+      {["Overdue", "This week", "Later"].map((group) => (
+        <div key={group} className="mt-5">
+          <TextLine height={17} width={96} className="mx-5" />
+          <Card className="mx-4 mt-2 py-1">
+            <SkeletonRow />
+            <SkeletonRow />
+          </Card>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function JobsSkeleton() {
+  return (
+    <div data-skeleton="jobs" aria-busy="true" className="px-4 pt-4">
+      <div className="grid grid-cols-3 gap-2.5">
+        {[0, 1, 2].map((item) => (
+          <Card key={item} className="p-3">
+            <TextLine height={12} width="70%" />
+            <TextLine height={24} width="50%" className="mt-2" />
+          </Card>
+        ))}
+      </div>
+      <div className="mt-4 space-y-2.5">
+        {[0, 1, 2, 3].map((item) => (
+          <Card key={item} className="flex min-h-[52px] items-center gap-3 p-3">
+            <Circle size={40} />
+            <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <TextLine height={13} width="60%" />
+              <TextLine height={10} width="40%" />
+            </span>
+            <TextLine height={13} width={48} />
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function JournalSkeleton() {
+  return (
+    <div data-skeleton="journal" aria-busy="true" className="px-4 pt-4">
+      <Card className="p-4">
+        <div className="flex items-start justify-between">
+          <TextLine height={24} width={80} />
+          <TextLine height={13} width={72} />
+        </div>
+        <div className="mt-4 flex justify-between">
+          {Array.from({ length: 7 }, (_, index) => (
+            <Circle key={index} size={32} />
+          ))}
+        </div>
+      </Card>
+      {[0, 1, 2].map((item) => (
+        <Card key={item} className="mt-3 p-4">
+          <TextLine height={13} width="40%" />
+          <TextLine height={13} width="90%" className="mt-3" />
+          <TextLine height={13} width="75%" className="mt-2" />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function TasksSkeleton() {
+  return (
+    <div data-skeleton="tasks" aria-busy="true" className="mt-3 space-y-3 px-4">
+      {[0, 1, 2, 3].map((item) => (
+        <Card key={item} className="flex min-h-[52px] items-center gap-3 p-3">
+          <CheckBone />
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <TextLine height={13} width="70%" />
+            <TextLine height={10} width="45%" />
+          </span>
+          <TextLine height={10} width={56} />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function GrocerySkeleton() {
+  return (
+    <div data-skeleton="grocery" aria-busy="true" className="px-4 pt-2">
+      {[0, 1].map((section) => (
+        <div key={section} className="mt-4">
+          <TextLine height={17} width={88} className="mx-1" />
+          <div className="mt-2 space-y-2">
+            {[0, 1].map((item) => (
+              <Card key={item} className="flex min-h-[52px] items-center gap-3 px-2">
+                <CheckBone />
+                <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <TextLine height={13} width="55%" />
+                  <TextLine height={10} width="30%" />
+                </span>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -5,7 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { JobsTabs } from "../../components/JobsTabs";
+import { useSkeletons } from "../../components/LivePages";
+import { JobsSkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
+import { useSkeletonPhase } from "../../components/SkeletonHold";
 import { pipeline } from "../../lib/design-fixtures";
+import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 
 const DEMO = "Demo only. Nothing was saved.";
 
@@ -23,10 +27,18 @@ function viewFrom(value: string | null): View {
 }
 
 export default function JobsPage() {
-  const requested = useSearchParams().get("view");
+  const search = useSearchParams();
+  const requested = search.get("view");
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
   const [view, setView] = useState<View>(viewFrom(requested));
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, view === "loading", view === "list");
+  const bones = skeletonOn && (hold === "skel" || (view === "loading" && phase === "skeleton"));
+  const showError = skeletonOn && hold === "error";
+  const showEmptyHold = skeletonOn && hold === "empty";
+  const blocked = bones || showError || showEmptyHold;
 
   useEffect(() => {
     setView(viewFrom(requested));
@@ -50,7 +62,8 @@ export default function JobsPage() {
 
   return (
     <div className="min-w-0">
-      <header className="flex items-start justify-between px-5">
+      <header className="relative flex items-start justify-between px-5">
+        {refreshing ? <RefreshBar /> : null}
         <div>
           <p className="text-ui-13 text-muted">Jobs</p>
           <h1 className="text-ui-22 font-bold">Pipeline</h1>
@@ -66,17 +79,20 @@ export default function JobsPage() {
           </button>
         ) : null}
       </header>
-      {view === "list" ? <JobsTabs current="Overview" /> : null}
+      {view === "list" && !showError && !showEmptyHold ? <JobsTabs current="Overview" /> : null}
       {notice ? (
         <p className="mx-5 mt-3 text-ui-13 font-semibold text-support-linkBlue" role="status">
           {notice}
         </p>
       ) : null}
-      {view === "loading" ? <Loading /> : null}
-      {view === "empty" ? <Empty onAdd={demo} /> : null}
-      {view === "error" ? <ErrorState busy={busy} onRetry={retry} /> : null}
-      {view === "list" ? <Pipeline onDemo={demo} /> : null}
-      <p className="mb-4 mt-6 text-center text-ui-10 text-muted">SYNTHETIC DATA · design reference</p>
+      {view === "loading" && !skeletonOn ? <Loading /> : null}
+      {bones ? <JobsSkeleton /> : null}
+      {showError ? <LoadError onRetry={retry} /> : null}
+      {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No jobs.</p> : null}
+      {!blocked && view === "empty" ? <Empty onAdd={demo} /> : null}
+      {!blocked && view === "error" ? <ErrorState busy={busy} onRetry={retry} /> : null}
+      {!blocked && (view === "list" || hold === "refresh") ? <Pipeline onDemo={demo} /> : null}
+      {blocked ? null : <p className="mb-4 mt-6 text-center text-ui-10 text-muted">SYNTHETIC DATA · design reference</p>}
     </div>
   );
 }

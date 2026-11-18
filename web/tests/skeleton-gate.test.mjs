@@ -60,6 +60,33 @@ test("cached data is ready immediately and never shows a skeleton", (t) => {
   assert.equal(skeleton, false);
 });
 
+test("new page skeletons stay behind the flag, honor xd holds, and overview has five pills", () => {
+  const root = new URL("..", import.meta.url);
+  const bones = readFileSync(new URL("components/Skeleton.tsx", root), "utf8");
+  const overview = bones.slice(bones.indexOf("function OverviewSkeleton"), bones.indexOf("function MonthSkeleton"));
+  assert.match(overview, /data-skeleton-pills="5"/);
+  assert.match(overview, /length: 5/);
+  for (const name of ["home", "bills", "jobs", "journal", "tasks", "grocery"]) {
+    assert.match(bones, new RegExp(`data-skeleton="${name}"`));
+  }
+  const pages = {
+    "app/page.tsx": ["readSkeletonHold", "skeletonsEnabled", "HomeSkeleton"],
+    "components/FinanceBills.tsx": ["useSkeletons", "readSkeletonHold", "BillsSkeleton"],
+    "app/jobs/page.tsx": ["useSkeletons", "readSkeletonHold", "JobsSkeleton"],
+    "app/journal/page.tsx": ["useSkeletons", "readSkeletonHold", "JournalSkeleton"],
+    "app/tasks/page.tsx": ["useSkeletons", "readSkeletonHold", "TasksSkeleton"],
+    "app/grocery/page.tsx": ["useSkeletons", "readSkeletonHold", "GrocerySkeleton"],
+  };
+  for (const [file, needles] of Object.entries(pages)) {
+    const text = readFileSync(new URL(file, root), "utf8");
+    for (const needle of needles) assert.match(text, new RegExp(needle), `${file} ${needle}`);
+    assert.doesNotMatch(text, /NEXT_PUBLIC_/);
+  }
+  assert.equal(readSkeletonHold("?xd=skel", false), "");
+  assert.equal(readSkeletonHold("?xd=refresh", true), "refresh");
+  assert.equal(readSkeletonHold("?xd=empty", true), "empty");
+});
+
 test("skeleton bones use the light and dark tokens and rest under reduced motion", () => {
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const light = css.slice(0, css.indexOf("html.dark,"));

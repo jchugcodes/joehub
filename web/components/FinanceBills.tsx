@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { billMoney } from "../lib/bills.mjs";
+import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
+import { BillsSkeleton, LoadError, RefreshBar } from "./Skeleton";
+import { useSkeletonPhase } from "./SkeletonHold";
+import { useSkeletons } from "./LivePages";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Sheet } from "./Sheet";
@@ -98,8 +102,20 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   const search = useSearchParams();
   const asOf = search.get("asOf") || "";
   const previewEmpty = search.get("view") === "empty";
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
+  const [reloading, setReloading] = useState(false);
+  const seenRef = useRef(false);
+  const skeletonRef = useRef(false);
+  skeletonRef.current = skeletonOn;
   const previewLink = search.get("link") || "";
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const pendingBills = !snapshot && hold !== "refresh" && hold !== "empty" && hold !== "error" && hold !== "skel";
+  const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, pendingBills, Boolean(snapshot) || hold === "refresh" || hold === "empty");
+  const bones = skeletonOn && (hold === "skel" || phase === "skeleton");
+  const showError = skeletonOn && hold === "error";
+  const showEmptyHold = skeletonOn && hold === "empty";
+  const showBar = skeletonOn && (reloading || refreshing);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
   const [notice, setNotice] = useState("");
@@ -125,11 +141,18 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   const listHref = `/finance/bills${suffix}`;
 
   const load = useCallback(async () => {
-    const listed = await fetch(`/api/finance/bills${suffix}`, { cache: "no-store" });
-    if (!listed.ok) throw new Error("bills");
-    const body = (await listed.json()) as Snapshot;
-    setSnapshot(body);
-    return body;
+    const showBar = seenRef.current && skeletonRef.current;
+    if (showBar) setReloading(true);
+    try {
+      const listed = await fetch(`/api/finance/bills${suffix}`, { cache: "no-store" });
+      if (!listed.ok) throw new Error("bills");
+      const body = (await listed.json()) as Snapshot;
+      setSnapshot(body);
+      seenRef.current = true;
+      return body;
+    } finally {
+      if (showBar) setReloading(false);
+    }
   }, [suffix]);
 
   useEffect(() => {
@@ -509,7 +532,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   );
 
   return (
-    <main className="finance-type min-w-0 text-ink" data-ready={snapshot ? "true" : undefined} data-bills={empty ? "empty" : "list"}>
+    <main className="finance-type min-w-0 text-ink" data-ready={snapshot && !(skeletonOn && phase === "skeleton" && hold !== "skel") ? "true" : undefined} data-bills={empty ? "empty" : "list"}>
       {shownTone === "offline" && snapshot?.updatedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-ink">
           <span className="block text-body font-medium">Offline</span>
@@ -537,7 +560,8 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
 
       {wide || !selected ? (
         <>
-          <header className="flex items-center justify-between px-5 pt-2">
+          <header className="relative flex items-center justify-between px-5 pt-2">
+            {showBar ? <RefreshBar /> : null}
             <div>
               <p className="text-meta text-muted">joehub</p>
               <h1 className="text-title font-medium">Bills</h1>
@@ -567,8 +591,11 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
       <div className={wide ? "mt-3 flex min-w-0 items-start gap-4 px-4" : ""}>
         {wide || !selected ? (
           <div className="min-w-0 flex-1">
-            {!snapshot ? <p className="px-5 py-8 text-body text-muted">Loading bills…</p> : null}
-            {snapshot && empty ? (
+            {showError ? <LoadError onRetry={() => void load()} /> : null}
+            {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No bills.</p> : null}
+            {bones && !showError && !showEmptyHold ? <BillsSkeleton /> : null}
+            {!snapshot && !skeletonOn ? <p className="px-5 py-8 text-body text-muted">Loading bills…</p> : null}
+            {snapshot && !bones && !showError && !showEmptyHold && empty ? (
               <div className="px-5 py-16 text-center">
                 <p className="text-section font-medium">No upcoming bills</p>
                 <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page">
@@ -576,7 +603,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                 </button>
               </div>
             ) : null}
-            {snapshot && !empty
+            {snapshot && !empty && !bones && !showError && !showEmptyHold
               ? GROUPS.map((group) => {
                   const rows = bills.filter((bill) => bill.group === group);
                   if (!rows.length) return null;

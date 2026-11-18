@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { Ring, Sparkline } from "../components/Charts";
+import { HomeRetry } from "../components/SkeletonHold";
+import { HomeSkeleton, RefreshBar } from "../components/Skeleton";
 import { home } from "../lib/design-fixtures";
 import { detroitHeading } from "../lib/detroit-date.mjs";
 import { money } from "../lib/finance.mjs";
 import { productionNav } from "../lib/live-pages.mjs";
+import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
+import { skeletonsEnabled } from "../lib/skeleton-flag.mjs";
 import { store } from "../lib/store.mjs";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +25,17 @@ function detroitToday(now = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = (await searchParams) || {};
+  const xd = typeof params.xd === "string" ? params.xd : "";
+  const hold = readSkeletonHold(xd ? `?xd=${xd}` : "", skeletonsEnabled());
+  if (hold === "skel") return <HomeSkeleton />;
+  if (hold === "error") return <HomeRetry />;
+  if (hold === "empty") return <p className="px-5 py-16 text-center text-body text-muted" data-state="empty">Nothing yet.</p>;
   const now = Date.now();
   let overview: HomeOverview | null = null;
   try {
@@ -41,7 +55,8 @@ export default async function HomePage() {
   const live = productionNav();
   return (
     <div>
-      <header className="flex items-center justify-between px-5 pt-2">
+      <header className={`flex items-center justify-between px-5 pt-2 ${hold === "refresh" ? "relative" : ""}`}>
+        {hold === "refresh" ? <RefreshBar /> : null}
         <div>
           <p className="text-ui-13 mut">{detroitHeading(now)}</p>
           <h1 className="text-ui-24 font-bold">{home.greeting}</h1>

@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
+import { useSkeletons } from "../../components/LivePages";
 import { Sheet } from "../../components/Sheet";
+import { GrocerySkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
+import { useSkeletonPhase } from "../../components/SkeletonHold";
+import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 import type { GroceryItem } from "../../lib/contract";
 import { existingName, groupGrocery, sectionSuggestions } from "../../lib/grocery.mjs";
 
@@ -82,8 +87,12 @@ function formatDetroit(ms: number) {
 }
 
 export default function GroceryPage() {
+  const search = useSearchParams();
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [items, setItems] = useState<GroceryItem[]>([]);
+  const [reloading, setReloading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [link, setLink] = useState<"live" | "offline" | "reconnecting" | "back">("live");
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -103,6 +112,14 @@ export default function GroceryPage() {
   const savingRef = useRef(false);
   const idemRef = useRef("");
   const loadGen = useRef(0);
+  const seenRef = useRef(false);
+  const skeletonRef = useRef(false);
+  skeletonRef.current = skeletonOn;
+  const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, mode === "loading", mode === "ready" && items.length > 0);
+  const bones = skeletonOn && (hold === "skel" || phase === "skeleton");
+  const showError = skeletonOn && (hold === "error" || (mode === "error" && hold !== "empty" && hold !== "skel"));
+  const showEmptyHold = skeletonOn && hold === "empty";
+  const blocked = bones || showError || showEmptyHold;
 
   const showCached = useCallback((snap: { savedAt: number; items: GroceryItem[] } | null) => {
     if (snap) {
@@ -117,6 +134,8 @@ export default function GroceryPage() {
 
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
+    const showBar = seenRef.current && skeletonRef.current;
+    if (showBar) setReloading(true);
     try {
       const response = await fetch("/api/grocery", { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
@@ -133,11 +152,14 @@ export default function GroceryPage() {
       setOffline(false);
       setLink(recovered ? "back" : "live");
       setMode("ready");
+      seenRef.current = true;
     } catch {
       if (gen !== loadGen.current) return;
       const snap = await readCache();
       showCached(snap);
       if (!snap) setMode("error");
+    } finally {
+      if (showBar) setReloading(false);
     }
   }, [showCached]);
 
@@ -456,9 +478,10 @@ export default function GroceryPage() {
   );
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`grocery-type ${wide ? "flex min-w-0 items-start gap-6 px-8 pt-4" : "min-w-0"}`}>
+    <div data-ready={mode === "loading" || (skeletonOn && phase === "skeleton" && hold !== "skel") ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`grocery-type ${wide ? "flex min-w-0 items-start gap-6 px-8 pt-4" : "min-w-0"}`}>
       <div className={`relative min-w-0 flex-1 ${wide ? (sheet ? "max-w-[520px] opacity-50" : "max-w-[640px]") : ""}`}>
-        <header className={wide ? "" : "px-5 pt-2"}>
+        <header className={`relative ${wide ? "" : "px-5 pt-2"}`}>
+          {skeletonOn && (reloading || refreshing) ? <RefreshBar /> : null}
           <p className="text-meta text-muted">joehub</p>
           <h1 className="text-title font-medium">Grocery</h1>
         </header>
@@ -493,7 +516,10 @@ export default function GroceryPage() {
             {listError}
           </p>
         ) : null}
-        {mode === "ready" && items.length === 0 ? (
+        {bones ? <GrocerySkeleton /> : null}
+        {showError ? <LoadError onRetry={() => void load()} /> : null}
+        {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No items.</p> : null}
+        {!blocked && mode === "ready" && items.length === 0 ? (
           <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
             <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
               <Icon name="check-square" size={28} />
@@ -509,7 +535,7 @@ export default function GroceryPage() {
             </button>
           </div>
         ) : null}
-        {mode === "ready" && items.length > 0 ? (
+        {!blocked && mode === "ready" && items.length > 0 ? (
           <div>
             {groups.map((group) => (
               <section key={group.label} aria-label={group.label}>
