@@ -28,11 +28,7 @@ export function PanelHeader({
   action?: ReactNode;
   slim?: boolean;
 }) {
-  const dismissControl = slim ? (
-    <button type="button" onClick={onBack || onClose} className="inline-flex h-11 items-center px-2 text-body text-muted">
-      Cancel
-    </button>
-  ) : (
+  const dismissControl = slim ? null : (
     <button type="button" onClick={onBack || onClose} aria-label={onBack ? "Back" : "Close"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center">
       {onBack ? (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -47,10 +43,14 @@ export function PanelHeader({
   );
   if (slim) {
     return (
-      <div className="grid h-11 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-line px-2">
-        <div className="justify-self-start">{dismissControl}</div>
-        <h2 className="max-w-[12rem] truncate text-center text-section font-medium">{title}</h2>
-        <div className="flex justify-self-end items-center">{action}</div>
+      <div className="flex h-11 shrink-0 items-center border-b border-line px-4">
+        <div className="flex min-w-0 flex-1 items-baseline">
+          <button type="button" onClick={onBack || onClose} className="shrink-0 text-body text-ink" style={{ minHeight: 0, minWidth: 0, height: "auto" }}>
+            Cancel
+          </button>
+          <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{title}</h2>
+        </div>
+        <div className="flex shrink-0 items-center">{action}</div>
       </div>
     );
   }

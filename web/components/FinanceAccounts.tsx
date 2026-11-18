@@ -619,7 +619,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     <div className="px-5 py-4">
       {form}
       {mode === "edit" ? (
-        <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirming(true); }} className="mt-2 flex min-h-11 items-center text-body text-ink disabled:opacity-40">
+        <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirming(true); }} className="mt-2 flex min-h-11 items-center text-body font-medium" style={{ color: "var(--ink)", opacity: panelOffline ? 0.4 : 1 }}>
           Delete
         </button>
       ) : null}
@@ -905,7 +905,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             slim={Boolean(mode)}
             sheet={Boolean(mode)}
             action={mode ? (
-              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50">
+              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50" style={{ height: 32, minHeight: 32, minWidth: 0 }}>
                 Save
               </button>
             ) : selected?.source === "manual" && !openTxn ? (
@@ -978,7 +978,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           slim={Boolean(mode)}
           sheet={Boolean(mode)}
           action={mode ? (
-            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50">
+            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50" style={{ height: 32, minHeight: 32, minWidth: 0 }}>
               Save
             </button>
           ) : selected?.source === "manual" && !openTxn ? (
