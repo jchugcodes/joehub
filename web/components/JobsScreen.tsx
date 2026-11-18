@@ -222,7 +222,7 @@ function RoleDetail({ offline }: { offline: boolean }) {
         <section className="card min-w-0 p-3 [overflow-wrap:anywhere]">
           <h2 className="text-ui-12 font-semibold text-muted">Fit score</h2>
           <p className="text-ink">
-            <span className="text-ui-26 font-extrabold tabular-nums">{jobDetail.fit}</span>
+            <span data-fit-score="" className="text-ui-26 font-extrabold tabular-nums text-finance-primary">{jobDetail.fit}</span>
             <span className="text-ui-13 text-muted">/10</span>
           </p>
           <p className="text-ui-11 text-muted">{jobDetail.fitNote}</p>

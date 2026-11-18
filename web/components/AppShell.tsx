@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const production = useProductionNav();
   const overlays = useOverlays();
   const tabs = production ? LIVE_PRIMARY : DEV_PRIMARY;
-  const wideColumn = pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") || (overlays && pathname.startsWith("/jobs"));
+  const wideColumn = pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") || (overlays && pathname.startsWith("/jobs")) || (overlays && pathname.startsWith("/journal") && !pathname.startsWith("/journal/compose"));
 
   useEffect(() => {
     const nav = navRef.current;

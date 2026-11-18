@@ -1,9 +1,20 @@
+"use client";
+
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, useParams } from "next/navigation";
+import { JournalFeed } from "../../../components/JournalFeed";
+import { useOverlays } from "../../../components/LivePages";
 import { journal } from "../../../lib/design-fixtures";
 
-export default async function JournalEntryPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+export default function JournalEntryPage() {
+  const overlayOn = useOverlays();
+  const params = useParams<{ slug: string }>();
+  const slug = String(params.slug || "");
+  if (overlayOn) return <JournalFeed selectedSlug={slug} />;
+  return <LegacyEntry slug={slug} />;
+}
+
+function LegacyEntry({ slug }: { slug: string }) {
   const entry = journal.entries.find((item) => item.slug === slug);
   if (!entry) notFound();
 
