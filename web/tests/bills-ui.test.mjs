@@ -103,6 +103,12 @@ async function open(send, path, width, height) {
 
 const overlaySettled = `(function(){const panel=document.querySelector('[data-overlay="panel"]');if(!panel)return false;const box=panel.getBoundingClientRect();return box.width>200&&box.right<=window.innerWidth+2&&box.left>=-2;})()`;
 
+function hittable(finder) {
+  return `(function(){const el=${finder};if(!el)return false;el.scrollIntoView({block:"center",inline:"nearest"});const rect=el.getBoundingClientRect();const x=rect.left+rect.width/2;const y=rect.top+rect.height/2;const top=document.elementFromPoint(x,y);return rect.width>1&&x>=0&&y>=0&&x<=window.innerWidth&&y<=window.innerHeight&&!!(top&&(top===el||el.contains(top)));})()`;
+}
+
+const deleteButton = "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)";
+
 function setField(label, value) {
   return `(() => {
     const row = [...document.querySelectorAll("label")].find((el) => (el.innerText || "").trim().startsWith(${JSON.stringify(label)}));
@@ -155,9 +161,9 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await open(send, "/finance/bills/bill-phone", 390, 1100);
     await waitFor(send, `document.body.innerText.includes('Phone (example)') && document.body.innerText.includes('$55.00') && ${overlaySettled} ? 'yes' : ''`, "phone");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') && document.body.innerText.includes('Subscriptions') && document.body.innerText.includes('Delete') ? 'yes' : ''", "edit sheet");
+    await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Subscriptions') && ${hittable(deleteButton)} ? 'yes' : ''`, "edit sheet");
     await shot(send, "B04-app.png");
-    await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
+    await pointerClick(send, evalPage, deleteButton);
     await waitFor(send, "document.body.innerText.includes('Delete this bill?') ? 'yes' : ''", "confirm");
     await shot(send, "B08-app.png");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(-1)");
@@ -200,8 +206,8 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await pointerClick(send, evalPage, "[...document.querySelectorAll('a')].find((el) => (el.innerText || '').includes('Gym (example)'))");
     await waitFor(send, `[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') && ${overlaySettled} ? 'yes' : ''`, "gym detail");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "gym edit");
-    await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${hittable(deleteButton)} ? 'yes' : ''`, "gym edit");
+    await pointerClick(send, evalPage, deleteButton);
     await waitFor(send, "document.body.innerText.includes('Delete this bill?') ? 'yes' : ''", "gym confirm");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(0)");
     await waitFor(send, "document.body.innerText.includes('Gym (example)') ? '' : 'gone'", "deleted");
