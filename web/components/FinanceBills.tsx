@@ -728,7 +728,7 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
                         {rows.map((bill, index) => (
                           <li key={bill.id}>
                             {index > 0 ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
-                            <div className="flex min-h-16 items-center gap-3 px-4 py-2.5">
+                            <div className={`flex min-h-16 items-center gap-3 px-4 py-2.5 ${overlayOn && bill.id === selectedId ? "row-selected" : ""}`}>
                             <Link href={`/finance/bills/${bill.id}${suffix}`} onClick={() => rememberBill(bill.id)} aria-current={overlayOn && bill.id === selectedId ? "true" : undefined} className="flex min-w-0 flex-1 items-center gap-3">
                               <CategoryMark category={bill.category} />
                               <span className="min-w-0 flex-1">

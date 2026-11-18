@@ -17,6 +17,8 @@
   --scrim: rgb(0 0 0 / 0.4);
   --finance-rgb: 46 139 106;
   --finance: rgb(var(--finance-rgb));
+  --selected-row: rgb(var(--finance-rgb) / 0.1);
+  --selected-row-line: transparent;
   --jobs-rgb: 58 134 200;
   --jobs: rgb(var(--jobs-rgb));
   --journal-rgb: 194 87 122;
@@ -73,6 +75,8 @@ html.dark,
   --tab-bg: rgb(20 26 22 / 0.95);
   --tab-line: #2a332d;
   --finance-rgb: 78 174 134;
+  --selected-row: rgb(var(--finance-rgb) / 0.22);
+  --selected-row-line: rgb(var(--finance-rgb) / 0.9);
   --jobs-rgb: 125 179 224;
   --journal-rgb: 224 122 154;
   --chart-positive: #4eae86;
@@ -174,6 +178,11 @@ html {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 20px;
+}
+
+.row-selected {
+  background: var(--selected-row);
+  box-shadow: inset 0 0 0 1px var(--selected-row-line);
 }
 
 .skeleton-bone {

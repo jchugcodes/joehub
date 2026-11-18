@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
-import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
+import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "../../components/LivePages";
+import { ConfirmDialog, OverlayPanel } from "../../components/OverlayPanel";
 import { Sheet } from "../../components/Sheet";
-import { GrocerySkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
+import { GrocerySkeleton, LoadError, RefreshBar, TextLine } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
+import { readOverlayHold } from "../../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 import type { GroceryItem } from "../../lib/contract";
 import { existingName, groupGrocery, sectionSuggestions } from "../../lib/grocery.mjs";
@@ -91,6 +93,8 @@ export default function GroceryPage() {
   const skeletonOn = useSkeletons();
   const holdsOn = useSkeletonHolds();
   const hold = readSkeletonHold(search, holdsOn);
+  const overlayOn = useOverlays();
+  const overlayHold = readOverlayHold(search, useOverlayHolds());
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [reloading, setReloading] = useState(false);
@@ -99,6 +103,7 @@ export default function GroceryPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [sheet, setSheet] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -250,8 +255,37 @@ export default function GroceryPage() {
     setSheet(true);
   }
 
-  function openEdit(item: GroceryItem) {
+  function openItem(item: GroceryItem) {
     if (offline || mode !== "ready") return;
+    setSelectedId(item.id);
+    setSheet(false);
+    setConfirmDelete(false);
+    setNameError("");
+    setQuantityError("");
+    setFormError("");
+  }
+
+  function closeForm() {
+    setSheet(false);
+    setConfirmDelete(false);
+    setNameError("");
+    setQuantityError("");
+    setFormError("");
+  }
+
+  function closeOverlay() {
+    setSelectedId("");
+    setSheet(false);
+    setEditingId(null);
+    setConfirmDelete(false);
+    setNameError("");
+    setQuantityError("");
+    setFormError("");
+    setDraft(emptyDraft());
+  }
+
+  function openEdit(item: GroceryItem) {
+    if (offline || mode !== "ready" || overlayHold === "offline") return;
     setEditingId(item.id);
     setConfirmDelete(false);
     setDraft({
@@ -263,6 +297,11 @@ export default function GroceryPage() {
     setNameError("");
     setQuantityError("");
     setFormError("");
+    if (overlayOn) {
+      setSelectedId(item.id);
+      window.setTimeout(() => setSheet(true), 0);
+      return;
+    }
     setSheet(true);
   }
 
@@ -270,11 +309,11 @@ export default function GroceryPage() {
     if (savingRef.current) return;
     setConfirmDelete(false);
     setSheet(false);
-    setEditingId(null);
+    if (!overlayOn) setEditingId(null);
     setNameError("");
     setQuantityError("");
     setFormError("");
-    setDraft(emptyDraft());
+    if (!overlayOn) setDraft(emptyDraft());
   }
 
   useEffect(() => {
@@ -343,6 +382,7 @@ export default function GroceryPage() {
       await writeCache(next, Date.now());
       setSheet(false);
       setEditingId(null);
+      setSelectedId("");
       setDraft(emptyDraft());
       void load();
     } catch {
@@ -423,6 +463,7 @@ export default function GroceryPage() {
       setConfirmDelete(false);
       setSheet(false);
       setEditingId(null);
+      setSelectedId("");
       setDraft(emptyDraft());
       void load();
     } catch {
@@ -452,6 +493,9 @@ export default function GroceryPage() {
             .join(", ")}, and ${checkedItems[checkedItems.length - 1].name}`;
   const addDisabled = offline || mode !== "ready";
   const saveDisabled = offline || saving;
+  const selectedItem = items.find((item) => item.id === selectedId) || null;
+  const panelOffline = overlayOn && (overlayHold === "offline" || offline);
+  const panelOpen = overlayOn && (Boolean(selectedItem) || (sheet && Boolean(editingId)));
 
   const banners = (
     <>
@@ -548,7 +592,7 @@ export default function GroceryPage() {
                   {group.items.map((item: GroceryItem) => {
                     const meta = metaLine(item);
                     return (
-                      <li key={item.id} className="card flex min-w-0 items-center">
+                      <li key={item.id} aria-current={overlayOn && wide && item.id === selectedId ? "true" : undefined} data-selected={overlayOn && wide && item.id === selectedId ? "true" : undefined} className={`card flex min-w-0 items-center ${overlayOn && wide && item.id === selectedId ? "row-selected" : ""}`}>
                         <button
                           type="button"
                           role="checkbox"
@@ -573,7 +617,7 @@ export default function GroceryPage() {
                           className="min-h-11 min-w-0 flex-1 py-3.5 pr-3.5 text-left disabled:opacity-60"
                           aria-label={`Edit ${item.name}`}
                           disabled={offline}
-                          onClick={() => openEdit(item)}
+                          onClick={() => (overlayOn ? openItem(item) : openEdit(item))}
                         >
                           <p className={`break-words text-body font-medium ${item.checked ? "text-muted line-through" : ""}`}>{item.name}</p>
                           {meta ? <p className="mt-1 break-words text-meta text-muted">{meta}</p> : null}
@@ -598,7 +642,7 @@ export default function GroceryPage() {
           </div>
         ) : null}
       </div>
-      {wide && !sheet ? (
+      {wide && !sheet && !panelOpen ? (
         <aside className="card h-fit w-[400px] shrink-0 p-5">
           <h2 className="text-section font-medium">Select an item</h2>
         </aside>
@@ -614,27 +658,10 @@ export default function GroceryPage() {
           <Icon name="plus" size={24} strokeWidth={2.2} />
         </button>
       ) : null}
-      {sheet ? (
-        <Sheet
-          title={editingId ? "Edit item" : "Add an item"}
-          onClose={cancel}
-          frame
-          dock={wide ? "panel" : "sheet"}
-          titleClassName="text-section font-medium"
-          header="slim"
-          formId="grocery-form"
-          saveLabel="Save"
-          saveDisabled={saveDisabled}
-          aside={
-            wide && editingId ? (
-              <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
-                Delete
-              </button>
-            ) : null
-          }
-        >
+      {(() => {
+        const itemForm = (
           <form id="grocery-form" className="space-y-5" onSubmit={save}>
-            {editingId && !wide ? (
+            {editingId && !wide && !overlayOn ? (
               <button type="button" className="flex min-h-11 min-w-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
                 Delete
               </button>
@@ -726,8 +753,100 @@ export default function GroceryPage() {
               </p>
             ) : null}
           </form>
-        </Sheet>
-      ) : null}
+        );
+        const statusColor = selectedItem?.checked ? "var(--status-done)" : "var(--status-todo)";
+        const statusLabel = selectedItem?.checked ? "Checked" : "To get";
+        const detailMeta = selectedItem ? metaLine(selectedItem) : "";
+        const overlayBody = overlayHold === "error" ? (
+          <LoadError onRetry={() => void load()} />
+        ) : overlayHold === "skel" ? (
+          <div data-skeleton="item" aria-busy="true" className="px-5 py-4">
+            <TextLine height={24} width={180} />
+            <TextLine height={12} width={120} className="mt-3" />
+            <TextLine height={13} width={160} className="mt-3" />
+          </div>
+        ) : sheet && editingId ? (
+          <div className="px-5 py-4">
+            {itemForm}
+            <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirmDelete(true); }} className="mt-2 flex min-h-11 items-center text-body font-medium" style={{ color: "var(--ink)", opacity: panelOffline ? 0.4 : 1 }}>
+              Delete
+            </button>
+          </div>
+        ) : selectedItem ? (
+          <div className="px-5 py-4" data-item-detail="true">
+            <span data-status={statusLabel} className="inline-flex shrink-0 rounded-full px-2.5 py-1 text-meta font-medium" style={{ color: statusColor, backgroundColor: `color-mix(in srgb, ${statusColor} 8%, transparent)` }}>
+              {statusLabel}
+            </span>
+            {detailMeta ? <p data-item-meta="true" className="mt-2 text-meta text-muted">{detailMeta}</p> : null}
+            {overlayHold === "empty" ? <p className="mt-3 text-body text-muted" data-state="empty">No notes.</p> : selectedItem.notes ? <p className="mt-3 text-body">{selectedItem.notes}</p> : null}
+            <button
+              type="button"
+              disabled={panelOffline}
+              onClick={() => { if (!panelOffline) void toggle(selectedItem); }}
+              className="mt-5 flex h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-40"
+            >
+              {selectedItem.checked ? "Uncheck" : "Check off"}
+            </button>
+            {panelOffline ? (
+              <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+                You are offline.
+              </p>
+            ) : null}
+          </div>
+        ) : null;
+        const panel = (panelWide: boolean) => (
+          <OverlayPanel
+            wide={panelWide}
+            depth={sheet && editingId ? 1 : 0}
+            title={sheet && editingId ? "Edit item" : selectedItem?.name || "Item"}
+            onClose={closeOverlay}
+            onBack={sheet && editingId && selectedId ? closeForm : undefined}
+            form={Boolean(sheet && editingId)}
+            confirming={confirmDelete}
+            slim={Boolean(sheet && editingId)}
+            sheet={Boolean(sheet && editingId)}
+            action={sheet && editingId ? (
+              <button type="submit" form="grocery-form" disabled={offline || saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+                <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
+              </button>
+            ) : (
+              <button type="button" disabled={panelOffline} onClick={() => { if (selectedItem && !panelOffline) openEdit(selectedItem); }} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-ink"}`}>
+                Edit
+              </button>
+            )}
+          >
+            {overlayBody}
+          </OverlayPanel>
+        );
+        return (
+          <>
+            {sheet && (!overlayOn || !editingId) ? (
+              <Sheet
+                title={editingId ? "Edit item" : "Add an item"}
+                onClose={cancel}
+                frame
+                dock={wide ? "panel" : "sheet"}
+                titleClassName="text-section font-medium"
+                header="slim"
+                formId="grocery-form"
+                saveLabel={saving ? "Saving…" : "Save"}
+                saveDisabled={saveDisabled || panelOffline}
+                aside={
+                  wide && editingId && !overlayOn ? (
+                    <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline || saving}>
+                      Delete
+                    </button>
+                  ) : null
+                }
+              >
+                {itemForm}
+              </Sheet>
+            ) : null}
+            {panelOpen && wide ? panel(true) : null}
+            {panelOpen && !wide ? panel(false) : null}
+          </>
+        );
+      })()}
       {confirmClear ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
           <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-clear-title" id="grocery-clear-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
@@ -743,7 +862,8 @@ export default function GroceryPage() {
           </div>
         </div>
       ) : null}
-      {confirmDelete ? (
+      {overlayOn && confirmDelete ? <ConfirmDialog title="Delete this item?" onCancel={() => { setConfirmDelete(false); setFormError(""); }} onConfirm={() => void removeItem()} /> : null}
+      {!overlayOn && confirmDelete ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+16px)] sm:items-center sm:pb-4">
           <div role="alertdialog" aria-modal="true" aria-labelledby="grocery-delete-title" id="grocery-delete-dialog" className="w-full max-w-[360px] rounded-[20px] bg-surface p-5 shadow-2xl">
             <h2 id="grocery-delete-title" className="text-section font-medium">Delete this item?</h2>
