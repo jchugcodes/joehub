@@ -122,8 +122,16 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     await press("Edit Delete the sample bag");
     await waitForSheetDelete();
     await press("Delete");
-    while (Date.now() < deadline && !(await evalPage(confirmOpen))) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+    const openedBy = Date.now() + 8000;
+    while (Date.now() < openedBy && !(await evalPage(confirmOpen))) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if ((await evalPage(confirmOpen)) !== "yes") throw new Error("delete confirm did not open");
+    const idleBy = Date.now() + 4000;
+    while (Date.now() < idleBy) {
+      const idle = await evalPage("(() => { const root = document.querySelector(\"[role='alertdialog']\"); if (!root) return ''; return root.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running') ? '' : 'yes'; })()");
+      if (idle === "yes") break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const shot = await send("Page.captureScreenshot", { format: "png" });
     writeFileSync(`${ARTIFACTS}/tasks_delete_confirm_390.png`, Buffer.from(shot.result.data, "base64"));
