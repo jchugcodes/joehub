@@ -273,7 +273,7 @@ export function FinanceSpending() {
         <div className="flex min-h-11 items-center justify-between gap-4 px-4">
           <dt className="text-muted">Category</dt>
           <dd className="flex items-center gap-2 font-medium">
-            <CategoryMark category={selected.category} type={selected.type} />
+            <CategoryMark category={selected.uncategorized ? "uncategorized" : selected.category} type={selected.type} />
             {categoryName(selected.category)}
           </dd>
         </div>
@@ -297,6 +297,9 @@ export function FinanceSpending() {
 
   const editForm = selected ? (
     <form id="spending-form" data-edit="open" onSubmit={save} className="space-y-3">
+      <p data-edit-context className="truncate text-meta text-muted">
+        {selected.payee} · {txnMoney(selected.amountCents)}
+      </p>
       <button
         type="button"
         data-autofocus
@@ -491,13 +494,13 @@ export function FinanceSpending() {
                             className={`flex min-h-11 w-full items-center gap-3 border-b border-line py-2.5 text-left text-ink hover:text-ink focus:text-ink ${overlayOn && row.id === selectedId ? "row-selected" : ""}`}
                             onClick={() => go((next) => next.set("txn", row.id))}
                           >
-                            <CategoryMark category={row.category} type={row.type} />
+                            <CategoryMark category={row.uncategorized ? "uncategorized" : row.category} type={row.type} />
                             <span className="min-w-0 flex-1">
                               <span className="block text-body font-medium">{row.payee}</span>
                               <span className="block text-meta text-muted">
                                 {row.meta}
-                                {row.corrected ? <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span> : null}
-                                {row.uncategorized && !row.meta.includes("Uncategorized") ? <span className="ml-1 rounded bg-[#6B746E1F] px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
+                                {row.corrected ? <span className="ml-1 rounded bg-finance-primary/15 px-1.5 py-0.5 text-meta font-medium text-finance-primary">Corrected</span> : null}
+                                {row.uncategorized && !row.meta.includes("Uncategorized") ? <span className="ml-1 rounded bg-table-header px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
                               </span>
                             </span>
                             <span className={`text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{txnMoney(row.amountCents)}</span>

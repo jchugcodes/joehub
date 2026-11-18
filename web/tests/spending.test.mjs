@@ -39,6 +39,11 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /onBack=\{editing \? closeEdit/);
   assert.match(ui, /slim=\{editing\}/);
   assert.match(ui, /!row\.meta\.includes\("Uncategorized"\)/);
+  assert.match(ui, /data-edit-context/);
+  assert.match(ui, /txnMoney\(selected\.amountCents\)/);
+  assert.match(ui, /row\.uncategorized \? "uncategorized"/);
+  assert.match(ui, /No spending this month\./);
+  assert.doesNotMatch(ui, /#[0-9A-Fa-f]{3,8}/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
   assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger|reset-ledger/);
 });
