@@ -154,7 +154,7 @@ test("appearance light, dark, and system persist on the device", { skip }, async
     assert.equal(categories.week, "rgb(236, 241, 238)");
     assert.equal(categories.monthBg, "rgb(236, 241, 238)");
     assert.equal(categories.monthFg, "rgb(14, 19, 16)");
-    assert.equal(categories.row, "rgb(22, 29, 24)");
+    assert.equal(categories.row, "rgba(78, 174, 134, 0.22)");
     ws.close();
   } finally {
     await stopProcess(chrome);

@@ -67,6 +67,7 @@ test("accounts read the overlay flag from context and never the public env name"
   const bills = readFileSync(new URL("components/FinanceBills.tsx", root), "utf8");
   const tasks = readFileSync(new URL("app/tasks/page.tsx", root), "utf8");
   const grocery = readFileSync(new URL("app/grocery/page.tsx", root), "utf8");
+  const categories = readFileSync(new URL("components/FinanceCategory.tsx", root), "utf8");
   const css = readFileSync(new URL("app/globals.css", root), "utf8");
   const layout = readFileSync(new URL("app/layout.tsx", root), "utf8");
   assert.match(accounts, /useOverlays\(\)/);
@@ -99,6 +100,16 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(grocery, /Check off/);
   assert.doesNotMatch(grocery, /overlay-flag/);
   assert.doesNotMatch(grocery, /NEXT_PUBLIC_/);
+  assert.match(categories, /useOverlays\(\)/);
+  assert.match(categories, /readOverlayHold\(search, useOverlayHolds\(\)\)/);
+  assert.match(categories, /row-selected/);
+  assert.match(categories, /data-item-meta/);
+  assert.match(categories, /Monthly budgets/);
+  assert.match(categories, /text-left text-body text-ink/);
+  assert.doesNotMatch(categories, /Delete this category/);
+  assert.doesNotMatch(categories, /overlay-flag/);
+  assert.doesNotMatch(categories, /NEXT_PUBLIC_/);
+  assert.doesNotMatch(categories, /4,204/);
   assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.1\)/);
   assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.22\)/);
   assert.match(css, /--selected-row-line: transparent/);
