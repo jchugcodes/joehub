@@ -223,15 +223,20 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
         const field = input?.getBoundingClientRect();
         const view = scroller?.getBoundingClientRect();
         const seen = Boolean(field && view && field.top >= view.top - 1 && field.bottom <= view.bottom + 1 && field.height > 20);
+        const style = input ? getComputedStyle(input) : null;
         return JSON.stringify({
           id: document.activeElement?.id || "",
           seen,
           whole: Boolean(document.getElementById("budget-dining-out") && document.getElementById("budget-other")),
+          width: style ? style.borderTopWidth : "",
+          color: style ? style.borderTopColor : "",
         });
       })()`));
       assert.equal(focused.id, "budget-school");
       assert.equal(focused.seen, true);
       assert.equal(focused.whole, true);
+      assert.equal(focused.width, "2px");
+      assert.equal(focused.color, "rgb(31, 42, 36)");
     }
 
     await size(page.send, 390, 844);

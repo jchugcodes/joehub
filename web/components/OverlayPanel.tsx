@@ -116,16 +116,50 @@ function DesktopPin({ children }: { children: ReactNode }) {
   );
 }
 
-export function ConfirmDialog({ title, onCancel, onConfirm }: { title: string; onCancel: () => void; onConfirm: () => void }) {
+export function ConfirmDialog({
+  title,
+  detail,
+  error,
+  onCancel,
+  onConfirm,
+  confirmClassName,
+  confirmDisabled = false,
+}: {
+  title: string;
+  detail?: string;
+  error?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmClassName?: string;
+  confirmDisabled?: boolean;
+}) {
   const titleId = useId();
+  const detailId = useId();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 dark:bg-black/60">
-      <div role="alertdialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-[280px] rounded-[20px] bg-surface p-4 shadow-2xl">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={detail ? detailId : undefined}
+        className="w-full max-w-[280px] rounded-[20px] bg-surface p-4 shadow-2xl"
+      >
         <h2 id={titleId} className="text-center text-section font-medium">
           {title}
         </h2>
+        {detail ? (
+          <p id={detailId} className="mt-2 text-center text-body text-ink">
+            {detail}
+          </p>
+        ) : null}
+        {error ? <p className="mt-2 text-center text-meta font-medium text-warn">{error}</p> : null}
         <div className="mt-4 flex gap-2">
-          <button type="button" onClick={onConfirm} className="order-2 inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-finance-dining text-body font-medium text-white">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            className={confirmClassName || "order-2 inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-finance-dining text-body font-medium text-white disabled:opacity-50"}
+          >
             Delete
           </button>
           <button type="button" onClick={onCancel} className="order-1 inline-flex h-11 flex-1 items-center justify-center rounded-xl border border-line bg-surface text-body font-medium">

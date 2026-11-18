@@ -332,7 +332,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
               value={fields[item.slug] ?? ""}
               aria-invalid={budgetField === item.slug}
               data-autofocus={overlayOn && item.slug === slug ? "true" : undefined}
-              className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base"
+              className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base outline-none focus:border-2 focus:border-ink"
               onChange={(event) => {
                 setFields((current) => ({ ...current, [item.slug]: event.target.value }));
                 setBudgetField("");
