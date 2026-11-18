@@ -221,7 +221,13 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
               data-journal-part="hero"
               className={`relative h-20 overflow-hidden rounded-2xl ${selected.media === "lilac" ? "bg-gradient-to-br from-finance-subscriptions to-support-paleRose" : "bg-gradient-to-br from-journal to-support-paleRose"}`}
             >
-              <span className="absolute bottom-2 left-3 rounded-lg bg-white px-2 py-1 text-ui-12 font-semibold text-ink">{selected.place}</span>
+              <span data-journal-place="" className="absolute bottom-3 left-3 inline-flex items-center gap-1 text-ui-12 font-semibold text-white">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" />
+                  <circle cx="12" cy="10" r="2.2" />
+                </svg>
+                {selected.place}
+              </span>
             </div>
           ) : null}
           {selected.kind === "date" && selected.when ? (
@@ -234,8 +240,13 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
             <p className="mt-2">
               <span
                 data-journal-part="rating"
-                className={`inline-flex rounded-full px-2.5 py-1 text-ui-12 font-bold text-ink ${selected.rating === "Never again" ? "bg-finance-dining/15" : "bg-finance-primary/15"}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-ui-12 font-bold ${selected.rating === "Never again" ? "bg-finance-dining/15 text-finance-dining" : "bg-finance-primary/15 text-finance-primary"}`}
               >
+                {selected.rating === "Loved" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 20.5s-7.2-4.6-7.2-9.2a4.1 4.1 0 0 1 7.2-2.6 4.1 4.1 0 0 1 7.2 2.6c0 4.6-7.2 9.2-7.2 9.2z" />
+                  </svg>
+                ) : null}
                 {selected.rating}
               </span>
             </p>

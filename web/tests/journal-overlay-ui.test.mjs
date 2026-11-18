@@ -142,6 +142,11 @@ test("journal overlay is a read-only entry", { timeout: 180000, skip }, async ()
         parts: [...(panel?.querySelectorAll("[data-journal-part]") || [])].map((el) => el.getAttribute("data-journal-part")),
         meta: panel?.querySelector("[data-journal-part='meta']")?.textContent || "",
         ratingClass: panel?.querySelector("[data-journal-part='rating']")?.className || "",
+        ratingColor: panel?.querySelector("[data-journal-part='rating']") ? getComputedStyle(panel.querySelector("[data-journal-part='rating']")).color : "",
+        heart: panel?.querySelector("[data-journal-part='rating'] svg") ? "yes" : "no",
+        placeColor: panel?.querySelector("[data-journal-place]") ? getComputedStyle(panel.querySelector("[data-journal-place]")).color : "",
+        pin: panel?.querySelector("[data-journal-place] svg") ? "yes" : "no",
+        placeClass: panel?.querySelector("[data-journal-place]")?.className || "",
       });
     })()`));
     assert.equal(detail.title, "Lilia");
@@ -155,6 +160,12 @@ test("journal overlay is a read-only entry", { timeout: 180000, skip }, async ()
     assert.equal(detail.meta, "Date night · Sat Oct 31");
     assert.match(detail.ratingClass, /rounded-full/);
     assert.match(detail.ratingClass, /bg-finance-primary\/15/);
+    assert.match(detail.ratingClass, /text-finance-primary/);
+    assert.equal(detail.ratingColor, "rgb(46, 139, 106)");
+    assert.equal(detail.heart, "yes");
+    assert.equal(detail.placeColor, "rgb(255, 255, 255)");
+    assert.equal(detail.pin, "yes");
+    assert.doesNotMatch(detail.placeClass, /bg-white/);
     assert.match(detail.text, /Williamsburg/);
     assert.match(detail.text, /Loved/);
     assert.match(detail.text, /Cacio e pepe/);
