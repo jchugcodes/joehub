@@ -183,6 +183,13 @@ html {
 .row-selected {
   background: var(--selected-row);
   box-shadow: inset 0 0 0 1px var(--selected-row-line);
+  color: var(--ink);
+}
+
+.row-selected:hover,
+.row-selected:focus,
+.row-selected:focus-visible {
+  color: var(--ink);
 }
 
 .skeleton-bone {

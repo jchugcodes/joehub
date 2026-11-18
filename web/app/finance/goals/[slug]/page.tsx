@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { FinanceGoals } from "../../../../components/FinanceGoals";
 import { store } from "../../../../lib/store.mjs";
 
@@ -7,8 +8,16 @@ export default async function GoalDetailPage({ params }: { params: Promise<{ slu
   const { slug } = await params;
   try {
     const goals = await store.financeGoals();
-    return <FinanceGoals goals={Array.isArray(goals) ? goals : []} slug={slug} />;
+    return (
+      <Suspense fallback={null}>
+        <FinanceGoals goals={Array.isArray(goals) ? goals : []} slug={slug} />
+      </Suspense>
+    );
   } catch {
-    return <FinanceGoals goals={null} slug={slug} failed />;
+    return (
+      <Suspense fallback={null}>
+        <FinanceGoals goals={null} slug={slug} failed />
+      </Suspense>
+    );
   }
 }

@@ -48,7 +48,7 @@ export function PanelHeader({
           <button type="button" onClick={onBack || onClose} className="inline-flex h-11 min-w-11 shrink-0 items-start justify-center px-0 pb-0 pt-3 text-body text-ink">
             <span>Cancel</span>
           </button>
-          <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium text-ink">{title}</h2>
         </div>
         <div className="flex shrink-0 items-center">{action}</div>
       </div>
@@ -57,7 +57,7 @@ export function PanelHeader({
   return (
     <div className="flex h-11 shrink-0 items-center border-b border-line pl-1 pr-2">
       {dismissControl}
-      <h2 className="min-w-0 flex-1 truncate text-left text-section font-medium">{title}</h2>
+      <h2 className="min-w-0 flex-1 truncate text-left text-section font-medium text-ink">{title}</h2>
       {action ? <div className="flex shrink-0 items-center">{action}</div> : null}
     </div>
   );

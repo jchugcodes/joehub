@@ -165,8 +165,10 @@ test("goals list, detail, add, and the desktop split match the frames", { skip }
     await waitFor(send, "document.body.innerText.includes('Type') && document.body.innerText.includes('Savings') && document.body.innerText.includes('Target') && document.body.innerText.includes('$12,600') && document.body.innerText.includes('In account') && document.body.innerText.includes('Emergency savings') && document.body.innerText.includes('Monthly') && document.body.innerText.includes('$220') ? 'yes' : ''", "detail");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Transfer') || document.body.innerText.includes('Mark complete') ? 'yes' : 'no'"), "no");
     await shot(send, "G03-app.png");
-    await pressLabel(send, evalPage, "Back");
-    await waitFor(send, "document.body.innerText.includes('$740 / mo') && document.querySelector('[data-goals]')?.getAttribute('data-goals') === 'list' ? 'yes' : ''", "back");
+    const overlay = await evalPage(send, "document.querySelector(\"[data-overlay='panel'] [aria-label='Close']\") ? 'yes' : ''");
+    if (overlay === "yes") await evalPage(send, "document.querySelector(\"[data-overlay='panel'] [aria-label='Close']\").click()");
+    else await pressLabel(send, evalPage, "Back");
+    await waitFor(send, "document.body.innerText.includes('$740 / mo') && document.querySelector('[data-goals]')?.getAttribute('data-goals') === 'list' && !document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''", "back");
 
     await open(send, "/finance/goals", 1280, 900);
     await waitFor(send, "document.body.innerText.includes('Select a goal') && document.body.innerText.includes('$740 / mo') ? 'yes' : ''", "desktop empty panel");
@@ -195,7 +197,7 @@ test("an empty goals response shows the add action and not the seed", { skip }, 
     assert.ok(height >= 44);
     await shot(send, "G02-app.png");
     await pressLabel(send, evalPage, "Add a goal");
-    await waitFor(send, "document.querySelector('[data-sheet]') && document.getElementById('goal-name') ? 'yes' : ''", "add sheet");
+    await waitFor(send, "(() => { const panel = document.querySelector('[data-sheet]'); if (!panel || !document.getElementById('goal-name')) return ''; if (!panel.hasAttribute('data-state')) return 'yes'; const busy = panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running'); return !busy && panel.getAttribute('data-state') === 'open' ? 'yes' : ''; })()", "add sheet");
     const header = await evalPage(send, `(() => {
       const sheet = document.querySelector('[data-sheet]');
       const buttons = [...sheet.querySelectorAll('button')].filter((el) => ['Cancel', 'Save'].includes((el.innerText || '').trim()));
