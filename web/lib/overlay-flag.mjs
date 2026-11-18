@@ -5,8 +5,8 @@ function production(env) {
   return source.VERCEL_ENV === "production" || source[PUBLIC_VERCEL_ENV] === "production";
 }
 
-export function overlaysEnabled(env) {
-  return !production(env);
+export function overlaysEnabled() {
+  return true;
 }
 
 export function overlayHoldsEnabled(env) {
