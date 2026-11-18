@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useSkeletons } from "../../components/LivePages";
+import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { JournalSkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
 import { journal } from "../../lib/design-fixtures";
@@ -73,7 +73,8 @@ export default function JournalPage() {
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(params, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(params, holdsOn);
 
   useEffect(() => {
     setReady(true);

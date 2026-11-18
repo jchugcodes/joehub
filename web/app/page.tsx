@@ -7,7 +7,7 @@ import { detroitHeading } from "../lib/detroit-date.mjs";
 import { money } from "../lib/finance.mjs";
 import { productionNav } from "../lib/live-pages.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
-import { skeletonsEnabled } from "../lib/skeleton-flag.mjs";
+import { skeletonHoldsEnabled } from "../lib/skeleton-flag.mjs";
 import { store } from "../lib/store.mjs";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export default async function HomePage({
 }) {
   const params = (await searchParams) || {};
   const xd = typeof params.xd === "string" ? params.xd : "";
-  const hold = readSkeletonHold(xd ? `?xd=${xd}` : "", skeletonsEnabled());
+  const hold = readSkeletonHold(xd ? `?xd=${xd}` : "", skeletonHoldsEnabled());
   if (hold === "skel") return <HomeSkeleton />;
   if (hold === "error") return <HomeRetry />;
   if (hold === "empty") return <p className="px-5 py-16 text-center text-body text-muted" data-state="empty">Nothing yet.</p>;

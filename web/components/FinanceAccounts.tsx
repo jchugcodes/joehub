@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
-import { useProductionNav, useSkeletons } from "./LivePages";
+import { useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
 import { AccountsSkeleton } from "./Skeleton";
 import { Sheet } from "./Sheet";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
@@ -141,7 +141,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const asOf = search.get("asOf") || "";
   const fromMore = search.get("from") === "more";
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const previewEmpty = search.get("view") === "empty" || hold === "empty";
   const previewLink = search.get("link") || "";
   const production = useProductionNav();
