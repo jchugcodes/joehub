@@ -163,21 +163,36 @@ test("task overlay shows the detail, marks done, and pushes edit", { skip, timeo
         const mark = [...root.querySelectorAll("button")].find((button) => (button.innerText || "").trim() === "Mark done");
         return JSON.stringify({
           title: root.querySelector("h2")?.textContent || "",
+          headings: [...document.querySelectorAll("[role='dialog'] h2")].map((node) => node.textContent || ""),
           text: root.innerText,
-          heading: document.querySelector("[role='dialog'] h2")?.textContent || "",
+          pill: root.querySelector("[data-status]")?.textContent || "",
+          meta: root.querySelector("[data-task-meta]")?.textContent || "",
+          created: /Created /.test(root.innerText),
           mark: mark ? Math.round(mark.getBoundingClientRect().height) : 0,
           state: panel?.getAttribute("data-state") || "",
         });
       })()`));
-      assert.equal(detail.title, TASK);
-      assert.equal(detail.heading, TASK);
-      assert.match(detail.text, /Errands/);
-      assert.match(detail.text, /Due Nov 15/);
+      assert.equal(detail.title, "");
+      assert.deepEqual(detail.headings, [TASK]);
+      assert.equal(detail.pill, "To do");
+      assert.equal(detail.meta, "Errands · Medium · Due Nov 15");
+      assert.equal(detail.created, false);
       assert.match(detail.text, /Synthetic task\. Not a real errand\./);
       assert.ok(detail.mark >= 44, `mark done height ${detail.mark}`);
       assert.equal(detail.state, "open");
 
+      const row = JSON.parse(await evalPage(page.send, `(() => {
+        const current = document.querySelector('[aria-label="${`Edit ${TASK}`}"]')?.closest("li");
+        return JSON.stringify({
+          current: current?.getAttribute("aria-current") || "",
+          selected: current?.getAttribute("data-selected") || "",
+          bg: current ? getComputedStyle(current).backgroundColor : "",
+        });
+      })()`));
       if (viewport.pin) {
+        assert.equal(row.current, "true");
+        assert.equal(row.selected, "true");
+        assert.match(row.bg, /46,\s*139,\s*106/);
         const pin = await evalPage(page.send, `(() => {
           const panel = document.querySelector("[data-overlay='desktop']");
           const bar = document.querySelector("nav[aria-label='Primary']");
@@ -187,6 +202,51 @@ test("task overlay shows the detail, marks done, and pushes edit", { skip, timeo
           return box.bottom <= nav.top + 1 && box.bottom >= nav.top - 2 ? "clear" : JSON.stringify({ bottom: box.bottom, nav: nav.top });
         })()`);
         assert.equal(pin, "clear");
+
+        assert.equal(await pressLabel(page.send, evalPage, "Edit Sketch the sample poster"), "yes");
+        await waitFor(page.send, `(() => {
+          const panel = document.querySelector("[data-overlay='panel']");
+          const root = panel?.querySelector("[data-task-detail='true']");
+          if (!panel || panel.getAttribute("data-state") !== "open" || !root) return "";
+          if (panel.querySelector("h2")?.textContent !== "Sketch the sample poster") return "";
+          return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running") ? "" : "yes";
+        })()`, "poster detail");
+        const poster = JSON.parse(await evalPage(page.send, `(() => {
+          const root = document.querySelector("[data-task-detail='true']");
+          const selected = document.querySelector("[aria-label='Edit Sketch the sample poster']")?.closest("li");
+          const bot = root.querySelector("[data-bot]");
+          return JSON.stringify({
+            title: root.querySelector("h2")?.textContent || "",
+            headings: [...document.querySelectorAll("[role='dialog'] h2")].map((node) => node.textContent || ""),
+            pill: root.querySelector("[data-status]")?.textContent || "",
+            meta: root.querySelector("[data-task-meta]")?.textContent || "",
+            created: /Created /.test(root.innerText),
+            bot: bot?.getAttribute("data-bot") || "",
+            progress: bot?.innerText || "",
+            current: selected?.getAttribute("aria-current") || "",
+            bg: selected ? getComputedStyle(selected).backgroundColor : "",
+          });
+        })()`));
+        assert.equal(poster.title, "");
+        assert.deepEqual(poster.headings, ["Sketch the sample poster"]);
+        assert.equal(poster.pill, "Doing");
+        assert.equal(poster.meta, "Home · High");
+        assert.equal(poster.created, false);
+        assert.equal(poster.bot, "Cela");
+        assert.match(poster.progress, /Building sample list/);
+        assert.match(poster.progress, /60%/);
+        assert.equal(poster.current, "true");
+        assert.match(poster.bg, /46,\s*139,\s*106/);
+
+        assert.equal(await pressLabel(page.send, evalPage, `Edit ${TASK}`), "yes");
+        await waitFor(page.send, `(() => {
+          const panel = document.querySelector("[data-overlay='panel']");
+          if (!panel || panel.getAttribute("data-state") !== "open" || panel.querySelector("h2")?.textContent !== ${JSON.stringify(TASK)}) return "";
+          return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running") ? "" : "yes";
+        })()`, "back to pack");
+      } else {
+        assert.equal(row.current, "");
+        assert.equal(row.selected, "");
       }
 
       assert.equal(await pressLabel(page.send, evalPage, "Edit"), "yes");

@@ -726,11 +726,14 @@ export default function TasksPage() {
     const listColor = listAccent(resolveTaskList(task.project, lists).color);
     const accent = activeQuery ? "" : group === "status" ? statusColor : group === "project" ? listColor : "";
     const created = createdLabel(task.createdAt);
+    const selected = overlayOn && wide && task.id === selectedId;
     return (
       <li
         key={task.id}
+        aria-current={selected ? "true" : undefined}
+        data-selected={selected ? "true" : undefined}
         className="card flex min-w-0 items-start gap-1 p-2"
-        style={accent ? { boxShadow: `inset 4px 0 0 ${accent}`, backgroundColor: `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
+        style={accent || selected ? { ...(accent ? { boxShadow: `inset 4px 0 0 ${accent}` } : {}), backgroundColor: selected ? "rgb(var(--finance-rgb) / 0.1)" : `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
       >
         <button
           type="button"
@@ -1171,9 +1174,10 @@ export default function TasksPage() {
           </div>
         ) : selectedTask ? (
           <div className="px-5 py-4" data-task-detail="true">
-            <h2 className="text-title font-medium">{selectedTask.title}</h2>
-            {selectedTask.project ? <p className="mt-2 text-body">{resolveTaskList(selectedTask.project, lists).label}</p> : null}
-            {selectedTask.dueDate ? <p className="mt-1 text-body text-muted">{dueLabel(selectedTask.dueDate)}</p> : null}
+            <span data-status={selectedTask.status} className="inline-flex shrink-0 rounded-full px-2.5 py-1 text-meta font-medium" style={{ color: STATUS_VAR[selectedTask.status] || "var(--muted)", backgroundColor: `color-mix(in srgb, ${STATUS_VAR[selectedTask.status] || "var(--muted)"} 8%, transparent)` }}>
+              {selectedTask.status}
+            </span>
+            {taskMeta(selectedTask, lists) ? <p data-task-meta="true" className="mt-2 text-meta text-muted">{taskMeta(selectedTask, lists)}</p> : null}
             {overlayHold === "empty" ? <p className="mt-3 text-body text-muted" data-state="empty">No notes.</p> : selectedTask.notes ? <p className="mt-3 text-body">{selectedTask.notes}</p> : null}
             {selectedTask.bot ? <BotLine bot={selectedTask.bot} /> : null}
             <button
