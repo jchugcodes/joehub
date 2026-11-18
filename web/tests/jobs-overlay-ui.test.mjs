@@ -141,6 +141,7 @@ test("jobs overlay is a read-only Globex detail", { timeout: 180000, skip }, asy
         row: row?.classList.contains("row-selected") ? "yes" : "no",
         rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
         nameColor: row ? getComputedStyle(row).color : "",
+        fit: panel?.querySelector("[data-fit-score]") ? getComputedStyle(panel.querySelector("[data-fit-score]")).color : "",
       });
     })()`));
     assert.equal(detail.title, "Senior Product Analyst");
@@ -162,6 +163,7 @@ test("jobs overlay is a read-only Globex detail", { timeout: 180000, skip }, asy
     assert.equal(detail.row, "yes");
     assert.ok(detail.rowH >= 44);
     assert.equal(detail.nameColor, "rgb(31, 42, 36)");
+    assert.equal(detail.fit, "rgb(46, 139, 106)");
 
     await send("Page.navigate", { url: `${base()}/jobs/globex?xe=offline` });
     await waitFor(send, `${settled} && document.querySelector("[data-overlay='panel'] [data-state='offline']") ? "yes" : ""`, "offline banner");
