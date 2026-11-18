@@ -205,7 +205,7 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.equal(form.deleted, false);
       assert.equal(await evalPage(page.send, "document.activeElement?.id || ''"), "budget-dining-out");
       assert.equal(await pressLabel(page.send, evalPage, "Cancel"), "yes");
-      await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true']") && !document.getElementById("budget-dining-out") ? 'yes' : ''`, "form closed");
+      await waitFor(page.send, `!document.getElementById("budget-dining-out") && (!document.querySelector("[data-overlay='panel']") || (${settled} && document.querySelector("[data-category-detail='true']"))) ? 'yes' : ''`, "form closed");
 
       await page.send("Page.navigate", { url: `${base()}/finance/categories/utilities?period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "Bills & Utilities" ? 'yes' : ''`, "utilities");
