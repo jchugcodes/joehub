@@ -5,18 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
-import { useProductionNav } from "./LivePages";
+import { useProductionNav, useSkeletons } from "./LivePages";
 import { AccountsSkeleton } from "./Skeleton";
 import { Sheet } from "./Sheet";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
-import { createSkeletonGate, readSkeletonHold, skeletonsEnabled } from "../lib/skeleton-gate.mjs";
-
-function skeletonEnv() {
-  return {
-    VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
-    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
-  };
-}
+import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
 type Account = {
   id: string;
@@ -147,8 +140,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const search = useSearchParams();
   const asOf = search.get("asOf") || "";
   const fromMore = search.get("from") === "more";
-  const skeletonOn = skeletonsEnabled(skeletonEnv());
-  const hold = readSkeletonHold(search, skeletonEnv());
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
   const previewEmpty = search.get("view") === "empty" || hold === "empty";
   const previewLink = search.get("link") || "";
   const production = useProductionNav();

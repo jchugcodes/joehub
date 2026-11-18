@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { createSkeletonGate, readSkeletonHold, skeletonsEnabled } from "../lib/skeleton-gate.mjs";
+import { skeletonsEnabled } from "../lib/skeleton-flag.mjs";
+import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
 test("skeletons stay off in production and the hold is inert there", () => {
   assert.equal(skeletonsEnabled({ VERCEL_ENV: "production" }), false);
@@ -10,10 +11,10 @@ test("skeletons stay off in production and the hold is inert there", () => {
   assert.equal(skeletonsEnabled({ NODE_ENV: "production" }), true);
   assert.equal(skeletonsEnabled({ VERCEL_ENV: "preview" }), true);
   assert.equal(skeletonsEnabled({}), true);
-  assert.equal(readSkeletonHold("?xd=skel", { VERCEL_ENV: "production" }), "");
-  assert.equal(readSkeletonHold("?xd=error", { NEXT_PUBLIC_VERCEL_ENV: "production" }), "");
-  assert.equal(readSkeletonHold("?xd=skel", { VERCEL_ENV: "preview" }), "skel");
-  assert.equal(readSkeletonHold("?xd=nope", {}), "");
+  assert.equal(readSkeletonHold("?xd=skel", false), "");
+  assert.equal(readSkeletonHold("?xd=error", false), "");
+  assert.equal(readSkeletonHold("?xd=skel", true), "skel");
+  assert.equal(readSkeletonHold("?xd=nope", true), "");
 });
 
 test("a fast response never shows a skeleton", (t) => {

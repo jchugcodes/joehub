@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { AppShell } from "../components/AppShell";
 import { LivePagesProvider } from "../components/LivePages";
 import { productionNav } from "../lib/live-pages.mjs";
+import { skeletonsEnabled } from "../lib/skeleton-flag.mjs";
 import "./globals.css";
 
 /** Same bytes as sources/fonts/DM-Sans-variable.ttf (SHA-256 8cd08d97…). next/font/local serves that file. */
@@ -36,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {`(function(){try{var mode=localStorage.getItem("joehub-appearance");if(mode!=="light"&&mode!=="dark"&&mode!=="system")mode="system";var dark=mode==="dark"||(mode==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark);document.documentElement.dataset.appearance=mode;document.documentElement.dataset.theme=dark?"dark":"light";}catch(e){}})();`}
         </Script>
         <Suspense fallback={<main className="p-4">Loading joehub</main>}>
-          <LivePagesProvider production={productionNav()}>
+          <LivePagesProvider production={productionNav()} skeletons={skeletonsEnabled()}>
             <AppShell>{children}</AppShell>
           </LivePagesProvider>
         </Suspense>

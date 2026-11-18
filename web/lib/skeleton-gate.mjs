@@ -1,15 +1,10 @@
 export const SKELETON_DELAY_MS = 180;
 export const SKELETON_HOLD_MS = 300;
 
-export function skeletonsEnabled(env) {
-  const source = env || process.env;
-  return source.VERCEL_ENV !== "production" && source.NEXT_PUBLIC_VERCEL_ENV !== "production";
-}
-
 const HOLDS = new Set(["skel", "refresh", "section", "error", "empty"]);
 
-export function readSkeletonHold(search, env) {
-  if (!skeletonsEnabled(env)) return "";
+export function readSkeletonHold(search, enabled) {
+  if (!enabled) return "";
   const params = typeof search === "string" ? new URLSearchParams(search.replace(/^\?/, "")) : search;
   const value = params?.get?.("xd") || "";
   return HOLDS.has(value) ? value : "";

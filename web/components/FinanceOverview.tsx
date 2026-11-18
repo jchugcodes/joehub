@@ -5,20 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { hasNetWorthHistory, periodChange } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
-import { createSkeletonGate, readSkeletonHold, skeletonsEnabled } from "../lib/skeleton-gate.mjs";
+import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { IncomeSpent, type Flow } from "./IncomeSpent";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
-import { useProductionNav } from "./LivePages";
+import { useProductionNav, useSkeletons } from "./LivePages";
 import { LoadError, MonthSkeleton, OverviewSkeleton, RefreshBar } from "./Skeleton";
-
-function skeletonEnv() {
-  return {
-    VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
-    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
-  };
-}
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
 type Range = (typeof RANGES)[number];
@@ -394,8 +387,8 @@ function NetWorthChart(props: {
 export function FinanceOverview() {
   const production = useProductionNav();
   const search = useSearchParams();
-  const skeletonOn = skeletonsEnabled(skeletonEnv());
-  const hold = readSkeletonHold(search, skeletonEnv());
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [phase, setPhase] = useState("idle");
   const [refreshing, setRefreshing] = useState(false);
