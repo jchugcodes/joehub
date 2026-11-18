@@ -16,7 +16,7 @@ test("preview and dev keep the full nav", () => {
   );
   assert.deepEqual(
     financeTabs({}).map((tab) => tab.label),
-    ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills"],
+    ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills", "Spending"],
   );
 });
 
@@ -35,12 +35,14 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
       financeTabs(env).map((tab) => tab.label),
       ["Overview", "Categories", "Accounts", "Bills"],
     );
+    assert.equal(financeTabs(env).some((tab) => tab.label === "Spending"), false);
   }
+  assert.equal(isGatedPath("/finance/spending"), true);
 });
 
 test("production middleware redirects gated pages and leaves auth and api alone", async () => {
   const env = { ...open, NEXT_PUBLIC_VERCEL_ENV: "production" };
-  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/not-a-page"]) {
+  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/finance/spending", "/not-a-page"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "redirect", path);
     assert.equal(decision.location, "/tasks", path);

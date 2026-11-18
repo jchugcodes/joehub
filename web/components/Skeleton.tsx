@@ -106,6 +106,24 @@ export function OverviewSkeleton() {
   );
 }
 
+export function SpendingSkeleton() {
+  return (
+    <div data-skeleton="spending" aria-busy="true" className="px-5 pb-8 pt-5">
+      <Card className="p-4">
+        <TextLine height={13} width={120} />
+        <TextLine height={24} width={96} className="mt-3" />
+        <TextLine height={12} width={160} className="mt-3" />
+      </Card>
+      <div className="mt-4">
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow />
+      </div>
+    </div>
+  );
+}
+
 export function MonthSkeleton() {
   return (
     <div className="mt-6" data-skeleton="month">
