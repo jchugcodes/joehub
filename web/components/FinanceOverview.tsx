@@ -1,14 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { hasNetWorthHistory, periodChange } from "../lib/finance.mjs";
 import { showMonthBudget, showNetWorthChart } from "../lib/live-pages.mjs";
+import { createSkeletonGate, readSkeletonHold, skeletonsEnabled } from "../lib/skeleton-gate.mjs";
 import { FinanceTabs } from "./FinanceTabs";
 import { IncomeSpent, type Flow } from "./IncomeSpent";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
 import { useProductionNav } from "./LivePages";
+import { LoadError, MonthSkeleton, OverviewSkeleton, RefreshBar } from "./Skeleton";
+
+function skeletonEnv() {
+  return {
+    VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+  };
+}
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
 type Range = (typeof RANGES)[number];
@@ -383,7 +393,13 @@ function NetWorthChart(props: {
 
 export function FinanceOverview() {
   const production = useProductionNav();
+  const search = useSearchParams();
+  const skeletonOn = skeletonsEnabled(skeletonEnv());
+  const hold = readSkeletonHold(search, skeletonEnv());
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [phase, setPhase] = useState("idle");
+  const [refreshing, setRefreshing] = useState(false);
+  const [sectionHold, setSectionHold] = useState(false);
   const [week, setWeek] = useState("");
   const [range, setRange] = useState<Range>("YTD");
   const [asOf, setAsOf] = useState("");
@@ -393,6 +409,8 @@ export function FinanceOverview() {
   const [wide, setWide] = useState(false);
   const [message, setMessage] = useState("");
   const overviewRef = useRef<Overview | null>(null);
+  const bodyRef = useRef<Overview | null>(null);
+  const gateRef = useRef<ReturnType<typeof createSkeletonGate> | null>(null);
   const weekRef = useRef("");
   const rangeRef = useRef<Range>("YTD");
   const asOfRef = useRef("");
@@ -405,14 +423,22 @@ export function FinanceOverview() {
   asOfRef.current = asOf;
 
   const remember = useCallback((body: Overview) => {
-    setOverview(body);
+    bodyRef.current = body;
+    overviewRef.current = body;
     setUpdated(stamp(Date.now()));
     try {
       sessionStorage.setItem(CACHE, JSON.stringify(body));
     } catch {
       /* snapshot is best-effort */
     }
-  }, []);
+    const gate = gateRef.current;
+    const painting = Boolean(skeletonOn && gate && (gate.phase() === "pending" || gate.phase() === "skeleton"));
+    if (!painting) setOverview(body);
+    if (skeletonOn && hold === "section") setSectionHold(true);
+    if (skeletonOn && hold === "refresh") setRefreshing(true);
+    else if (skeletonOn) setRefreshing(false);
+    if (painting) gate?.resolve();
+  }, [skeletonOn, hold]);
 
   const load = useCallback(
     async (nextWeek = weekRef.current, nextRange = rangeRef.current, quiet = false) => {
@@ -420,6 +446,7 @@ export function FinanceOverview() {
       if (nextWeek) params.set("week", nextWeek);
       if (nextRange) params.set("range", nextRange);
       if (asOfRef.current) params.set("asOf", asOfRef.current);
+      if (skeletonOn && (overviewRef.current || bodyRef.current) && hold !== "refresh") setRefreshing(true);
       const response = await fetch(`/api/finance/overview?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as Overview;
@@ -447,9 +474,12 @@ export function FinanceOverview() {
     } catch {
       failures.current += 1;
       setTone(overviewRef.current ? (failures.current > 1 ? "reconnecting" : "offline") : "");
-      if (!overviewRef.current) setMessage("Finance is unavailable.");
+      if (!overviewRef.current) {
+        if (skeletonOn) gateRef.current?.fail();
+        else setMessage("Finance is unavailable.");
+      } else if (skeletonOn) setRefreshing(false);
     }
-  }, [load, tone]);
+  }, [load, tone, skeletonOn]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -462,22 +492,50 @@ export function FinanceOverview() {
     weekRef.current = initialWeek;
     rangeRef.current = initialRange;
     asOfRef.current = initialAsOf;
+    let hadCache = false;
     try {
       const cached = sessionStorage.getItem(CACHE);
-      if (cached) setOverview(JSON.parse(cached) as Overview);
+      if (cached && hold !== "skel" && hold !== "error") {
+        const parsed = JSON.parse(cached) as Overview;
+        hadCache = true;
+        bodyRef.current = parsed;
+        overviewRef.current = parsed;
+        setOverview(parsed);
+      }
     } catch {
       /* ignore a bad snapshot */
+    }
+    let unsub = () => {};
+    if (skeletonOn) {
+      const gate = createSkeletonGate();
+      gateRef.current = gate;
+      unsub = gate.subscribe((snap: { phase: string }) => {
+        setPhase(snap.phase);
+        if (snap.phase === "ready" && bodyRef.current) setOverview(bodyRef.current);
+      });
+      if (hold === "skel") gate.force("skeleton");
+      else if (hold === "error") gate.force("error");
+      else gate.start({ cached: hadCache || hold === "refresh" || hold === "section" });
+      if (hadCache && hold !== "refresh") setRefreshing(true);
     }
     const onResize = () => setWide(window.innerWidth >= 1024);
     onResize();
     window.addEventListener("resize", onResize);
     if (!navigator.onLine) setTone("offline");
-    void load(initialWeek, initialRange).catch(() => {
-      if (!navigator.onLine) setTone("offline");
-      else setMessage("Finance is unavailable.");
-    });
-    return () => window.removeEventListener("resize", onResize);
-  }, [load]);
+    if (!(skeletonOn && (hold === "skel" || hold === "error"))) {
+      void load(initialWeek, initialRange).catch(() => {
+        if (skeletonOn && hold !== "refresh") setRefreshing(false);
+        if (!navigator.onLine) setTone("offline");
+        else if (skeletonOn) gateRef.current?.fail();
+        else setMessage("Finance is unavailable.");
+      });
+    }
+    return () => {
+      unsub();
+      gateRef.current?.stop();
+      window.removeEventListener("resize", onResize);
+    };
+  }, [load, skeletonOn, hold]);
 
   useEffect(() => {
     const poll = () => {
@@ -508,6 +566,17 @@ export function FinanceOverview() {
       if (backTimer.current) clearTimeout(backTimer.current);
     };
   }, [refresh]);
+
+  function retry() {
+    setMessage("");
+    const gate = gateRef.current;
+    gate?.start();
+    setPhase("pending");
+    void load(weekRef.current, rangeRef.current).catch(() => {
+      if (!navigator.onLine) setTone("offline");
+      else gateRef.current?.fail();
+    });
+  }
 
   function chooseWeek(next: string) {
     setWeek(next);
@@ -559,16 +628,21 @@ export function FinanceOverview() {
           </p>
         ) : null}
       </div>
-      <header className="flex items-center justify-between px-5 pb-1 pt-2">
-        <p className="text-meta text-muted">joehub</p>
-      </header>
+      <div className="relative">
+        <header className="flex items-center justify-between px-5 pb-1 pt-2">
+          <p className="text-meta text-muted">joehub</p>
+        </header>
+        {skeletonOn && refreshing && overview ? <RefreshBar /> : null}
+      </div>
       <div className="px-5">
         <h1 className="text-title font-medium">Finance</h1>
       </div>
       <div className="mt-3">
         <FinanceTabs />
       </div>
-      {!overview ? <p className="px-5 py-8 text-body text-muted">{message || "Loading finance…"}</p> : null}
+      {!skeletonOn && !overview ? <p className="px-5 py-8 text-body text-muted">{message || "Loading finance…"}</p> : null}
+      {skeletonOn && phase === "skeleton" && !overview ? <OverviewSkeleton /> : null}
+      {skeletonOn && phase === "error" && !overview ? <LoadError onRetry={retry} /> : null}
       {overview ? (
         <div className="lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:gap-8">
           <section className="px-5 pt-5">
@@ -610,7 +684,7 @@ export function FinanceOverview() {
                 </div>
             </NetWorthChart>
             {!offline && overview.flow ? <IncomeSpent flow={overview.flow} /> : null}
-            {!offline ? (
+            {sectionHold ? <MonthSkeleton /> : !offline ? (
               <section className="mt-6 rounded-[22px] border border-line px-4 py-4">
                 <div className="flex items-baseline justify-between gap-3 text-meta">
                   <p className="font-medium text-ink">Spent this month</p>
