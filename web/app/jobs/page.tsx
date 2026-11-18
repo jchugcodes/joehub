@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { JobsTabs } from "../../components/JobsTabs";
-import { useSkeletons } from "../../components/LivePages";
+import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { JobsSkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
 import { pipeline } from "../../lib/design-fixtures";
@@ -30,7 +30,8 @@ export default function JobsPage() {
   const search = useSearchParams();
   const requested = search.get("view");
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [view, setView] = useState<View>(viewFrom(requested));
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);

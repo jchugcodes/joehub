@@ -10,7 +10,7 @@ import { FinanceTabs } from "./FinanceTabs";
 import { IncomeSpent, type Flow } from "./IncomeSpent";
 import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
-import { useProductionNav, useSkeletons } from "./LivePages";
+import { useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
 import { LoadError, MonthSkeleton, OverviewSkeleton, RefreshBar } from "./Skeleton";
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
@@ -388,7 +388,8 @@ export function FinanceOverview() {
   const production = useProductionNav();
   const search = useSearchParams();
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [phase, setPhase] = useState("idle");
   const [refreshing, setRefreshing] = useState(false);

@@ -1,19 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { skeletonsEnabled } from "../lib/skeleton-flag.mjs";
+import { skeletonHoldsEnabled, skeletonsEnabled } from "../lib/skeleton-flag.mjs";
 import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
-test("skeletons stay off in production and the hold is inert there", () => {
-  assert.equal(skeletonsEnabled({ VERCEL_ENV: "production" }), false);
-  assert.equal(skeletonsEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }), false);
-  assert.equal(skeletonsEnabled({ VERCEL_ENV: "production", NEXT_PUBLIC_VERCEL_ENV: "preview" }), false);
+test("skeletons are on in production and the preview hold stays inert there", () => {
+  assert.equal(skeletonsEnabled({ VERCEL_ENV: "production" }), true);
+  assert.equal(skeletonsEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }), true);
+  assert.equal(skeletonsEnabled({ VERCEL_ENV: "production", NEXT_PUBLIC_VERCEL_ENV: "preview" }), true);
   assert.equal(skeletonsEnabled({ NODE_ENV: "production" }), true);
   assert.equal(skeletonsEnabled({ VERCEL_ENV: "preview" }), true);
   assert.equal(skeletonsEnabled({}), true);
-  assert.equal(readSkeletonHold("?xd=skel", false), "");
+  const production = { VERCEL_ENV: "production" };
+  assert.equal(skeletonHoldsEnabled(production), false);
+  assert.equal(skeletonHoldsEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }), false);
+  assert.equal(skeletonHoldsEnabled({ VERCEL_ENV: "production", NEXT_PUBLIC_VERCEL_ENV: "preview" }), false);
+  assert.equal(skeletonHoldsEnabled({ VERCEL_ENV: "preview" }), true);
+  assert.equal(skeletonHoldsEnabled({}), true);
+  for (const xd of ["skel", "refresh", "section", "error", "empty"]) {
+    assert.equal(readSkeletonHold(`?xd=${xd}`, skeletonHoldsEnabled(production)), "");
+    assert.equal(readSkeletonHold(`?xd=${xd}`, skeletonsEnabled(production) && skeletonHoldsEnabled(production)), "");
+  }
+  assert.equal(readSkeletonHold("?xd=skel", skeletonHoldsEnabled({ VERCEL_ENV: "preview" })), "skel");
   assert.equal(readSkeletonHold("?xd=error", false), "");
-  assert.equal(readSkeletonHold("?xd=skel", true), "skel");
   assert.equal(readSkeletonHold("?xd=nope", true), "");
 });
 
@@ -70,16 +79,20 @@ test("new page skeletons stay behind the flag, honor xd holds, and overview has 
     assert.match(bones, new RegExp(`data-skeleton="${name}"`));
   }
   const pages = {
-    "app/page.tsx": ["readSkeletonHold", "skeletonsEnabled", "HomeSkeleton"],
-    "components/FinanceBills.tsx": ["useSkeletons", "readSkeletonHold", "BillsSkeleton"],
-    "app/jobs/page.tsx": ["useSkeletons", "readSkeletonHold", "JobsSkeleton"],
-    "app/journal/page.tsx": ["useSkeletons", "readSkeletonHold", "JournalSkeleton"],
-    "app/tasks/page.tsx": ["useSkeletons", "readSkeletonHold", "TasksSkeleton"],
-    "app/grocery/page.tsx": ["useSkeletons", "readSkeletonHold", "GrocerySkeleton"],
+    "app/page.tsx": ["readSkeletonHold", "skeletonHoldsEnabled", "HomeSkeleton"],
+    "components/FinanceBills.tsx": ["useSkeletons", "useSkeletonHolds", "BillsSkeleton"],
+    "components/FinanceOverview.tsx": ["useSkeletons", "useSkeletonHolds", "OverviewSkeleton"],
+    "components/FinanceAccounts.tsx": ["useSkeletons", "useSkeletonHolds", "AccountsSkeleton"],
+    "app/jobs/page.tsx": ["useSkeletons", "useSkeletonHolds", "JobsSkeleton"],
+    "app/journal/page.tsx": ["useSkeletons", "useSkeletonHolds", "JournalSkeleton"],
+    "app/tasks/page.tsx": ["useSkeletons", "useSkeletonHolds", "TasksSkeleton"],
+    "app/grocery/page.tsx": ["useSkeletons", "useSkeletonHolds", "GrocerySkeleton"],
   };
   for (const [file, needles] of Object.entries(pages)) {
     const text = readFileSync(new URL(file, root), "utf8");
     for (const needle of needles) assert.match(text, new RegExp(needle), `${file} ${needle}`);
+    assert.match(text, /readSkeletonHold\([^)]*holdsOn|skeletonHoldsEnabled\(\)/, `${file} hold gate`);
+    assert.doesNotMatch(text, /readSkeletonHold\([^)]*skeletonOn/, `${file} must not use the skeleton flag as the hold`);
     assert.doesNotMatch(text, /NEXT_PUBLIC_/);
   }
   assert.equal(readSkeletonHold("?xd=skel", false), "");

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
-import { useSkeletons } from "../../components/LivePages";
+import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { Sheet } from "../../components/Sheet";
 import { LoadError, RefreshBar, TasksSkeleton } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
@@ -153,7 +153,8 @@ export default function TasksPage() {
   const search = useSearchParams();
   const asOf = search.get("asOf") || "";
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);

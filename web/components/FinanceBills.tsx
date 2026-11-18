@@ -7,7 +7,7 @@ import { billMoney } from "../lib/bills.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
 import { BillsSkeleton, LoadError, RefreshBar } from "./Skeleton";
 import { useSkeletonPhase } from "./SkeletonHold";
-import { useSkeletons } from "./LivePages";
+import { useSkeletonHolds, useSkeletons } from "./LivePages";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Sheet } from "./Sheet";
@@ -103,7 +103,8 @@ export function FinanceBills({ selectedId = "" }: { selectedId?: string }) {
   const asOf = search.get("asOf") || "";
   const previewEmpty = search.get("view") === "empty";
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [reloading, setReloading] = useState(false);
   const seenRef = useRef(false);
   const skeletonRef = useRef(false);

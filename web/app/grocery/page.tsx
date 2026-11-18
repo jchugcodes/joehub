@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
-import { useSkeletons } from "../../components/LivePages";
+import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { Sheet } from "../../components/Sheet";
 import { GrocerySkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
@@ -89,7 +89,8 @@ function formatDetroit(ms: number) {
 export default function GroceryPage() {
   const search = useSearchParams();
   const skeletonOn = useSkeletons();
-  const hold = readSkeletonHold(search, skeletonOn);
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [reloading, setReloading] = useState(false);
