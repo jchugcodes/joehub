@@ -3,9 +3,13 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { readOverlayHold } from "../lib/overlay-motion.mjs";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
+import { useOverlayHolds, useOverlays } from "./LivePages";
+import { OverlayPanel } from "./OverlayPanel";
+import { LoadError, TextLine } from "./Skeleton";
 import { Sheet } from "./Sheet";
 
 type Item = {
@@ -37,6 +41,7 @@ type Row = {
   payee: string;
   amountCents: number;
   week: string;
+  date?: string;
   meta: string;
 };
 
@@ -81,6 +86,12 @@ function toneColor(item: { tone: string; color: string }) {
   return "#6B746E";
 }
 
+function budgetMeta(item: { spentCents: number; capCents: number | null; estimate?: boolean }) {
+  const spent = money(item.spentCents);
+  if (!item.capCents) return spent;
+  return `${spent} of ${money(item.capCents)}${item.estimate ? " estimate" : ""}`;
+}
+
 export function FinanceCategory({ slug }: { slug?: string }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -97,13 +108,29 @@ export function FinanceCategory({ slug }: { slug?: string }) {
   const [budgetError, setBudgetError] = useState("");
   const [budgetField, setBudgetField] = useState("");
   const [saving, setSaving] = useState(false);
+  const [txnId, setTxnId] = useState("");
+  const [offline, setOffline] = useState(false);
   const idempotency = useRef("");
+  const overlayOn = useOverlays();
+  const overlayHold = readOverlayHold(search, useOverlayHolds());
 
   useEffect(() => {
     const onResize = () => setWide(window.innerWidth >= 1024);
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    const onOffline = () => setOffline(true);
+    const onOnline = () => setOffline(false);
+    setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
   }, []);
 
   useEffect(() => {
@@ -149,7 +176,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     return () => {
       gone = true;
     };
-  }, [slug, period, snapshot?.weekStart, search]);
+  }, [slug, period, snapshot?.weekStart, search, revision]);
 
   function withPeriod(next: "month" | "week", nextSlug = slug) {
     const params = new URLSearchParams(search.toString());
@@ -219,9 +246,173 @@ export function FinanceCategory({ slug }: { slug?: string }) {
       setSaving(false);
     }
   }
-  const showList = !fromOverview && (!slug || wide);
-  const showDetail = Boolean(slug);
+  const panelOffline = overlayOn && (overlayHold === "offline" || offline);
+  const showList = !fromOverview && (!slug || wide || overlayOn);
+  const showDetail = Boolean(slug) && (!overlayOn || fromOverview);
+  const panelOpen = overlayOn && !fromOverview && (Boolean(slug) || (editing && period === "month"));
   const ready = showList ? Boolean(snapshot) && (!showDetail || Boolean(category)) : Boolean(category);
+  const listed = snapshot?.categories.find((item) => item.slug === slug) || null;
+  const selectedName = category?.name || listed?.name || "Category";
+  const metaSource = category
+    ? { spentCents: category.spentCents, capCents: category.capCents, estimate: category.estimate ?? listed?.estimate }
+    : listed;
+  const openTxn = category?.rows.find((row) => row.id === txnId) || null;
+
+  function remember(id: string) {
+    if (!overlayOn) return;
+    try {
+      sessionStorage.setItem("joehub.categories.return", id);
+    } catch {
+      // The route still opens without restoring focus.
+    }
+  }
+
+  function openBudgets(defer = false) {
+    if (!snapshot || period !== "month" || panelOffline) return;
+    const next: Record<string, string> = {};
+    for (const item of snapshot.categories) {
+      if (item.slug === "uncategorized") continue;
+      next[item.slug] = item.capCents == null ? "" : dollars(item.capCents);
+    }
+    setFields(next);
+    setBudgetError("");
+    setBudgetField("");
+    setTxnId("");
+    if (defer) window.setTimeout(() => setEditing(true), 0);
+    else setEditing(true);
+  }
+
+  function closeForm() {
+    setEditing(false);
+    setBudgetError("");
+    setBudgetField("");
+  }
+
+  function closeOverlay() {
+    setTxnId("");
+    setEditing(false);
+    setBudgetError("");
+    if (!slug) return;
+    const params = new URLSearchParams();
+    if (search.get("asOf")) params.set("asOf", search.get("asOf") || "");
+    if (search.get("week")) params.set("week", search.get("week") || "");
+    params.set("period", period);
+    try {
+      sessionStorage.setItem("joehub.categories.return", slug);
+    } catch {
+      // The list still opens.
+    }
+    router.push(`/finance/categories?${params.toString()}`);
+  }
+
+  const budgetForm = (
+    <form id="budget-form" onSubmit={saveBudgets}>
+      <p className="text-meta text-muted">Estimates come from the weekly cap. Saving them is the monthly plan.</p>
+      {budgetError ? <p className="mt-3 text-body text-finance-dining">{budgetError}</p> : null}
+      <div className="mt-4 space-y-3">
+        {budgetRows.map((item) => (
+          <label key={item.slug} className="block" htmlFor={`budget-${item.slug}`}>
+            <span className="text-meta text-muted">{item.name}{item.estimate ? " · estimate" : ""}</span>
+            <input
+              id={`budget-${item.slug}`}
+              inputMode="decimal"
+              enterKeyHint="done"
+              value={fields[item.slug] ?? ""}
+              aria-invalid={budgetField === item.slug}
+              className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base"
+              onChange={(event) => {
+                setFields((current) => ({ ...current, [item.slug]: event.target.value }));
+                setBudgetField("");
+              }}
+            />
+          </label>
+        ))}
+      </div>
+    </form>
+  );
+
+  const overlayBody = overlayHold === "error" ? (
+    <LoadError onRetry={() => setRevision((value) => value + 1)} />
+  ) : overlayHold === "skel" ? (
+    <div data-skeleton="category" aria-busy="true" className="px-5 py-4">
+      <TextLine height={24} width={160} />
+      <TextLine height={13} width={200} className="mt-3" />
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="mt-4 flex items-center justify-between gap-3">
+          <TextLine height={13} width="55%" />
+          <TextLine height={13} width={64} />
+        </div>
+      ))}
+    </div>
+  ) : editing && period === "month" ? (
+    <div className="px-5 py-4">{budgetForm}</div>
+  ) : openTxn && category ? (
+    <div className="px-5 py-4" data-txn-detail="true">
+      <p className={`text-title font-medium tabular-nums ${openTxn.amountCents > 0 ? "text-finance-primary" : ""}`}>{signed(openTxn.amountCents)}</p>
+      <p className="mt-1 text-meta text-muted">{openTxn.meta}</p>
+      <dl className="mt-4 rounded-[20px] border border-line px-4 py-2">
+        {[
+          ["Category", category.name],
+          ["Date", openTxn.date || openTxn.meta.split("·")[0]?.trim() || ""],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 py-3">
+            <dt className="text-body text-muted">{label}</dt>
+            <dd className="text-body font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  ) : slug ? (
+    <div className="px-5 py-4" data-category-detail="true">
+      {!metaSource ? <p className="text-body text-muted">{message || "Loading…"}</p> : <p data-item-meta="true" className="text-body">{budgetMeta(metaSource)}</p>}
+      {category && (overlayHold === "empty" || category.rows.length === 0) ? <p className="mt-4 text-body text-muted" data-state="empty">No transactions.</p> : null}
+      {category && overlayHold !== "empty" && category.rows.length > 0 ? (
+        <ul className="mt-4">
+          {category.rows.map((row) => (
+            <li key={row.id}>
+              <button type="button" onClick={() => setTxnId(row.id)} className="flex min-h-11 w-full items-center gap-3 py-2.5 text-left">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium">{row.payee}</span>
+                  <span className="block text-meta text-muted">{row.meta}</span>
+                </span>
+                <span className={`shrink-0 text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{signed(row.amountCents)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {panelOffline ? (
+        <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+          You are offline.
+        </p>
+      ) : null}
+    </div>
+  ) : null;
+
+  const panel = (panelWide: boolean) => (
+    <OverlayPanel
+      wide={panelWide}
+      depth={openTxn || (editing && period === "month") ? 1 : 0}
+      title={editing && period === "month" ? "Monthly budgets" : openTxn ? openTxn.payee : selectedName}
+      onClose={slug ? closeOverlay : closeForm}
+      onBack={openTxn ? () => setTxnId("") : editing && slug ? closeForm : undefined}
+      form={Boolean(editing && period === "month")}
+      nested={Boolean(openTxn)}
+      slim={Boolean(editing && period === "month")}
+      sheet={Boolean(editing && period === "month")}
+      action={editing && period === "month" ? (
+        <button type="submit" form="budget-form" disabled={saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+          <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
+        </button>
+      ) : period === "month" && slug && !openTxn ? (
+        <button type="button" disabled={panelOffline} onClick={() => openBudgets(true)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-ink"}`}>
+          Edit
+        </button>
+      ) : null}
+    >
+      {overlayBody}
+    </OverlayPanel>
+  );
 
   return (
     <main className={`finance-type min-w-0 text-ink ${showList && wide ? "flex items-start gap-6 px-4" : ""}`} data-ready={ready ? "true" : undefined} data-period={period} data-layout={wide && !fromOverview ? "panel" : "sheet"}>
@@ -236,18 +427,8 @@ export function FinanceCategory({ slug }: { slug?: string }) {
               <button
                 type="button"
                 className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary disabled:opacity-40"
-                disabled={!snapshot}
-                onClick={() => {
-                  const next: Record<string, string> = {};
-                  for (const item of snapshot?.categories || []) {
-                    if (item.slug === "uncategorized") continue;
-                    next[item.slug] = item.capCents == null ? "" : dollars(item.capCents);
-                  }
-                  setFields(next);
-                  setBudgetError("");
-                  setBudgetField("");
-                  setEditing(true);
-                }}
+                disabled={!snapshot || panelOffline}
+                onClick={() => openBudgets()}
               >
                 Edit budgets
               </button>
@@ -262,7 +443,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
           </div>
           <div data-period-track="true" className="mx-4 mt-4 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
             {(["week", "month"] as const).map((item) => (
-              <button key={item} type="button" data-period-option={item} aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-ink"}`} onClick={() => withPeriod(item, wide ? slug : undefined)}>
+              <button key={item} type="button" data-period-option={item} aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-ink"}`} onClick={() => withPeriod(item, wide || overlayOn ? slug : undefined)}>
                 {item === "week" ? "Week" : "Month"}
               </button>
             ))}
@@ -283,8 +464,8 @@ export function FinanceCategory({ slug }: { slug?: string }) {
                   const itemQuery = new URLSearchParams(query);
                   const href = `/finance/categories/${item.slug}?${itemQuery.toString()}`;
                   return (
-                    <li key={item.slug} data-selected={item.slug === slug ? "true" : undefined} className={item.slug === slug ? "rounded-2xl bg-surface" : ""}>
-                      <Link href={href} className="flex min-h-11 items-center gap-3 px-1 py-3">
+                    <li key={item.slug} data-selected={item.slug === slug ? "true" : undefined} className={overlayOn && item.slug === slug ? "row-selected rounded-2xl" : item.slug === slug ? "rounded-2xl bg-surface" : ""}>
+                      <Link href={href} aria-current={overlayOn && item.slug === slug ? "true" : undefined} onClick={() => remember(item.slug)} className="flex min-h-11 items-center gap-3 px-1 py-3">
                         <CategoryMark category={item.slug} />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-3">
@@ -325,7 +506,9 @@ export function FinanceCategory({ slug }: { slug?: string }) {
           <p className="pt-8 text-center text-body text-muted">Select a category</p>
         </aside>
       ) : null}
-      {editing && period === "month" ? (
+      {panelOpen && wide ? panel(true) : null}
+      {panelOpen && !wide ? panel(false) : null}
+      {editing && period === "month" && !overlayOn ? (
         <Sheet
           title="Monthly budgets"
           dock={wide ? "panel" : "sheet"}
@@ -339,29 +522,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
             </>
           ) : null}
         >
-          <form id="budget-form" onSubmit={saveBudgets}>
-            <p className="text-meta text-muted">Estimates come from the weekly cap. Saving them is the monthly plan.</p>
-            {budgetError ? <p className="mt-3 text-body text-finance-dining">{budgetError}</p> : null}
-            <div className="mt-4 space-y-3">
-              {budgetRows.map((item) => (
-                <label key={item.slug} className="block" htmlFor={`budget-${item.slug}`}>
-                  <span className="text-meta text-muted">{item.name}{item.estimate ? " · estimate" : ""}</span>
-                  <input
-                    id={`budget-${item.slug}`}
-                    inputMode="decimal"
-                    enterKeyHint="done"
-                    value={fields[item.slug] ?? ""}
-                    aria-invalid={budgetField === item.slug}
-                    className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base"
-                    onChange={(event) => {
-                      setFields((current) => ({ ...current, [item.slug]: event.target.value }));
-                      setBudgetField("");
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
-          </form>
+          {budgetForm}
         </Sheet>
       ) : null}
     </main>
