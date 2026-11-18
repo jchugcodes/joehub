@@ -139,6 +139,9 @@ test("journal overlay is a read-only entry", { timeout: 180000, skip }, async ()
         row: row?.classList.contains("row-selected") ? "yes" : "no",
         rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
         nameColor: title ? getComputedStyle(title).color : "",
+        parts: [...(panel?.querySelectorAll("[data-journal-part]") || [])].map((el) => el.getAttribute("data-journal-part")),
+        meta: panel?.querySelector("[data-journal-part='meta']")?.textContent || "",
+        ratingClass: panel?.querySelector("[data-journal-part='rating']")?.className || "",
       });
     })()`));
     assert.equal(detail.title, "Lilia");
@@ -148,9 +151,15 @@ test("journal overlay is a read-only entry", { timeout: 180000, skip }, async ()
     assert.equal(detail.pad, "20px");
     assert.equal(detail.padY, "16px");
     assert.deepEqual(detail.controls, ["Close"]);
+    assert.deepEqual(detail.parts, ["hero", "meta", "rating", "note"]);
+    assert.equal(detail.meta, "Date night · Sat Oct 31");
+    assert.match(detail.ratingClass, /rounded-full/);
+    assert.match(detail.ratingClass, /bg-finance-primary\/15/);
     assert.match(detail.text, /Williamsburg/);
     assert.match(detail.text, /Loved/);
     assert.match(detail.text, /Cacio e pepe/);
+    assert.doesNotMatch(detail.text, /example entry/);
+    assert.doesNotMatch(detail.text, /Read-only synthetic/);
     assert.doesNotMatch(detail.text, /Delete/);
     assert.doesNotMatch(detail.text, /Save/);
     assert.doesNotMatch(detail.text, /4,204/);
@@ -195,6 +204,9 @@ test("journal overlay is a read-only entry", { timeout: 180000, skip }, async ()
     assert.equal(desktop.width, 440);
     assert.equal(desktop.row, "rgb(31, 42, 36)");
     assert.match(desktop.text, /Finished Globex take-home/);
+    assert.match(desktop.text, /Tonight · Fri/);
+    assert.doesNotMatch(desktop.text, /example entry/);
+    assert.doesNotMatch(desktop.text, /Read-only synthetic/);
     assert.doesNotMatch(desktop.text, /Save/);
   } finally {
     if (page) await page.close();

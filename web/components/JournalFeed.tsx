@@ -216,9 +216,30 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
         <p role="alert" className="text-body text-ink">Couldn’t load that entry.</p>
       ) : selected ? (
         <>
-          <p className="text-meta text-muted">{selected.detailDate}</p>
-          <p className="mt-3 text-section font-medium text-ink">{selected.lead}</p>
-          {selected.kind === "date" && selected.rating ? <p className="mt-2 text-body font-medium text-ink">{selected.rating}</p> : null}
+          {selected.kind === "date" && selected.place ? (
+            <div
+              data-journal-part="hero"
+              className={`relative h-20 overflow-hidden rounded-2xl ${selected.media === "lilac" ? "bg-gradient-to-br from-finance-subscriptions to-support-paleRose" : "bg-gradient-to-br from-journal to-support-paleRose"}`}
+            >
+              <span className="absolute bottom-2 left-3 rounded-lg bg-white px-2 py-1 text-ui-12 font-semibold text-ink">{selected.place}</span>
+            </div>
+          ) : null}
+          {selected.kind === "date" && selected.when ? (
+            <p data-journal-part="meta" className="mt-3 text-ui-12 text-ink">{selected.when}</p>
+          ) : null}
+          {selected.kind === "win" && selected.badge ? (
+            <p data-journal-part="meta" className="text-ui-12 text-ink">{selected.badge}</p>
+          ) : null}
+          {selected.kind === "date" && selected.rating ? (
+            <p className="mt-2">
+              <span
+                data-journal-part="rating"
+                className={`inline-flex rounded-full px-2.5 py-1 text-ui-12 font-bold text-ink ${selected.rating === "Never again" ? "bg-finance-dining/15" : "bg-finance-primary/15"}`}
+              >
+                {selected.rating}
+              </span>
+            </p>
+          ) : null}
           {selected.kind === "win" ? (
             <ul className="mt-3 space-y-1.5">
               {selected.checks.map((check) => (
@@ -231,8 +252,7 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
               ))}
             </ul>
           ) : null}
-          <p className="mt-3 text-body text-ink">{selected.body}</p>
-          <p className="mt-4 border-t border-line pt-3 text-meta text-ink">{selected.kindLabel}</p>
+          <p data-journal-part="note" className="mt-3 text-ui-14 text-ink">{selected.kind === "date" ? selected.note || selected.body : selected.body}</p>
           {panelOffline ? (
             <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
               You are offline.
