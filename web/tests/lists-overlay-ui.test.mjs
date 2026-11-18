@@ -142,6 +142,18 @@ async function press(send, label) {
   return pressLabel(send, evalPage, label);
 }
 
+async function openListMenu(send) {
+  await waitFor(send, `${stackSettled} && document.getElementById("task-project") ? "yes" : ""`, "list field");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await evalPage(send, "document.getElementById('task-project')?.click()");
+    const open = await evalPage(send, "document.getElementById('task-project')?.getAttribute('aria-expanded') === 'true' && document.body.innerText.includes('Manage lists') ? 'yes' : ''");
+    if (open === "yes") return;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  const body = await evalPage(send, "document.body ? document.body.innerText.slice(0, 240) : ''");
+  throw new Error(`list menu stayed closed; body=${body}`);
+}
+
 async function pressStarts(send, name) {
   const label = await evalPage(
     send,
@@ -193,9 +205,8 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
     await waitFor(send, "document.body.innerText.includes('File the sample note') ? 'yes' : ''", "sample task");
 
     assert.equal(await press(send, "Edit File the sample note"), "yes");
-    await waitFor(send, "document.getElementById('task-project') ? 'yes' : ''", "list field");
-    assert.equal(await press(send, "task-project"), "yes");
-    await waitFor(send, "document.body.innerText.includes('Manage lists') && document.querySelector(\"[data-swatch='ring']\") ? 'yes' : ''", "list menu");
+    await openListMenu(send);
+    await waitFor(send, "document.querySelector(\"[data-swatch='ring']\") ? 'yes' : ''", "list menu");
     const menu = JSON.parse(await evalPage(send, `(() => {
       const row = [...document.querySelectorAll("[role='listbox'] button")].find((el) => (el.innerText || "").trim().startsWith("Inbox"));
       const ring = row?.querySelector("[data-swatch='ring']");
@@ -326,8 +337,7 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
     await send("Page.navigate", { url: `${base()}/tasks` });
     await waitFor(send, "document.querySelector(\"[data-ready='true'] h1\")?.textContent === 'Tasks' ? 'yes' : ''", "desk tasks");
     assert.equal(await press(send, "Edit File the sample note"), "yes");
-    await waitFor(send, `${settled} && document.getElementById('task-project') ? 'yes' : ''`, "desk edit");
-    assert.equal(await press(send, "task-project"), "yes");
+    await openListMenu(send);
     assert.equal(await press(send, "Manage lists"), "yes");
     await waitFor(send, `${settled} && document.querySelector("[data-overlay='desktop']") && document.querySelector("[data-overlay='panel'] h2")?.textContent === "Lists" ? 'yes' : ''`, "desk lists");
   } finally {
