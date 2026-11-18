@@ -313,6 +313,17 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await shot(send, "A12-app.png");
     await pressLabel(send, evalPage, "Cancel");
     await waitFor(send, "document.body.innerText.includes('Add account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "cancel add");
+
+    await open(send, "/finance/accounts/acct-checking?xe=offline", 390, 1200);
+    await waitFor(send, `document.body.innerText.includes("Joe's Pizza") && document.body.innerText.includes("You are offline.") && document.body.innerText.includes("Recent") && ${overlaySettled} ? 'yes' : ''`, "offline detail");
+    assert.equal(await evalPage(send, "document.querySelector(\"[aria-label='Hide from net worth']\").disabled ? 'yes' : 'no'"), "yes");
+    assert.equal(await evalPage(send, "document.querySelector(\"[data-state='offline']\") && document.querySelector(\"[data-state='offline']\").innerText.trim() === 'You are offline.' ? 'yes' : 'no'"), "yes");
+    await open(send, "/finance/accounts/acct-cash?xe=offline", 390, 1100);
+    await waitFor(send, `document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('You are offline.') && ${overlaySettled} ? 'yes' : ''`, "offline cash");
+    assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit' && el.disabled) ? 'yes' : 'no'"), "yes");
+    await pressLabel(send, evalPage, "Edit");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(await evalPage(send, "document.querySelector('[data-sheet]') ? 'yes' : 'no'"), "no");
   } finally {
     if (chrome) await stopProcess(chrome);
     if (child) await stopProcess(child);

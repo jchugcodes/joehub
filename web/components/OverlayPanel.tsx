@@ -28,27 +28,37 @@ export function PanelHeader({
   action?: ReactNode;
   slim?: boolean;
 }) {
-  return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-1">
-      {slim ? (
-        <button type="button" onClick={onBack || onClose} className="inline-flex h-11 items-center px-3 text-body text-muted">
-          Cancel
-        </button>
+  const dismissControl = slim ? (
+    <button type="button" onClick={onBack || onClose} className="inline-flex h-11 items-center px-2 text-body text-muted">
+      Cancel
+    </button>
+  ) : (
+    <button type="button" onClick={onBack || onClose} aria-label={onBack ? "Back" : "Close"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center">
+      {onBack ? (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
       ) : (
-        <button type="button" onClick={onBack || onClose} aria-label={onBack ? "Back" : "Close"} className="inline-flex h-11 w-11 items-center justify-center">
-          {onBack ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          )}
-        </button>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
       )}
-      <h2 className="min-w-0 flex-1 truncate text-center text-section font-medium">{title}</h2>
-      {slim ? action : action || <span className="w-11 shrink-0" aria-hidden="true" />}
+    </button>
+  );
+  if (slim) {
+    return (
+      <div className="grid h-11 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-line px-2">
+        <div className="justify-self-start">{dismissControl}</div>
+        <h2 className="max-w-[12rem] truncate text-center text-section font-medium">{title}</h2>
+        <div className="flex justify-self-end items-center">{action}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-11 shrink-0 items-center border-b border-line pl-1 pr-2">
+      {dismissControl}
+      <h2 className="min-w-0 flex-1 truncate text-left text-section font-medium">{title}</h2>
+      {action ? <div className="flex shrink-0 items-center">{action}</div> : null}
     </div>
   );
 }

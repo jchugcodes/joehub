@@ -337,6 +337,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const shownTone = previewLink || tone;
   const balanceOk = centsFromInput(balance) != null;
   const canSave = name.trim().length > 0 && balanceOk && !saving && !blocked;
+  const panelOffline = overlayOn && (overlayHold === "offline" || blocked);
 
   function openAdd() {
     if (blocked) {
@@ -354,7 +355,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   }
 
   function openEdit(account: Account) {
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -400,7 +401,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   }
 
   async function toggleHide(account: Account) {
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -419,7 +420,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (blocked) {
+    if (blocked || overlayHold === "offline") {
       setNotice("Can’t edit offline");
       return;
     }
@@ -457,7 +458,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   }
 
   async function remove() {
-    if (!selected || selected.source !== "manual" || blocked) return;
+    if (!selected || selected.source !== "manual" || blocked || overlayHold === "offline") return;
     const response = await fetch(`/api/finance/accounts/${selected.id}`, { method: "DELETE" });
     if (!response.ok) {
       setConfirming(false);
@@ -542,7 +543,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       {mode === "edit" ? (
         <div className="mt-2 flex min-h-14 items-center justify-between gap-3">
           <span className="text-body font-medium">Hide from net worth</span>
-          <HideSwitch on={hideDraft} disabled={blocked} onToggle={() => setHideDraft((value) => !value)} />
+          <HideSwitch on={hideDraft} disabled={blocked || panelOffline} onToggle={() => setHideDraft((value) => !value)} />
         </div>
       ) : null}
       {error ? (
@@ -592,10 +593,13 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   const openTxn = rows.find((row) => row.id === txnId) || null;
   const panelHold = overlayOn ? overlayHold : "";
+  const offlineBanner = panelOffline ? (
+    <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-center text-body text-ink dark:bg-white/10">
+      You are offline.
+    </p>
+  ) : null;
   const overlayBody = panelHold === "error" ? (
     <LoadError onRetry={() => void load()} />
-  ) : panelHold === "offline" ? (
-    <p className="px-5 py-16 text-center text-body" data-state="offline">You're offline.</p>
   ) : panelHold === "skel" ? (
     <div data-skeleton="account" aria-busy="true" className="px-5 py-4">
       <TextLine height={12} width={120} />
@@ -615,7 +619,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     <div className="px-5 py-4">
       {form}
       {mode === "edit" ? (
-        <button type="button" onClick={() => setConfirming(true)} className="mt-2 flex min-h-11 items-center text-body text-muted">
+        <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirming(true); }} className="mt-2 flex min-h-11 items-center text-body text-ink disabled:opacity-40">
           Delete
         </button>
       ) : null}
@@ -644,7 +648,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       <p className="mt-1 text-meta text-muted">{selected.stale && selected.balanceAsOf ? `Stale · ${stamp(selected.balanceAsOf)}` : selected.balanceAsOf ? stamp(selected.balanceAsOf) : ""}</p>
       <div className="mt-4 flex min-h-14 items-center justify-between gap-3 rounded-[20px] border border-line px-4">
         <span className="text-body font-medium">Hide from net worth</span>
-        <HideSwitch on={selected.hiddenFromNetWorth} disabled={blocked} onToggle={() => void toggleHide(selected)} />
+        <HideSwitch on={selected.hiddenFromNetWorth} disabled={panelOffline} onToggle={() => void toggleHide(selected)} />
       </div>
       <h2 className="mt-5 text-section font-medium">Recent</h2>
       {panelHold === "empty" || rows.length === 0 ? (
@@ -664,6 +668,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           ))}
         </ul>
       )}
+      {offlineBanner}
     </div>
   ) : (
     <p className="px-5 py-16 text-center text-body text-muted">Select an account</p>
@@ -900,11 +905,11 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
             slim={Boolean(mode)}
             sheet={Boolean(mode)}
             action={mode ? (
-              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
+              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50">
                 Save
               </button>
             ) : selected?.source === "manual" && !openTxn ? (
-              <button type="button" onClick={() => openEdit(selected)} className="inline-flex h-11 items-center px-3 text-body font-medium text-finance-primary">
+              <button type="button" disabled={panelOffline} aria-disabled={panelOffline || undefined} onClick={() => openEdit(selected)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>
                 Edit
               </button>
             ) : null}
@@ -973,11 +978,11 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           slim={Boolean(mode)}
           sheet={Boolean(mode)}
           action={mode ? (
-            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
+            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page disabled:opacity-50">
               Save
             </button>
           ) : selected?.source === "manual" && !openTxn ? (
-            <button type="button" onClick={() => openEdit(selected)} className="inline-flex h-11 items-center px-3 text-body font-medium text-finance-primary">
+            <button type="button" disabled={panelOffline} aria-disabled={panelOffline || undefined} onClick={() => openEdit(selected)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>
               Edit
             </button>
           ) : null}
