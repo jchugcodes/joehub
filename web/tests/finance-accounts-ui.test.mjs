@@ -100,6 +100,8 @@ async function open(send, path, width, height) {
   await waitFor(send, "document.querySelector('[data-ready]') ? 'yes' : ''", path);
 }
 
+const overlaySettled = `(function(){const panel=document.querySelector('[data-overlay="panel"]');if(!panel)return true;const box=panel.getBoundingClientRect();return box.width>200&&box.right<=window.innerWidth+2&&box.left>=-2;})()`;
+
 function setField(label, value) {
   return `(() => {
     const row = [...document.querySelectorAll("label")].find((el) => (el.innerText || "").trim().startsWith(${JSON.stringify(label)}));
@@ -145,7 +147,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await shot(send, "A01-app.png");
 
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
-    await waitFor(send, "document.body.innerText.includes('Joe\\'s Pizza') && document.body.innerText.includes('Nov 8, 2026') ? 'yes' : ''", "ledger");
+    await waitFor(send, `document.body.innerText.includes('Joe\\'s Pizza') && document.body.innerText.includes('Nov 8, 2026') && ${overlaySettled} ? 'yes' : ''`, "ledger");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : 'no'"), "no");
     await shot(send, "A02-app.png");
     await pressLabel(send, evalPage, "Hide from net worth");
@@ -157,10 +159,10 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.querySelector(\"[role='switch']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "shown again");
 
     await open(send, "/finance/accounts/acct-cash", 390, 1100);
-    await waitFor(send, "document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('No transactions') ? 'yes' : ''", "manual");
+    await waitFor(send, `document.body.innerText.includes('Cash reserve') && document.body.innerText.includes('No transactions') && ${overlaySettled} ? 'yes' : ''`, "manual");
     await shot(send, "A03-app.png");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') ? 'yes' : ''", "cash edit");
+    await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') && ${overlaySettled} ? 'yes' : ''`, "cash edit");
     await shot(send, "A05-app.png");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "cash confirm");
@@ -203,14 +205,14 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Trip fund') ? 'yes' : ''", "listed once");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('a')].filter((el) => (el.innerText || '').includes('Trip fund')).length"), 1);
     await pointerClick(send, evalPage, "[...document.querySelectorAll('a')].find((el) => (el.innerText || '').includes('Trip fund'))");
-    await waitFor(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : ''", "trip detail");
+    await waitFor(send, `[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') && ${overlaySettled} ? 'yes' : ''`, "trip detail");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "edit sheet");
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${overlaySettled} ? 'yes' : ''`, "edit sheet");
     assert.equal(await evalPage(send, setField("Name", "Trip cash")), "Trip cash");
     await pressLabel(send, evalPage, "Save");
     await waitFor(send, "document.body.innerText.includes('Trip cash') ? 'yes' : ''", "renamed");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, "document.querySelector('[data-sheet]') ? 'yes' : ''", "edit again");
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${overlaySettled} ? 'yes' : ''`, "edit again");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "confirm");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(0)");
@@ -268,7 +270,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Payroll (example)') && document.body.innerText.includes('Select an account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "desktop detail");
     await shot(send, "A11-app.png");
     await pressLabel(send, evalPage, "Add a manual account");
-    await waitFor(send, "document.body.innerText.includes('Add account') && document.querySelector('input') === document.activeElement ? 'yes' : ''", "desktop add");
+    await waitFor(send, `document.body.innerText.includes('Add account') && document.querySelector('input') === document.activeElement && ${overlaySettled} ? 'yes' : ''`, "desktop add");
     await shot(send, "A12-app.png");
     await pressLabel(send, evalPage, "Cancel");
     await waitFor(send, "document.body.innerText.includes('Add account') ? '' : document.body.innerText.includes('Payroll (example)') ? 'yes' : ''", "cancel add");

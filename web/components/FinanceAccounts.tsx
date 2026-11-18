@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
-import { useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
-import { AccountsSkeleton } from "./Skeleton";
+import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
+import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
+import { AccountsSkeleton, LoadError, TextLine } from "./Skeleton";
 import { Sheet } from "./Sheet";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
+import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
 type Account = {
@@ -143,6 +145,9 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const skeletonOn = useSkeletons();
   const holdsOn = useSkeletonHolds();
   const hold = readSkeletonHold(search, holdsOn);
+  const overlayOn = useOverlays();
+  const overlayHold = readOverlayHold(search, useOverlayHolds());
+  const [txnId, setTxnId] = useState("");
   const previewEmpty = search.get("view") === "empty" || hold === "empty";
   const previewLink = search.get("link") || "";
   const production = useProductionNav();
@@ -211,6 +216,19 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    if (!overlayOn) return;
+    const y = sessionStorage.getItem("joehub.accounts.scroll");
+    if (y) window.scrollTo(0, Number(y));
+    if (selectedId) return;
+    const back = sessionStorage.getItem("joehub.accounts.return");
+    if (!back) return;
+    const selector = focusReturnSelector(back);
+    const link = selector ? document.querySelector(selector) : null;
+    if (link instanceof HTMLElement) link.focus();
+    sessionStorage.removeItem("joehub.accounts.return");
+  }, [overlayOn, selectedId]);
 
   useEffect(() => {
     let gone = false;
@@ -347,13 +365,38 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     setInstitution(account.institution || "");
     setHideDraft(account.hiddenFromNetWorth);
     setError("");
-    setMode("edit");
+    // The click that opens edit is still over the header's right edge, where Save
+    // appears. Wait until that click finishes so it does not submit the form.
+    window.setTimeout(() => setMode("edit"), 0);
   }
 
   function closeForm() {
     setMode("");
     setError("");
     setConfirming(false);
+  }
+
+  function rememberAccount(id: string) {
+    if (!overlayOn) return;
+    try {
+      sessionStorage.setItem("joehub.accounts.scroll", String(window.scrollY));
+      sessionStorage.setItem("joehub.accounts.return", id);
+    } catch {
+      // Private mode can reject storage. The route still opens.
+    }
+  }
+
+  function closeOverlay() {
+    setTxnId("");
+    setMode("");
+    setConfirming(false);
+    if (!selectedId) return;
+    try {
+      sessionStorage.setItem("joehub.accounts.return", selectedId);
+    } catch {
+      // The list still opens without restoring focus.
+    }
+    router.push(listHref);
   }
 
   async function toggleHide(account: Account) {
@@ -547,6 +590,85 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     </div>
   ) : null;
 
+  const openTxn = rows.find((row) => row.id === txnId) || null;
+  const panelHold = overlayOn ? overlayHold : "";
+  const overlayBody = panelHold === "error" ? (
+    <LoadError onRetry={() => void load()} />
+  ) : panelHold === "offline" ? (
+    <p className="px-5 py-16 text-center text-body" data-state="offline">You're offline.</p>
+  ) : panelHold === "skel" ? (
+    <div data-skeleton="account" aria-busy="true" className="px-5 py-4">
+      <TextLine height={12} width={120} />
+      <TextLine height={24} width={160} className="mt-3" />
+      <TextLine height={12} width={180} className="mt-3" />
+      {[0, 1, 2, 3].map((item) => (
+        <div key={item} className="mt-4 flex items-center justify-between gap-3">
+          <span className="flex flex-1 flex-col gap-1.5">
+            <TextLine height={13} width="70%" />
+            <TextLine height={12} width="46%" />
+          </span>
+          <TextLine height={13} width={64} />
+        </div>
+      ))}
+    </div>
+  ) : mode ? (
+    <div className="px-5 py-4">
+      {form}
+      {mode === "edit" ? (
+        <button type="button" onClick={() => setConfirming(true)} className="mt-2 flex min-h-11 items-center text-body text-muted">
+          Delete
+        </button>
+      ) : null}
+    </div>
+  ) : openTxn && selected ? (
+    <div className="px-5 py-4">
+      <p className={`text-title font-medium tabular-nums ${openTxn.amountCents < 0 ? "" : "text-finance-positive"}`}>{`${openTxn.amountCents < 0 ? "−" : "+"}${money(Math.abs(openTxn.amountCents))}`}</p>
+      <p className="mt-1 text-meta text-muted">{openTxn.meta}</p>
+      <dl className="mt-4 rounded-[20px] border border-line px-4 py-2">
+        {[
+          ["Account", selected.name],
+          ["Category", openTxn.meta.split("·")[1]?.trim() || "Uncategorized"],
+          ["Date", openTxn.meta.split("·")[0]?.trim() || ""],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 py-3">
+            <dt className="text-body text-muted">{label}</dt>
+            <dd className="text-body font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  ) : selected ? (
+    <div className="px-5 py-4">
+      <p className="text-meta text-muted">{sourceLine(selected)}</p>
+      <p className="mt-1 text-title font-medium tabular-nums">{money(selected.balanceCents)}</p>
+      <p className="mt-1 text-meta text-muted">{selected.stale && selected.balanceAsOf ? `Stale · ${stamp(selected.balanceAsOf)}` : selected.balanceAsOf ? stamp(selected.balanceAsOf) : ""}</p>
+      <div className="mt-4 flex min-h-14 items-center justify-between gap-3 rounded-[20px] border border-line px-4">
+        <span className="text-body font-medium">Hide from net worth</span>
+        <HideSwitch on={selected.hiddenFromNetWorth} disabled={blocked} onToggle={() => void toggleHide(selected)} />
+      </div>
+      <h2 className="mt-5 text-section font-medium">Recent</h2>
+      {panelHold === "empty" || rows.length === 0 ? (
+        <p className="py-6 text-body text-muted">No transactions.</p>
+      ) : (
+        <ul>
+          {rows.map((row) => (
+            <li key={row.id}>
+              <button type="button" onClick={() => setTxnId(row.id)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium">{row.payee}</span>
+                  <span className="mt-0.5 block text-meta text-muted">{row.meta}</span>
+                </span>
+                <span className={`shrink-0 text-body font-medium tabular-nums ${row.amountCents > 0 ? "text-finance-positive" : ""}`}>{`${row.amountCents < 0 ? "−" : "+"}${money(Math.abs(row.amountCents))}`}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  ) : (
+    <p className="px-5 py-16 text-center text-body text-muted">Select an account</p>
+  );
+
   const net = snapshot && snapshot.netWorthCents != null ? snapshot : null;
 
   const bannerInset = wide || selected ? "mt-3" : "mx-4 mt-3";
@@ -581,7 +703,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   return (
     <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot || hold === "empty" ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
-      {wide || !selected ? (
+      {wide || !selected || overlayOn ? (
         <>
           <header className="flex items-center justify-between px-5 pt-2">
             <div>
@@ -618,7 +740,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       )}
 
       <div className={wide ? "mt-3 flex min-w-0 items-start gap-4 px-4" : ""}>
-        {wide || !selected ? (
+        {wide || !selected || overlayOn ? (
           <div className="min-w-0 flex-1">
             {statusBanners}
             {!snapshot && !skeletonOn ? <p className="px-5 py-8 text-body text-muted">Loading accounts…</p> : null}
@@ -714,6 +836,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                             {index > 0 || linkStudents ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
+                              onClick={() => rememberAccount(account.id)}
                               aria-current={current ? "true" : undefined}
                               className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-finance-primary/10" : ""}`}
                             >
@@ -764,7 +887,30 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           </div>
         )}
 
-        {wide ? (
+        {wide && overlayOn ? (
+          <OverlayPanel
+            wide
+            title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
+            onClose={mode ? closeForm : closeOverlay}
+            onBack={openTxn ? () => setTxnId("") : mode ? closeForm : undefined}
+            form={Boolean(mode)}
+            nested={Boolean(openTxn)}
+            confirming={confirming}
+            slim={Boolean(mode)}
+            sheet={Boolean(mode)}
+            action={mode ? (
+              <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
+                Save
+              </button>
+            ) : selected?.source === "manual" && !openTxn ? (
+              <button type="button" onClick={() => openEdit(selected)} className="inline-flex h-11 items-center px-3 text-body font-medium text-finance-primary">
+                Edit
+              </button>
+            ) : null}
+          >
+            {overlayBody}
+          </OverlayPanel>
+        ) : wide ? (
           <aside className="sticky top-2 w-[420px] shrink-0">
             {mode === "add" || mode === "edit" ? (
               <div className="overflow-hidden rounded-[20px] border border-line bg-surface shadow-2xl">
@@ -807,7 +953,32 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         ) : null}
       </div>
 
-      {!wide && mode ? (
+      {overlayOn && !wide && (selected || mode) ? (
+        <OverlayPanel
+          wide={false}
+          title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
+          onClose={mode ? closeForm : closeOverlay}
+          onBack={openTxn ? () => setTxnId("") : mode ? closeForm : undefined}
+          form={Boolean(mode)}
+          nested={Boolean(openTxn)}
+          confirming={confirming}
+          slim={Boolean(mode)}
+          sheet={Boolean(mode)}
+          action={mode ? (
+            <button type="submit" form={formDomId} disabled={!canSave} className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-3 text-body font-medium text-page disabled:opacity-50">
+              Save
+            </button>
+          ) : selected?.source === "manual" && !openTxn ? (
+            <button type="button" onClick={() => openEdit(selected)} className="inline-flex h-11 items-center px-3 text-body font-medium text-finance-primary">
+              Edit
+            </button>
+          ) : null}
+        >
+          {overlayBody}
+        </OverlayPanel>
+      ) : null}
+
+      {!overlayOn && !wide && mode ? (
         <Sheet title={mode === "edit" ? "Edit account" : "Add account"} formId={formDomId} saveDisabled={!canSave} onClose={closeForm} footer={mode === "edit" ? (
           <button type="button" onClick={() => setConfirming(true)} className="flex min-h-11 w-full items-center text-body text-muted">
             Delete
@@ -817,7 +988,13 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         </Sheet>
       ) : null}
 
-      {confirming ? (
+      {overlayOn && confirming ? (
+        <div ref={confirmRef}>
+          <ConfirmDialog title="Delete this account?" onCancel={() => setConfirming(false)} onConfirm={() => void remove()} />
+        </div>
+      ) : null}
+
+      {!overlayOn && confirming ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div ref={confirmRef} role="alertdialog" aria-modal="true" aria-labelledby="delete-account-title" className="w-full max-w-sm rounded-[20px] bg-surface p-5">
             <h2 id="delete-account-title" className="text-section font-medium">
