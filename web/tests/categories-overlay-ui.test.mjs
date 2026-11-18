@@ -153,10 +153,12 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
         const root = document.querySelector("[data-category-detail='true']");
         const meta = root?.querySelector("[data-item-meta]")?.textContent || "";
         const first = root?.querySelector("button");
+        const when = first?.querySelector(".text-muted")?.textContent || "";
         return JSON.stringify({
           title: document.querySelector("[role='dialog'] h2")?.textContent || "",
           meta,
           payee: (first?.innerText || "").replace(/\\s+/g, " ").trim(),
+          when,
           edit: [...document.querySelectorAll("[data-overlay='panel'] button")].some((button) => (button.innerText || "").trim() === "Edit" && !button.disabled),
         });
       })()`));
@@ -164,6 +166,7 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.match(detail.meta, /\$248 of \$346\.67 estimate/);
       assert.equal(detail.meta.includes("4,204"), false);
       assert.match(detail.payee, /Joe's Pizza/);
+      assert.equal(detail.when, "Tue Nov 10");
       assert.equal(detail.edit, true);
       if (viewport.pin) {
         const row = await evalPage(page.send, `(() => {
@@ -174,6 +177,11 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       }
       assert.equal(await pointerClick(page.send, evalPage, "document.querySelector(\"[data-category-detail='true'] button\")"), "yes");
       await waitFor(page.send, `${settled} && document.querySelector("[data-txn-detail='true']") && document.querySelector("[role='dialog'] h2")?.textContent === "Joe's Pizza" ? 'yes' : ''`, "transaction");
+      const txnDate = await evalPage(page.send, `(() => {
+        const row = [...document.querySelectorAll("[data-txn-detail='true'] div")].find((item) => item.querySelector("dt")?.textContent === "Date");
+        return row?.querySelector("dd")?.textContent || "";
+      })()`);
+      assert.equal(txnDate, "Tue Nov 10");
       assert.equal(await pressLabel(page.send, evalPage, "Back"), "yes");
       await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true']") ? 'yes' : ''`, "back to category");
       assert.equal(await pressLabel(page.send, evalPage, "Edit"), "yes");
@@ -195,6 +203,7 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.ok(form.size >= 16, `input size ${form.size}`);
       assert.equal(form.sheet, "form");
       assert.equal(form.deleted, false);
+      assert.equal(await evalPage(page.send, "document.activeElement?.id || ''"), "budget-dining-out");
       assert.equal(await pressLabel(page.send, evalPage, "Cancel"), "yes");
       await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true']") && !document.getElementById("budget-dining-out") ? 'yes' : ''`, "form closed");
 
@@ -203,6 +212,26 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       const utilities = await evalPage(page.send, "document.querySelector(\"[data-item-meta]\")?.textContent || ''");
       assert.equal(String(utilities).includes(" of "), false);
       assert.equal(String(utilities).includes("4,204"), false);
+
+      await page.send("Page.navigate", { url: `${base()}/finance/categories/school?period=month&asOf=${encodeURIComponent(AS_OF)}` });
+      await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "School" ? 'yes' : ''`, "school");
+      assert.equal(await pressLabel(page.send, evalPage, "Edit"), "yes");
+      await waitFor(page.send, `${settled} && document.activeElement?.id === "budget-school" ? 'yes' : ''`, "school focus");
+      const focused = JSON.parse(await evalPage(page.send, `(() => {
+        const input = document.getElementById("budget-school");
+        const scroller = input?.closest("[data-stack]");
+        const field = input?.getBoundingClientRect();
+        const view = scroller?.getBoundingClientRect();
+        const seen = Boolean(field && view && field.top >= view.top - 1 && field.bottom <= view.bottom + 1 && field.height > 20);
+        return JSON.stringify({
+          id: document.activeElement?.id || "",
+          seen,
+          whole: Boolean(document.getElementById("budget-dining-out") && document.getElementById("budget-other")),
+        });
+      })()`));
+      assert.equal(focused.id, "budget-school");
+      assert.equal(focused.seen, true);
+      assert.equal(focused.whole, true);
     }
 
     await size(page.send, 390, 844);

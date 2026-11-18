@@ -92,6 +92,10 @@ function budgetMeta(item: { spentCents: number; capCents: number | null; estimat
   return `${spent} of ${money(item.capCents)}${item.estimate ? " estimate" : ""}`;
 }
 
+function rowWhen(meta: string) {
+  return meta.split(" · ")[0]?.trim() || "";
+}
+
 export function FinanceCategory({ slug }: { slug?: string }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -177,6 +181,14 @@ export function FinanceCategory({ slug }: { slug?: string }) {
       gone = true;
     };
   }, [slug, period, snapshot?.weekStart, search, revision]);
+
+  useEffect(() => {
+    if (!editing || !overlayOn || !slug || period !== "month") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`budget-${slug}`)?.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, overlayOn, slug, period]);
 
   function withPeriod(next: "month" | "week", nextSlug = slug) {
     const params = new URLSearchParams(search.toString());
@@ -319,6 +331,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
               enterKeyHint="done"
               value={fields[item.slug] ?? ""}
               aria-invalid={budgetField === item.slug}
+              data-autofocus={overlayOn && item.slug === slug ? "true" : undefined}
               className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base"
               onChange={(event) => {
                 setFields((current) => ({ ...current, [item.slug]: event.target.value }));
@@ -353,7 +366,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
       <dl className="mt-4 rounded-[20px] border border-line px-4 py-2">
         {[
           ["Category", category.name],
-          ["Date", openTxn.date || openTxn.meta.split("·")[0]?.trim() || ""],
+          ["Date", rowWhen(openTxn.meta)],
         ].map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-3 py-3">
             <dt className="text-body text-muted">{label}</dt>
@@ -373,7 +386,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
               <button type="button" onClick={() => setTxnId(row.id)} className="flex min-h-11 w-full items-center gap-3 py-2.5 text-left">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-body font-medium">{row.payee}</span>
-                  <span className="block text-meta text-muted">{row.meta}</span>
+                  <span className="block text-meta text-muted">{rowWhen(row.meta)}</span>
                 </span>
                 <span className={`shrink-0 text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{signed(row.amountCents)}</span>
               </button>
