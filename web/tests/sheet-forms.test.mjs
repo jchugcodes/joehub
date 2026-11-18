@@ -244,7 +244,12 @@ test("phone sheets stay in the viewport with a slim header and 44px targets", { 
     await send("Emulation.setVirtualKeyboardGeometryOverride", {});
     await size(390, 844);
     await pressLabel(send, evalPage, "Edit Sheet sample item");
-    await waitFor("document.getElementById('grocery-name') ? 'yes' : ''", "edit item");
+    await waitFor(`(() => { if (document.getElementById('grocery-name')) return 'yes'; const panel = document.querySelector("[data-overlay='panel']"); if (!panel || panel.getAttribute('data-state') !== 'open') return ''; return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running') ? '' : 'detail'; })()`, "edit item");
+    if ((await evalPage("document.getElementById('grocery-name') ? 'yes' : ''")) !== "yes") {
+      await pressLabel(send, evalPage, "Edit");
+      await waitFor("document.getElementById('grocery-name') ? 'yes' : ''", "edit form");
+    }
+    await waitFor(`(() => { if (!document.getElementById('grocery-name')) return ''; const panel = document.querySelector("[data-overlay='panel']"); if (panel && panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) return ''; return 'yes'; })()`, "grocery edit settled");
     for (const width of [390, 360]) {
       await size(width, 844);
       await check(`edit item ${width}`);

@@ -843,7 +843,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                               href={`/finance/accounts/${account.id}${suffix}`}
                               onClick={() => rememberAccount(account.id)}
                               aria-current={current ? "true" : undefined}
-                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "bg-finance-primary/10" : ""}`}
+                              className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "row-selected" : ""}`}
                             >
                               <AccountGlyph type={account.type} />
                               <span className="min-w-0 flex-1">

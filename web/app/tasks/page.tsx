@@ -733,7 +733,7 @@ export default function TasksPage() {
         aria-current={selected ? "true" : undefined}
         data-selected={selected ? "true" : undefined}
         className="card flex min-w-0 items-start gap-1 p-2"
-        style={accent || selected ? { ...(accent ? { boxShadow: `inset 4px 0 0 ${accent}` } : {}), backgroundColor: selected ? "rgb(var(--finance-rgb) / 0.1)" : `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
+        style={accent || selected ? { boxShadow: [accent ? `inset 4px 0 0 ${accent}` : "", selected ? "inset 0 0 0 1px var(--selected-row-line)" : ""].filter(Boolean).join(", "), backgroundColor: selected ? "var(--selected-row)" : `color-mix(in srgb, ${accent} 8%, transparent)` } : undefined}
       >
         <button
           type="button"
