@@ -4,11 +4,11 @@ import test from "node:test";
 import { overlayHoldsEnabled, overlaysEnabled } from "../lib/overlay-flag.mjs";
 import { focusReturnSelector, overlayDurations, overlayEscape, readOverlayHold, shouldCloseOutside, shouldDismissSwipe } from "../lib/overlay-motion.mjs";
 
-test("overlays are off in production and the preview hold stays inert there", () => {
+test("overlays are on in production and the preview hold stays inert there", () => {
   const production = { VERCEL_ENV: "production" };
-  assert.equal(overlaysEnabled(production), false);
-  assert.equal(overlaysEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }), false);
-  assert.equal(overlaysEnabled({ VERCEL_ENV: "production", NEXT_PUBLIC_VERCEL_ENV: "preview" }), false);
+  assert.equal(overlaysEnabled(production), true);
+  assert.equal(overlaysEnabled({ NEXT_PUBLIC_VERCEL_ENV: "production" }), true);
+  assert.equal(overlaysEnabled({ VERCEL_ENV: "production", NEXT_PUBLIC_VERCEL_ENV: "preview" }), true);
   assert.equal(overlaysEnabled({ VERCEL_ENV: "preview" }), true);
   assert.equal(overlaysEnabled({}), true);
   assert.equal(overlaysEnabled({ NODE_ENV: "production" }), true);
