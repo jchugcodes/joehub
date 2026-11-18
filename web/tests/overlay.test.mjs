@@ -180,6 +180,11 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.doesNotMatch(jobsUi, /Save to pipeline/);
   assert.doesNotMatch(jobsUi, /Dismiss /);
   assert.doesNotMatch(jobsUi, /Demo only/);
+  assert.match(jobsUi, /swipe →/);
+  assert.match(jobsUi, /bg-white\/60 p-2\.5 dark:bg-surface/);
+  assert.doesNotMatch(jobsUi, /drag cards/);
+  assert.doesNotMatch(jobsUi, /name="grip"/);
+  assert.doesNotMatch(jobsUi, /See all 24/);
   const journalUi = readFileSync(new URL("components/JournalFeed.tsx", root), "utf8");
   assert.match(journalUi, /useOverlays\(\)/);
   assert.match(journalUi, /readOverlayHold\(params, useOverlayHolds\(\)\)/);

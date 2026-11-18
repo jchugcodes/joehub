@@ -315,9 +315,7 @@ function Pipeline({ overlayOn, selectedId }: { overlayOn: boolean; selectedId: s
       </ul>
       <div id="overview" className="mt-4 flex min-w-0 items-end justify-between gap-2 px-5">
         <h2 className="shrink-0 text-ui-17 font-bold text-ink">Board</h2>
-        <span className="flex min-w-0 items-center justify-end gap-1 text-right text-ui-12 text-muted">
-          drag cards · swipe <Icon name="swipe" size={14} />
-        </span>
+        <span className="text-right text-ui-12 text-muted">swipe →</span>
       </div>
       <div
         id="board"
@@ -335,7 +333,7 @@ function Pipeline({ overlayOn, selectedId }: { overlayOn: boolean; selectedId: s
         }}
       >
         {pipeline.columns.map((column) => (
-          <section key={column.name} aria-label={column.name} className="w-[150px] shrink-0 rounded-2xl border border-line bg-white/60 p-2.5">
+          <section key={column.name} aria-label={column.name} className="w-[150px] shrink-0 rounded-2xl border border-line bg-white/60 p-2.5 dark:bg-surface">
             <header className="mb-2 flex items-center justify-between text-ui-12 font-bold">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: column.dot }} />
@@ -344,35 +342,28 @@ function Pipeline({ overlayOn, selectedId }: { overlayOn: boolean; selectedId: s
               <span className="font-medium text-muted">{column.total}</span>
             </header>
             {column.cards.map((card) => {
-              const body = (
-                <>
-                  <span>{card}</span>
-                  <Icon name="grip" size={14} className="shrink-0 text-[#C9CEC8]" />
-                </>
-              );
               if (card.startsWith("Globex")) {
                 const selected = overlayOn && selectedId === jobDetail.id;
-                const className = `card mb-1.5 flex w-full items-start justify-between p-2.5 text-left text-ui-12 font-semibold${
+                const className = `card mb-1.5 block w-full p-2.5 text-left text-ui-12 font-semibold${
                   overlayOn ? " min-h-11 text-ink hover:text-ink focus:text-ink" : ""
                 }${selected ? " row-selected" : ""}`;
                 return (
                   <Link key={card} href="/jobs/globex" data-job="globex" className={className} style={{ borderRadius: 12 }}>
-                    {body}
+                    {card}
                   </Link>
                 );
               }
               return (
-                <p key={card} className="card mb-1.5 flex w-full items-start justify-between p-2.5 text-left text-ui-12 font-semibold" style={{ borderRadius: 12 }}>
-                  {body}
+                <p key={card} className="card mb-1.5 w-full p-2.5 text-left text-ui-12 font-semibold" style={{ borderRadius: 12 }}>
+                  {card}
                 </p>
               );
             })}
           </section>
         ))}
       </div>
-      <div id="matches" className="mt-5 flex min-w-0 items-end justify-between gap-2 px-5">
+      <div id="matches" className="mt-5 px-5">
         <h2 className="text-ui-17 font-bold text-ink">Top matches</h2>
-        <span className="text-ui-13 font-semibold text-support-linkBlue">See all 24</span>
       </div>
       <ul className="mt-2.5 space-y-2.5 px-4">
         {pipeline.matches.map((match) => (

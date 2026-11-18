@@ -158,6 +158,41 @@ test("the board scroller is a named region and arrow keys reveal off-screen colu
   assert.equal(value.offerVisible, true, "Offer stayed off screen after arrow keys");
 });
 
+test("the board hints at swipe only and the columns use the dark surface", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+  const value = await withPage("/jobs", 390, 800, async (send) => {
+    for (let i = 0; i < 40; i++) {
+      const ready = await evalPage(send, "document.querySelector(\"[aria-label='Pipeline columns'] section\") ? 'yes' : ''");
+      if (ready === "yes") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return evalPage(send, `(() => {
+      const column = document.querySelector("[aria-label='Pipeline columns'] section");
+      const board = document.getElementById("board");
+      const hint = board?.previousElementSibling?.querySelector("span")?.textContent?.trim() || "";
+      const light = getComputedStyle(column).backgroundColor;
+      document.documentElement.classList.add("dark");
+      const dark = getComputedStyle(column).backgroundColor;
+      document.documentElement.classList.remove("dark");
+      return {
+        hint,
+        drag: document.body.innerText.includes("drag cards"),
+        grip: Boolean(board.querySelector("svg")),
+        seeAll: document.body.innerText.includes("See all 24"),
+        matchesTab: [...document.querySelectorAll("a")].some((link) => link.getAttribute("href") === "/jobs#matches" && (link.textContent || "").trim() === "Matches"),
+        light,
+        dark,
+      };
+    })()`);
+  });
+  assert.equal(value.hint, "swipe →");
+  assert.equal(value.drag, false);
+  assert.equal(value.grip, false);
+  assert.equal(value.seeAll, false);
+  assert.equal(value.matchesTab, true);
+  assert.notEqual(value.light, "rgb(22, 29, 24)");
+  assert.equal(value.dark, "rgb(22, 29, 24)");
+});
+
 test("pipeline matches stay on the page without filter, save, or dismiss", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
   const value = await withPage("/jobs", 390, 800, async (send) => {
     for (let i = 0; i < 40; i++) {
