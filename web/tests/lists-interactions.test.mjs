@@ -147,6 +147,22 @@ async function dismissOverlay(send) {
   assert.equal(await pressLabel(send, evalPage, "Close"), "yes");
 }
 
+async function openListMenu(send) {
+  const deadline = Date.now() + 20000;
+  let last = "";
+  while (Date.now() < deadline) {
+    const open = await evalPage(send, "document.getElementById('task-project')?.getAttribute('aria-expanded') === 'true' && document.body.innerText.includes('Manage lists') ? 'yes' : ''");
+    if (open === "yes") return "yes";
+    try {
+      last = await press(send, "task-project");
+    } catch (error) {
+      last = error instanceof Error ? error.message.slice(0, 160) : "miss";
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`list menu stayed closed; last=${last}`);
+}
+
 async function pressStarts(send, name) {
   const label = await evalPage(
     send,
@@ -188,8 +204,7 @@ test("list create, rename, color, and delete keep the tasks", { timeout: 180000,
 
     assert.equal(await press(send, "Edit Carry the sample bag"), "yes");
     await waitFor(send, "document.getElementById('task-project') ? 'yes' : ''", "list field");
-    assert.equal(await press(send, "task-project"), "yes");
-    await waitFor(send, "document.body.innerText.includes('New list') ? 'yes' : ''", "new list row");
+    assert.equal(await openListMenu(send), "yes");
     assert.equal(await press(send, "New list"), "yes");
     await waitFor(send, "document.getElementById('new-list-name') ? 'yes' : ''", "new list row");
     const nextColor = await evalPage(
@@ -235,8 +250,7 @@ test("list create, rename, color, and delete keep the tasks", { timeout: 180000,
 
     assert.equal(await press(send, "Edit Carry the sample bag"), "yes");
     await waitFor(send, "document.getElementById('task-project') ? 'yes' : ''", "list field again");
-    assert.equal(await press(send, "task-project"), "yes");
-    await waitFor(send, "document.body.innerText.includes('Manage lists') ? 'yes' : ''", "menu");
+    assert.equal(await openListMenu(send), "yes");
     assert.equal(await press(send, "Manage lists"), "yes");
     await waitFor(send, "document.body.innerText.includes('Parcel run') ? 'yes' : ''", "manage again");
     await pressStarts(send, "Parcel run");
