@@ -51,7 +51,7 @@ export function JobsTabs({ current = "Overview" }: { current?: string }) {
           );
         })}
       </div>
-      <span className="flex shrink-0 items-center gap-1 pb-2.5 pr-5 text-ui-11 text-muted">
+      <span className="flex shrink-0 items-center gap-1 pb-2.5 pr-5 text-ui-11 text-muted lg:hidden">
         swipe <Icon name="swipe" size={14} />
       </span>
     </nav>

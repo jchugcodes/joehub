@@ -180,7 +180,9 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.doesNotMatch(jobsUi, /Save to pipeline/);
   assert.doesNotMatch(jobsUi, /Dismiss /);
   assert.doesNotMatch(jobsUi, /Demo only/);
-  assert.match(jobsUi, /swipe →/);
+  assert.match(jobsUi, /lg:hidden">swipe →/);
+  const jobsTabs = readFileSync(new URL("components/JobsTabs.tsx", root), "utf8");
+  assert.match(jobsTabs, /text-ui-11 text-muted lg:hidden/);
   assert.match(jobsUi, /bg-white\/60 p-2\.5 dark:bg-surface/);
   assert.doesNotMatch(jobsUi, /drag cards/);
   assert.doesNotMatch(jobsUi, /name="grip"/);

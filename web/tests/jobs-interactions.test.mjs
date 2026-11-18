@@ -168,13 +168,19 @@ test("the board hints at swipe only and the columns use the dark surface", { tim
     return evalPage(send, `(() => {
       const column = document.querySelector("[aria-label='Pipeline columns'] section");
       const board = document.getElementById("board");
-      const hint = board?.previousElementSibling?.querySelector("span")?.textContent?.trim() || "";
+      const hintEl = board?.previousElementSibling?.querySelector("span");
+      const tabHintEl = [...document.querySelectorAll("[aria-label='Jobs sections'] > span")].find((el) => (el.textContent || "").includes("swipe"));
+      const shown = (el) => Boolean(el) && getComputedStyle(el).display !== "none" && el.getBoundingClientRect().width > 0;
+      const hint = hintEl?.textContent?.trim() || "";
       const light = getComputedStyle(column).backgroundColor;
       document.documentElement.classList.add("dark");
       const dark = getComputedStyle(column).backgroundColor;
       document.documentElement.classList.remove("dark");
       return {
         hint,
+        tabHint: (tabHintEl?.textContent || "").replace(/\\s+/g, " ").trim(),
+        boardShown: shown(hintEl),
+        tabShown: shown(tabHintEl),
         drag: document.body.innerText.includes("drag cards"),
         grip: Boolean(board.querySelector("svg")),
         seeAll: document.body.innerText.includes("See all 24"),
@@ -185,12 +191,35 @@ test("the board hints at swipe only and the columns use the dark surface", { tim
     })()`);
   });
   assert.equal(value.hint, "swipe →");
+  assert.equal(value.tabHint, "swipe");
+  assert.equal(value.boardShown, true);
+  assert.equal(value.tabShown, true);
   assert.equal(value.drag, false);
   assert.equal(value.grip, false);
   assert.equal(value.seeAll, false);
   assert.equal(value.matchesTab, true);
   assert.notEqual(value.light, "rgb(22, 29, 24)");
   assert.equal(value.dark, "rgb(22, 29, 24)");
+});
+
+test("swipe hints hide once the jobs page no longer needs to scroll", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {
+  const value = await withPage("/jobs", 1280, 900, async (send) => {
+    for (let i = 0; i < 40; i++) {
+      const ready = await evalPage(send, "document.querySelector(\"[aria-label='Pipeline columns'] section\") ? 'yes' : ''");
+      if (ready === "yes") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return evalPage(send, `(() => {
+      const board = document.getElementById("board");
+      const boardHint = board?.previousElementSibling?.querySelector("span");
+      const tabHint = [...document.querySelectorAll("[aria-label='Jobs sections'] > span")].find((el) => (el.textContent || "").includes("swipe"));
+      const hidden = (el) => Boolean(el) && getComputedStyle(el).display === "none";
+      return { board: hidden(boardHint), tabs: hidden(tabHint), width: window.innerWidth };
+    })()`);
+  });
+  assert.equal(value.width, 1280);
+  assert.equal(value.board, true);
+  assert.equal(value.tabs, true);
 });
 
 test("pipeline matches stay on the page without filter, save, or dismiss", { timeout: 120000, skip: chromeBin ? false : "google-chrome is not installed" }, async () => {

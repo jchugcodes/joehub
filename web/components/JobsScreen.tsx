@@ -315,7 +315,7 @@ function Pipeline({ overlayOn, selectedId }: { overlayOn: boolean; selectedId: s
       </ul>
       <div id="overview" className="mt-4 flex min-w-0 items-end justify-between gap-2 px-5">
         <h2 className="shrink-0 text-ui-17 font-bold text-ink">Board</h2>
-        <span className="text-right text-ui-12 text-muted">swipe →</span>
+        <span className="text-right text-ui-12 text-muted lg:hidden">swipe →</span>
       </div>
       <div
         id="board"
