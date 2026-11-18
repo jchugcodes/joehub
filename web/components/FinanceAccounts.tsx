@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CategoryMark } from "./CategoryMark";
 import { FinanceTabs } from "./FinanceTabs";
-import { useProductionNav } from "./LivePages";
+import { useProductionNav, useSkeletons } from "./LivePages";
+import { AccountsSkeleton } from "./Skeleton";
 import { Sheet } from "./Sheet";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
+import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
 type Account = {
   id: string;
@@ -138,13 +140,18 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const search = useSearchParams();
   const asOf = search.get("asOf") || "";
   const fromMore = search.get("from") === "more";
-  const previewEmpty = search.get("view") === "empty";
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
+  const previewEmpty = search.get("view") === "empty" || hold === "empty";
   const previewLink = search.get("link") || "";
   const production = useProductionNav();
   const debtsTab = FINANCE_TABS.find((tab) => tab.href === "/finance/debts");
   const debtsLinked = Boolean(debtsTab && (production ? debtsTab.live : debtsTab.shipped));
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [phase, setPhase] = useState(skeletonOn ? "pending" : "ready");
+  const gateRef = useRef<ReturnType<typeof createSkeletonGate> | null>(null);
+  const pendingRef = useRef<{ body: Snapshot; rows: Txn[] } | null>(null);
   const [rows, setRows] = useState<Txn[]>([]);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -177,17 +184,24 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     const listed = await fetch(`/api/finance/accounts${accountQuery.size ? `?${accountQuery}` : ""}`, { cache: "no-store" });
     if (!listed.ok) throw new Error("accounts");
     const body = (await listed.json()) as Snapshot;
-    setSnapshot(body);
+    let nextRows: Txn[] = [];
     if (selectedId) {
       const txnQuery = new URLSearchParams({ accountId: selectedId });
       if (asOf) txnQuery.set("asOf", asOf);
       const txns = await fetch(`/api/finance/transactions?${txnQuery}`, { cache: "no-store" });
-      setRows(txns.ok ? ((await txns.json()).rows as Txn[]) : []);
+      nextRows = txns.ok ? ((await txns.json()).rows as Txn[]) : [];
+    }
+    const gate = gateRef.current;
+    const painting = Boolean(skeletonOn && gate && (gate.phase() === "pending" || gate.phase() === "skeleton"));
+    if (!painting && hold !== "skel") {
+      setSnapshot(body);
+      setRows(nextRows);
     } else {
-      setRows([]);
+      pendingRef.current = { body, rows: nextRows };
+      if (painting) gate?.resolve();
     }
     return body;
-  }, [asOf, selectedId]);
+  }, [asOf, selectedId, skeletonOn, hold]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1024px)");
@@ -199,14 +213,33 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   useEffect(() => {
     let gone = false;
-    void load()
-      .catch(() => {
+    let unsub = () => {};
+    if (skeletonOn) {
+      const gate = createSkeletonGate();
+      gateRef.current = gate;
+      unsub = gate.subscribe((snap: { phase: string }) => {
+        if (gone) return;
+        setPhase(snap.phase);
+        if (snap.phase === "ready" && pendingRef.current && hold !== "skel") {
+          setSnapshot(pendingRef.current.body);
+          setRows(pendingRef.current.rows);
+        }
+      });
+      if (hold === "skel") gate.force("skeleton");
+      else if (hold === "empty") gate.force("ready");
+      else gate.start();
+    }
+    if (hold !== "skel") {
+      void load().catch(() => {
         if (!gone && !navigator.onLine) setTone("offline");
       });
+    }
     return () => {
       gone = true;
+      unsub();
+      gateRef.current?.stop();
     };
-  }, [load]);
+  }, [load, skeletonOn, hold]);
 
   useEffect(() => {
     const refresh = async () => {
@@ -546,7 +579,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   );
 
   return (
-    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
+    <main className="finance-type min-w-0 text-ink" data-from={fromMore ? "more" : "finance"} data-ready={snapshot || hold === "empty" ? "true" : undefined} data-accounts={empty ? "empty" : "list"}>
       {wide || !selected ? (
         <>
           <header className="flex items-center justify-between px-5 pt-2">
@@ -587,13 +620,19 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         {wide || !selected ? (
           <div className="min-w-0 flex-1">
             {statusBanners}
-            {!snapshot ? <p className="px-5 py-8 text-body text-muted">Loading accounts…</p> : null}
-            {snapshot && empty ? (
+            {!snapshot && !skeletonOn ? <p className="px-5 py-8 text-body text-muted">Loading accounts…</p> : null}
+            {skeletonOn && !snapshot && phase === "skeleton" && hold !== "empty" ? <AccountsSkeleton wide={wide} /> : null}
+            {snapshot && empty && !skeletonOn ? (
               <div className="px-5 py-16 text-center">
                 <p className="text-section font-medium">No accounts yet</p>
                 <button type="button" onClick={openAdd} className="mx-auto mt-5 inline-flex min-h-12 min-w-[200px] items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page">
                   Add a manual account
                 </button>
+              </div>
+            ) : null}
+            {skeletonOn && (hold === "empty" || (snapshot && empty)) ? (
+              <div className="px-5 py-16 text-center" data-state="empty">
+                <p className="text-body">No accounts.</p>
               </div>
             ) : null}
             {snapshot && !empty && net ? (

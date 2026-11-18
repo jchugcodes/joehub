@@ -217,7 +217,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Trip cash') ? '' : 'gone'", "deleted");
 
     await open(send, "/finance/accounts?view=empty", 390, 1000);
-    await waitFor(send, "document.body.innerText.includes('No accounts yet') ? 'yes' : ''", "empty");
+    await waitFor(send, "document.body.innerText.includes('No accounts.') ? 'yes' : ''", "empty");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Net worth') ? 'yes' : 'no'"), "no");
     await shot(send, "A06-app.png");
 
