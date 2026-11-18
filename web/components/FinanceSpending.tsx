@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { countsAsSpend, money, spendCents } from "../lib/finance.mjs";
 import { showMonthBudget } from "../lib/live-pages.mjs";
 import { readOverlayHold } from "../lib/overlay-motion.mjs";
@@ -94,6 +94,11 @@ export function FinanceSpending() {
   const [tone, setTone] = useState("");
   const [wide, setWide] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [draftCategory, setDraftCategory] = useState("");
+  const [transfer, setTransfer] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const pending = !snapshot && !failed && hold !== "refresh" && hold !== "empty" && hold !== "error" && hold !== "skel";
   const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, pending, Boolean(snapshot) || hold === "refresh" || hold === "empty");
   const bones = skeletonOn && (hold === "skel" || (phase === "skeleton" && !snapshot));
@@ -194,59 +199,200 @@ export function FinanceSpending() {
   const visible = txns.filter((row) => !active || (active === "uncategorized" ? !row.category : row.category === active));
   const selected = txns.find((row) => row.id === selectedId) || null;
   const activeName = rows.find((item) => item.slug === active)?.name || "";
+  const nextType = transfer ? "transfer" : selected?.type === "refund" ? "refund" : "expense";
+  const nextCategory = transfer ? null : draftCategory || null;
+  const changed = Boolean(selected) && (nextType !== selected?.type || nextCategory !== (selected?.category || null));
+  const canSave = changed && !saving && !panelOffline;
+  const categoryChoices = (snapshot?.categories || []).filter((item) => item.slug !== "uncategorized");
+
+  useEffect(() => {
+    setEditing(false);
+    setError("");
+    setSaving(false);
+  }, [selectedId]);
+
+  function openEdit() {
+    if (!selected || panelOffline) return;
+    setDraftCategory(selected.category || "");
+    setTransfer(selected.type === "transfer");
+    setError("");
+    setEditing(true);
+  }
+
+  function closeEdit() {
+    setEditing(false);
+    setError("");
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!canSave || !selected) return;
+    setSaving(true);
+    setError("");
+    const leaving = nextType === "transfer";
+    try {
+      const response = await fetch(`/api/finance/transactions/${selected.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          payee: selected.payee,
+          amountCents: selected.amountCents,
+          date: selected.date,
+          type: nextType,
+          category: nextCategory,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) {
+        setError(body.detail || "Couldn’t save.");
+        return;
+      }
+      await load();
+      setEditing(false);
+      if (leaving) go((next) => next.delete("txn"));
+    } catch {
+      setError("Couldn’t save.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function categoryName(slug: string | null) {
     if (!slug) return "Uncategorized";
     return snapshot?.categories.find((item) => item.slug === slug)?.name || slug;
   }
 
+  const detail = selected ? (
+    <>
+      <p className={`text-title font-medium tabular-nums ${selected.amountCents > 0 ? "text-finance-primary" : "text-ink"}`}>{txnMoney(selected.amountCents)}</p>
+      <dl className="card mt-4 divide-y divide-line">
+        <div className="flex min-h-11 items-center justify-between gap-4 px-4">
+          <dt className="text-muted">Date</dt>
+          <dd className="font-medium">{dayText(selected.date)}</dd>
+        </div>
+        <div className="flex min-h-11 items-center justify-between gap-4 px-4">
+          <dt className="text-muted">Category</dt>
+          <dd className="flex items-center gap-2 font-medium">
+            <CategoryMark category={selected.category} type={selected.type} />
+            {categoryName(selected.category)}
+          </dd>
+        </div>
+        {selected.accountMask && /^\d{4}$/.test(selected.accountMask) ? (
+          <div className="flex min-h-11 items-center justify-between gap-4 px-4">
+            <dt className="text-muted">Account</dt>
+            <dd className="font-medium tabular-nums">•••• {selected.accountMask}</dd>
+          </div>
+        ) : null}
+        {selected.note ? (
+          <div className="flex min-h-11 items-center justify-between gap-4 px-4">
+            <dt className="text-muted">Note</dt>
+            <dd className="font-medium">{selected.note}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </>
+  ) : (
+    <p className="text-body text-ink">That transaction is not here.</p>
+  );
+
+  const editForm = selected ? (
+    <form id="spending-form" data-edit="open" onSubmit={save} className="space-y-3">
+      <button
+        type="button"
+        data-autofocus
+        aria-pressed={transfer}
+        className={`min-h-11 min-w-11 rounded-full px-3 text-body ${transfer ? "bg-ink text-page" : "border border-line text-ink"}`}
+        onClick={() => setTransfer((value) => !value)}
+      >
+        Transfer
+      </button>
+      {transfer ? null : (
+        <div className="flex flex-col">
+          {categoryChoices.map((item) => {
+            const pressed = draftCategory === item.slug;
+            return (
+              <button
+                key={item.slug}
+                type="button"
+                aria-pressed={pressed}
+                aria-label={`Category ${item.name}`}
+                className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-2 text-left text-body font-medium text-ink ${pressed ? "row-selected" : ""}`}
+                onClick={() => {
+                  setTransfer(false);
+                  setDraftCategory(item.slug);
+                }}
+              >
+                <CategoryMark category={item.slug} />
+                {item.name}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            aria-pressed={!draftCategory}
+            aria-label="Category Uncategorized"
+            className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-2 text-left text-body font-medium text-ink ${!draftCategory ? "row-selected" : ""}`}
+            onClick={() => {
+              setTransfer(false);
+              setDraftCategory("");
+            }}
+          >
+            <CategoryMark category="uncategorized" />
+            Uncategorized
+          </button>
+        </div>
+      )}
+      {error ? (
+        <p role="alert" className="text-body text-finance-dining">
+          {error}
+        </p>
+      ) : null}
+    </form>
+  ) : null;
+
   const panelBody = (
     <div className="px-5 py-4 text-left text-body text-ink" data-txn-detail="true">
       {overlayHold === "error" ? (
         <p role="alert" className="text-body text-ink">Couldn’t load that transaction.</p>
-      ) : selected ? (
-        <>
-          <p className={`text-title font-medium tabular-nums ${selected.amountCents > 0 ? "text-finance-primary" : "text-ink"}`}>{txnMoney(selected.amountCents)}</p>
-          <dl className="card mt-4 divide-y divide-line">
-            <div className="flex min-h-11 items-center justify-between gap-4 px-4">
-              <dt className="text-muted">Date</dt>
-              <dd className="font-medium">{dayText(selected.date)}</dd>
-            </div>
-            <div className="flex min-h-11 items-center justify-between gap-4 px-4">
-              <dt className="text-muted">Category</dt>
-              <dd className="flex items-center gap-2 font-medium">
-                <CategoryMark category={selected.category} type={selected.type} />
-                {categoryName(selected.category)}
-              </dd>
-            </div>
-            {selected.accountMask && /^\d{4}$/.test(selected.accountMask) ? (
-              <div className="flex min-h-11 items-center justify-between gap-4 px-4">
-                <dt className="text-muted">Account</dt>
-                <dd className="font-medium tabular-nums">•••• {selected.accountMask}</dd>
-              </div>
-            ) : null}
-            {selected.note ? (
-              <div className="flex min-h-11 items-center justify-between gap-4 px-4">
-                <dt className="text-muted">Note</dt>
-                <dd className="font-medium">{selected.note}</dd>
-              </div>
-            ) : null}
-          </dl>
-          {panelOffline ? (
-            <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
-              You are offline.
-            </p>
-          ) : null}
-        </>
+      ) : editing ? (
+        editForm
       ) : (
-        <p className="text-body text-ink">That transaction is not here.</p>
+        detail
       )}
+      {panelOffline ? (
+        <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+          You are offline.
+        </p>
+      ) : null}
     </div>
   );
 
   const panel = (panelWide: boolean) =>
     selectedId ? (
-      <OverlayPanel wide={panelWide} title={selected?.payee || "Transaction"} onClose={() => go((next) => next.delete("txn"))}>
+      <OverlayPanel
+        wide={panelWide}
+        title={editing ? "Edit transaction" : selected?.payee || "Transaction"}
+        onClose={() => {
+          setEditing(false);
+          setError("");
+          go((next) => next.delete("txn"));
+        }}
+        onBack={editing ? closeEdit : undefined}
+        form={editing}
+        slim={editing}
+        sheet={editing}
+        action={
+          editing ? (
+            <button type="submit" form="spending-form" disabled={!canSave} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+              <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">Save</span>
+            </button>
+          ) : selected ? (
+            <button type="button" disabled={panelOffline} onClick={openEdit} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-finance-primary"}`}>
+              Edit
+            </button>
+          ) : null
+        }
+      >
         {panelBody}
       </OverlayPanel>
     ) : null;
@@ -351,7 +497,7 @@ export function FinanceSpending() {
                               <span className="block text-meta text-muted">
                                 {row.meta}
                                 {row.corrected ? <span className="ml-1 rounded bg-[#2E8B6A1F] px-1.5 py-0.5 text-meta font-medium text-[#246C53]">Corrected</span> : null}
-                                {row.uncategorized ? <span className="ml-1 rounded bg-[#6B746E1F] px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
+                                {row.uncategorized && !row.meta.includes("Uncategorized") ? <span className="ml-1 rounded bg-[#6B746E1F] px-1.5 py-0.5 text-meta font-medium text-muted">Uncategorized</span> : null}
                               </span>
                             </span>
                             <span className={`text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{txnMoney(row.amountCents)}</span>

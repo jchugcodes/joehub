@@ -14,7 +14,7 @@ test("spending is shipped for preview and gated in production", () => {
   assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending"), false);
 });
 
-test("the spending page reads this month from the finance APIs and stays read-only", () => {
+test("the spending page reads this month from the finance APIs and edits through the existing patch", () => {
   const page = readFileSync(new URL("app/finance/spending/page.tsx", root), "utf8");
   const ui = readFileSync(new URL("components/FinanceSpending.tsx", root), "utf8");
   assert.match(page, /dynamic = "force-dynamic"/);
@@ -28,14 +28,19 @@ test("the spending page reads this month from the finance APIs and stays read-on
   assert.match(ui, /data-state="offline"/);
   assert.match(ui, /LoadError/);
   assert.match(ui, /\/api\/finance\/transactions/);
+  assert.match(ui, /method: "PATCH"/);
   assert.match(ui, /countsAsSpend/);
   assert.match(ui, /spendCents/);
   assert.match(ui, /OverlayPanel/);
   assert.match(ui, /data-list-spent/);
   assert.match(ui, /left\.date < right\.date \? 1/);
+  assert.match(ui, /disabled=\{!canSave\}/);
+  assert.match(ui, /form=\{editing\}/);
+  assert.match(ui, /onBack=\{editing \? closeEdit/);
+  assert.match(ui, /slim=\{editing\}/);
+  assert.match(ui, /!row\.meta\.includes\("Uncategorized"\)/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
-  assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger/);
-  assert.doesNotMatch(ui, />\s*Edit\s*</);
+  assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger|reset-ledger/);
 });
 
 test("this month's spending rows reconcile with the month total", async () => {
@@ -64,4 +69,38 @@ test("this month's spending rows reconcile with the month total", async () => {
   collected.sort((left, right) => (left.date < right.date ? 1 : left.date > right.date ? -1 : 0));
   const dates = collected.map((row) => row.date);
   assert.deepEqual(dates, dates.slice().sort((left, right) => (left < right ? 1 : left > right ? -1 : 0)));
+});
+
+test("recategorizing moves spend and a transfer leaves the month total", async () => {
+  const now = Date.parse("2026-11-18T12:00:00-05:00");
+  const store = installMemoryFinance({});
+  const before = await store.financeCategories(now, "month");
+  const spent = (snapshot, slug) => snapshot.categories.find((item) => item.slug === slug).spentCents;
+  const transport = spent(before, "transport");
+  const groceries = spent(before, "groceries");
+  const patched = await store.financePatchTransaction(
+    "fin-shell",
+    { payee: "Shell (example)", amountCents: -2218, date: "2026-11-09", type: "expense", category: "groceries" },
+    now,
+  );
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.category, "groceries");
+  assert.equal(patched.body.corrected, true);
+  const moved = await store.financeCategories(now, "month");
+  assert.equal(spent(moved, "transport"), transport - 2218);
+  assert.equal(spent(moved, "groceries"), groceries + 2218);
+  assert.equal(moved.spentCents, before.spentCents);
+  const transfer = await store.financePatchTransaction(
+    "fin-pizza",
+    { payee: "Joe's Pizza", amountCents: -3240, date: "2026-11-10", type: "transfer", category: null },
+    now,
+  );
+  assert.equal(transfer.status, 200);
+  assert.equal(transfer.body.type, "transfer");
+  const after = await store.financeCategories(now, "month");
+  assert.equal(after.spentCents, before.spentCents - 3240);
+  const page = await store.financeTransactions(now, "");
+  const monthStart = `${page.body.today.slice(0, 7)}-01`;
+  const listed = page.body.rows.filter((row) => row.date >= monthStart && row.date <= page.body.today && countsAsSpend(row));
+  assert.equal(listed.some((row) => row.id === "fin-pizza"), false);
 });
