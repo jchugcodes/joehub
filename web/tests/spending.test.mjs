@@ -6,12 +6,15 @@ import { financeTabs, isGatedPath } from "../lib/live-pages.mjs";
 
 const root = new URL("..", import.meta.url);
 
-test("spending is shipped for preview and gated in production", () => {
-  assert.equal(isGatedPath("/finance/spending"), true);
-  assert.equal(isGatedPath("/finance/spending/more"), true);
-  assert.equal(financeTabs({}).some((tab) => tab.href === "/finance/spending" && tab.shipped === true && tab.live === false), true);
-  assert.equal(financeTabs({ VERCEL_ENV: "production" }).some((tab) => tab.label === "Spending"), false);
-  assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending"), false);
+test("spending is live in production", () => {
+  assert.equal(isGatedPath("/finance/spending"), false);
+  assert.equal(isGatedPath("/finance/spending/more"), false);
+  assert.equal(financeTabs({}).some((tab) => tab.href === "/finance/spending" && tab.shipped === true && tab.live === true), true);
+  assert.deepEqual(
+    financeTabs({ VERCEL_ENV: "production" }).map((tab) => tab.label),
+    ["Overview", "Categories", "Accounts", "Bills", "Spending"],
+  );
+  assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending" && tab.live === true), true);
 });
 
 test("the spending page reads this month from the finance APIs and edits through the existing patch", () => {

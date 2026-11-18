@@ -158,14 +158,19 @@ test("goals list, detail, add, and the desktop split match the frames", { skip }
     assert.equal(await evalPage(send, "document.querySelector('[data-goals]')?.getAttribute('data-goals')"), "list");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('nav[aria-label=\"Finance sections\"] a')].map((el) => el.textContent.trim()).join(',')"), "Overview,Categories,Goals,Accounts,Debts,Bills,Spending");
     assert.equal(await evalPage(send, `(() => {
-      const row = document.querySelector('.finance-tab-row');
+      const row = document.querySelector('nav[aria-label="Finance sections"] .finance-tab-row');
       if (!row) return 'no';
-      const keep = new Set(['Overview', 'Categories', 'Accounts', 'Bills']);
+      const keep = new Set(['Overview', 'Categories', 'Accounts', 'Bills', 'Spending']);
       const links = [...row.querySelectorAll('a')].filter((el) => keep.has((el.textContent || '').trim()));
-      if (links.length !== 4) return 'no';
+      if (links.length !== 5) return 'no';
       const gap = parseFloat(getComputedStyle(row).columnGap || '0') || 0;
       const width = links.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) + gap * (links.length - 1);
-      return width <= row.clientWidth + 1 ? 'yes' : 'no';
+      if (width <= row.clientWidth + 1) return 'yes';
+      const selected = row.querySelector('[aria-current="page"]');
+      if (!selected || row.scrollWidth <= row.clientWidth + 1) return 'no';
+      const view = row.getBoundingClientRect();
+      const box = selected.getBoundingClientRect();
+      return box.left >= view.left - 1 && box.right <= view.right + 1 ? 'yes' : 'no';
     })()`), "yes");
     assert.equal(await evalPage(send, "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 ? 'yes' : 'no'"), "yes");
     await shot(send, "G01-app.png");
