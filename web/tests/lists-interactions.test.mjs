@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
-import { pressLabel } from "./support/pointer.mjs";
+import { pointerClick, pressLabel } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const chromeBin = ["google-chrome", "google-chrome-stable"].find((bin) => spawnSync("which", [bin]).status === 0);
@@ -120,8 +120,31 @@ async function waitFor(send, expression, label) {
   throw new Error(`timed out waiting for ${label}; last=${last}; body=${body}`);
 }
 
-function press(send, label) {
+const overlaySettled = `(() => { const panel = document.querySelector("[data-overlay='panel']"); if (!panel) return ""; const box = panel.getBoundingClientRect(); const busy = panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"); return !busy && panel.getAttribute("data-state") === "open" && box.width > 200 && box.right <= window.innerWidth + 2 && box.left >= -2 ? "yes" : ""; })()`;
+
+async function press(send, label) {
+  if (typeof label === "string" && label.startsWith("Edit ")) {
+    if ((await evalPage(send, "document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''")) !== "yes") {
+      assert.equal(await pressLabel(send, evalPage, label), "yes");
+      if ((await evalPage(send, "document.getElementById('task-title') ? 'yes' : ''")) === "yes") return "yes";
+    }
+    await waitFor(send, overlaySettled, "task detail");
+    if ((await evalPage(send, "document.getElementById('task-title') ? 'yes' : ''")) === "yes") return "yes";
+    assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
+    await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "edit form");
+    return "yes";
+  }
+  if (label === "Cancel" || label === "Close" || label === "Save" || label === "Delete") {
+    const finder = `[...document.querySelectorAll("button, a, [role='button'], input, textarea")].find((el) => { const text = (el.innerText || "").replace(/\\s+/g, " ").trim(); if (text !== ${JSON.stringify("PLACE")} && el.getAttribute("aria-label") !== ${JSON.stringify("PLACE")} && el.id !== ${JSON.stringify("PLACE")}) return false; const rect = el.getBoundingClientRect(); return rect.left >= -1 && rect.top >= -1 && rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1 && rect.width >= 1 && rect.height >= 1; })`.replaceAll("PLACE", label);
+    return pointerClick(send, evalPage, finder);
+  }
   return pressLabel(send, evalPage, label);
+}
+
+async function dismissOverlay(send) {
+  if ((await evalPage(send, "document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''")) !== "yes") return;
+  await waitFor(send, "document.querySelector(\"[data-overlay='panel'] [aria-label='Close']\") ? 'yes' : ''", "overlay close");
+  assert.equal(await pressLabel(send, evalPage, "Close"), "yes");
 }
 
 async function pressStarts(send, name) {
@@ -195,8 +218,9 @@ test("list create, rename, color, and delete keep the tasks", { timeout: 180000,
     assert.equal(await press(send, "Save"), "yes");
     await waitFor(send, "document.body.innerText.includes('Parcel run') && !document.getElementById('list-name') ? 'yes' : ''", "renamed");
     assert.equal(await press(send, "Cancel"), "yes");
-    await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "back to task");
+    await waitFor(send, "document.getElementById('task-title') && (!document.querySelector(\"[data-overlay='panel']\") || document.querySelector(\"[data-overlay='panel']\").getAttribute('data-state') === 'open' && !document.querySelector(\"[data-overlay='panel']\").getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) ? 'yes' : ''", "back to task");
     assert.equal(await press(send, "Cancel"), "yes");
+    await dismissOverlay(send);
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "sheets closed");
     assert.equal(await press(send, "List"), "yes");
     await waitFor(send, "document.querySelector(\"[aria-label='Parcel run']\") ? 'yes' : ''", "list group");
@@ -222,8 +246,9 @@ test("list create, rename, color, and delete keep the tasks", { timeout: 180000,
     assert.equal(await press(send, "Delete"), "yes");
     await waitFor(send, "document.body.innerText.includes('No lists yet') ? 'yes' : ''", "empty lists");
     assert.equal(await press(send, "Cancel"), "yes");
-    await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "task still open");
+    await waitFor(send, "document.getElementById('task-title') && (!document.querySelector(\"[data-overlay='panel']\") || document.querySelector(\"[data-overlay='panel']\").getAttribute('data-state') === 'open' && !document.querySelector(\"[data-overlay='panel']\").getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) ? 'yes' : ''", "task still open");
     assert.equal(await press(send, "Cancel"), "yes");
+    await dismissOverlay(send);
     await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "closed after delete");
     await waitFor(send, "document.querySelector(\"[aria-label='No list']\")?.innerText.includes('Carry the sample bag') ? 'yes' : ''", "moved");
     const plain = await evalPage(
