@@ -106,15 +106,49 @@ export function OverviewSkeleton() {
   );
 }
 
+function BreakdownBone() {
+  return (
+    <div className="flex min-h-11 items-center gap-3 px-1 py-3">
+      <Circle size={40} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="skeleton-bone block h-[1.40625rem] w-[42%] rounded-md" />
+          <span className="skeleton-bone block h-[1.40625rem] w-14 shrink-0 rounded-md" />
+        </span>
+        <span className="mt-2 block h-1.5 overflow-hidden rounded-full">
+          <span className="skeleton-bone block h-full w-full rounded-full" />
+        </span>
+      </span>
+      <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+    </div>
+  );
+}
+
 export function SpendingSkeleton() {
   return (
-    <div data-skeleton="spending" aria-busy="true" className="px-5 pb-8 pt-5">
-      <Card className="p-4">
-        <TextLine height={13} width={120} />
-        <TextLine height={24} width={96} className="mt-3" />
-        <TextLine height={12} width={160} className="mt-3" />
-      </Card>
-      <div className="mt-4">
+    <div data-skeleton="spending" aria-busy="true" className="pb-8">
+      <div className="px-5 pt-5">
+        <Card className="p-4">
+          <TextLine height={13} width={120} />
+          <TextLine height={24} width={96} className="mt-3" />
+          <TextLine height={12} width={160} className="mt-3" />
+        </Card>
+      </div>
+      <ul className="mt-4 px-4">
+        <li><BreakdownBone /></li>
+        <li><BreakdownBone /></li>
+        <li><BreakdownBone /></li>
+        <li><BreakdownBone /></li>
+      </ul>
+      <div className="mt-2 flex h-11 items-end gap-4 overflow-hidden px-5">
+        <TextLine height={13} width={32} />
+        <TextLine height={13} width={84} />
+        <TextLine height={13} width={72} />
+      </div>
+      <div className="mt-4 px-5">
+        <TextLine height={17} width={120} />
+      </div>
+      <div className="mt-2">
         <SkeletonRow />
         <SkeletonRow />
         <SkeletonRow />
