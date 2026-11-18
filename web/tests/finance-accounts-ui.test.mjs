@@ -89,7 +89,7 @@ async function waitFor(send, expression, label, budget = 45000) {
 async function shot(send, name) {
   await evalPage(send, "document.querySelectorAll('nextjs-portal').forEach((node) => node.style.setProperty('display', 'none', 'important')); 'yes'");
   await new Promise((resolve) => setTimeout(resolve, 200));
-  const image = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  const image = await send("Page.captureScreenshot", { format: "png" });
   mkdirSync(SHOTS, { recursive: true });
   writeFileSync(`${SHOTS}/${name}`, Buffer.from(image.result.data, "base64"));
 }
@@ -101,6 +101,10 @@ async function open(send, path, width, height) {
 }
 
 const overlaySettled = `(function(){const panel=document.querySelector('[data-overlay="panel"]');if(!panel)return true;const box=panel.getBoundingClientRect();return box.width>200&&box.right<=window.innerWidth+2&&box.left>=-2;})()`;
+
+function hittable(finder) {
+  return `(function(){const el=${finder};if(!el)return false;const rect=el.getBoundingClientRect();const x=rect.left+rect.width/2;const y=rect.top+rect.height/2;const top=document.elementFromPoint(x,y);return rect.width>1&&x>=0&&y>=0&&x<=window.innerWidth&&y<=window.innerHeight&&!!(top&&(top===el||el.contains(top)));})()`;
+}
 
 function setField(label, value) {
   return `(() => {
@@ -197,6 +201,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await pressLabel(send, evalPage, "Edit");
     await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Cash reserve') && ${overlaySettled} ? 'yes' : ''`, "cash edit");
     await shot(send, "A05-app.png");
+    await waitFor(send, `${hittable("[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)")} ? 'yes' : ''`, "delete ready");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "cash confirm");
     await shot(send, "A09-app.png");
@@ -246,6 +251,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await waitFor(send, "document.body.innerText.includes('Trip cash') ? 'yes' : ''", "renamed");
     await pressLabel(send, evalPage, "Edit");
     await waitFor(send, `document.querySelector('[data-sheet]') && ${overlaySettled} ? 'yes' : ''`, "edit again");
+    await waitFor(send, `${hittable("[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)")} ? 'yes' : ''`, "delete ready");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)");
     await waitFor(send, "document.body.innerText.includes('Delete this account?') ? 'yes' : ''", "confirm");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(0)");

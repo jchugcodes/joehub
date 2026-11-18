@@ -315,14 +315,15 @@ export function OverlayPanel({
 
   if (wide) {
     return (
-      <div className="sticky top-2 w-[440px] shrink-0 self-start overflow-clip">
+      <div className="sticky top-2 w-[440px] shrink-0 self-start" style={{ overflow: "clip" }}>
         {panel}
       </div>
     );
   }
   return (
     <div
-      className="fixed inset-0 z-40 overflow-clip"
+      className="fixed inset-0 z-40"
+      style={{ overflow: "clip" }}
       data-overlay="phone"
       onClick={(event) => {
         if (event.target === event.currentTarget) dismiss();
