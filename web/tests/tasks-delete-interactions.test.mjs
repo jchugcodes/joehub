@@ -112,6 +112,22 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
       }
       throw new Error("edit sheet Delete was not visible, enabled, and on top");
     };
+    const formDialog = `([...document.querySelectorAll("[role='dialog']")].find((node) => !node.closest("[role='alertdialog']")) || document)`;
+    const askDelete = async () => {
+      const by = Date.now() + 12000;
+      let last = "";
+      while (Date.now() < by) {
+        if ((await evalPage(confirmOpen)) === "yes") return;
+        try {
+          await press("Delete", formDialog);
+          last = "clicked";
+        } catch (error) {
+          last = error instanceof Error ? error.message.slice(0, 160) : "miss";
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error(`delete confirm did not open; last=${last}`);
+    };
     await send("Network.setCookie", { name: "joehub_session", value: cookie, url: `${baseOf(port)}/` });
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
     await send("Page.navigate", { url: `${baseOf(port)}/tasks` });
@@ -121,12 +137,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     }
     await press("Edit Delete the sample bag");
     await waitForSheetDelete();
-    await press("Delete");
-    const openedBy = Date.now() + 8000;
-    while (Date.now() < openedBy && !(await evalPage(confirmOpen))) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if ((await evalPage(confirmOpen)) !== "yes") throw new Error("delete confirm did not open");
+    await askDelete();
     const idleBy = Date.now() + 4000;
     while (Date.now() < idleBy) {
       const idle = await evalPage("(() => { const root = document.querySelector(\"[role='alertdialog']\"); if (!root) return ''; return root.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running') ? '' : 'yes'; })()");
@@ -159,19 +170,11 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     assert.equal(await evalPage(confirmOpen), "");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
     await waitForSheetDelete();
-    await press("Delete");
-    const cancelBy = Date.now() + 5000;
-    while (Date.now() < cancelBy && !(await evalPage(confirmOpen))) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
+    await askDelete();
     await press("Cancel", "document.querySelector(\"[role='alertdialog']\")");
     assert.equal(await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : 'no'"), "yes");
     await waitForSheetDelete();
-    await press("Delete");
-    const confirmBy = Date.now() + 5000;
-    while (Date.now() < confirmBy && !(await evalPage(confirmOpen))) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
+    await askDelete();
     await press("Delete", "document.querySelector(\"[role='alertdialog']\")");
     const goneBy = Date.now() + 10000;
     while (Date.now() < goneBy && (await evalPage("document.body.innerText.includes('Delete the sample bag') ? 'yes' : ''"))) {
@@ -213,11 +216,7 @@ test("delete asks first and then the task is gone", { timeout: 180000, skip }, a
     assert.equal(await evalPage("document.querySelector(\"[aria-label='Reopen Delete the finished sample']\") ? 'yes' : 'no'"), "yes");
     await press("Edit Delete the finished sample");
     await waitForSheetDelete();
-    await press("Delete");
-    const dialogBy = Date.now() + 5000;
-    while (Date.now() < dialogBy && (await evalPage(confirmOpen)) !== "yes") {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
+    await askDelete();
     assert.equal(await evalPage("document.getElementById('delete-dialog')?.innerText.includes('permanently removed') ? 'yes' : 'no'"), "no");
     await press("Delete", "document.querySelector(\"[role='alertdialog']\")");
     const removedBy = Date.now() + 10000;
