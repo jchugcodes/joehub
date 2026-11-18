@@ -29,7 +29,7 @@ export function PanelHeader({
   slim?: boolean;
 }) {
   const dismissControl = slim ? null : (
-    <button type="button" onClick={onBack || onClose} aria-label={onBack ? "Back" : "Close"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center">
+    <button type="button" onClick={onBack || onClose} aria-label={onBack ? "Back" : "Close"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ink)]">
       {onBack ? (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -281,7 +281,8 @@ export function OverlayPanel({
     const focusable = () =>
       [...(node?.querySelectorAll<HTMLElement>("button, input, textarea, select, a[href], [tabindex]") ?? [])].filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
     const preferred = node?.querySelector<HTMLElement>("[data-autofocus]");
-    (preferred && !preferred.hasAttribute("disabled") ? preferred : focusable()[0])?.focus();
+    if (preferred && !preferred.hasAttribute("disabled")) preferred.focus();
+    else focusable()[0]?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         const actionName = overlayEscape({ confirming, form, nested: Boolean(backRef.current) || nested });

@@ -230,15 +230,21 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
       const heading = document.querySelector("[data-overlay='panel'] h2");
       const ring = document.querySelector("[data-overlay='panel'] [data-swatch='ring']");
       const style = ring ? getComputedStyle(ring) : null;
+      const body = document.querySelector("[data-overlay='panel'] [data-stack]")?.firstElementChild;
+      const close = document.querySelector("[data-overlay='panel'] [aria-label='Close']");
       return JSON.stringify({
         align: heading ? getComputedStyle(heading).textAlign : "",
-        close: document.querySelector("[data-overlay='panel'] [aria-label='Close']") ? "yes" : "",
+        close: close ? "yes" : "",
+        pad: body ? getComputedStyle(body).paddingLeft : "",
+        focusRing: close?.matches(":focus-visible") ? "yes" : "no",
         shadow: style ? style.boxShadow : "",
         fill: style ? style.backgroundColor : "",
       });
     })()`));
     assert.equal(home.align, "left");
     assert.equal(home.close, "yes");
+    assert.equal(home.pad, "20px");
+    assert.equal(home.focusRing, "no");
     assert.equal(home.fill, "rgba(0, 0, 0, 0)");
     assert.match(home.shadow, /1\.5px/);
     assert.match(home.shadow, /201,\s*206,\s*200/);
@@ -250,6 +256,9 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
       const style = input ? getComputedStyle(input) : null;
       const ring = document.querySelector("[data-list-color='none'] [data-swatch='ring']");
       const ringStyle = ring ? getComputedStyle(ring) : null;
+      const button = [...document.querySelectorAll("[data-overlay='panel'] button")].find((el) => (el.innerText || "").trim() === "Delete list");
+      const inputBox = input?.getBoundingClientRect();
+      const buttonBox = button?.getBoundingClientRect();
       return JSON.stringify({
         id: document.activeElement?.id || "",
         sheet: document.querySelector("[data-overlay='panel']")?.getAttribute("data-sheet") || "",
@@ -257,9 +266,13 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
         color: style ? style.borderTopColor : "",
         ring: ringStyle ? ringStyle.backgroundColor : "",
         shadow: ringStyle ? ringStyle.boxShadow : "",
+        pad: input ? getComputedStyle(input.closest("[data-stack]")?.firstElementChild).paddingRight : "",
+        deleteBelow: Boolean(inputBox && buttonBox && buttonBox.top >= inputBox.bottom - 1),
       });
     })()`));
     assert.equal(edit.id, "list-name");
+    assert.equal(edit.pad, "20px");
+    assert.equal(edit.deleteBelow, true);
     assert.equal(edit.sheet, "form");
     assert.equal(edit.width, "2px");
     assert.equal(edit.color, "rgb(31, 42, 36)");
@@ -287,8 +300,8 @@ test("manage lists overlay, colorless ring, and primary delete", { timeout: 1800
       });
     })()`));
     assert.match(confirm.copy, /moves to No list\./);
-    assert.equal(confirm.color, "rgb(46, 139, 106)");
-    assert.equal(confirm.background, "rgba(0, 0, 0, 0)");
+    assert.equal(confirm.color, "rgb(255, 255, 255)");
+    assert.equal(confirm.background, "rgb(224, 122, 95)");
     assert.deepEqual(confirm.order, ["Delete", "Cancel"]);
     assert.equal(await pressLabel(send, evalPage, "Cancel", "document.querySelector(\"[role='alertdialog']\")"), "yes");
     await waitFor(send, "document.querySelector(\"[role='alertdialog']\") ? '' : 'edit'", "dialog closed");

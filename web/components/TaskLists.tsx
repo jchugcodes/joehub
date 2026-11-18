@@ -289,9 +289,6 @@ export function ManageLists({
         if (!offline) onSave();
       }}
     >
-      <button type="button" className="flex min-h-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => { if (!offline) onAskDelete(); }} disabled={offline || saving}>
-        Delete list
-      </button>
       <div>
         <label className="block text-meta font-medium" htmlFor="list-name">
           Name
@@ -318,6 +315,9 @@ export function ManageLists({
       <p className="text-meta font-medium">Color</p>
       <Palette value={color} disabled={offline} onPick={onColor} />
       {error ? <p className="text-meta font-medium text-warn">{error}</p> : null}
+      <button type="button" className="flex min-h-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => { if (!offline) onAskDelete(); }} disabled={offline || saving}>
+        Delete list
+      </button>
     </form>
   );
   if (overlay) {
@@ -349,12 +349,14 @@ export function ManageLists({
             ) : null
           }
         >
-          {offline ? (
-            <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
-              You are offline.
-            </p>
-          ) : null}
-          {mode === "home" ? homeList : editForm}
+          <div className="px-5 py-4">
+            {offline ? (
+              <p role="status" data-state="offline" className="mb-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+                You are offline.
+              </p>
+            ) : null}
+            {mode === "home" ? homeList : editForm}
+          </div>
         </OverlayPanel>
         {mode === "delete" ? (
           <ConfirmDialog
@@ -362,7 +364,6 @@ export function ManageLists({
             detail={tasksMoveCopy(moved)}
             error={error}
             confirmDisabled={offline || saving}
-            confirmClassName="order-2 inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-transparent text-body font-medium text-finance-primary disabled:opacity-50"
             onCancel={onBack}
             onConfirm={() => {
               if (!offline) onDelete();

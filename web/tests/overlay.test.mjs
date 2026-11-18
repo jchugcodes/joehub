@@ -115,7 +115,8 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(listsUi, /OverlayPanel/);
   assert.match(listsUi, /ConfirmDialog/);
   assert.match(listsUi, /Delete this list\?/);
-  assert.match(listsUi, /text-finance-primary/);
+  assert.match(listsUi, /px-5 py-4/);
+  assert.doesNotMatch(listsUi, /confirmClassName/);
   assert.match(listsUi, /row-selected/);
   assert.match(listsUi, /text-left text-body text-ink/);
   assert.match(listsUi, /inset 0 0 0 1.5px var\(--subtle-border\)/);
@@ -136,6 +137,8 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(panel, /translateX\(100%\)/);
   assert.match(panel, /data-state=\{phase\}/);
   assert.match(panel, /requestAnimationFrame/);
+  assert.match(panel, /focusVisible: false/);
+  assert.match(panel, /focus-visible:outline-offset-\[-2px\]/);
   assert.match(panel, /data-overlay="desktop"/);
   assert.match(panel, /position:\s*"fixed"|className="fixed z-40"/);
   assert.doesNotMatch(panel, /pointer-events-none/);
