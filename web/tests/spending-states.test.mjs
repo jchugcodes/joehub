@@ -117,6 +117,17 @@ test("spending empty, error, offline, context line, and uncategorized clock mark
       await waitFor(send, "document.querySelector('[data-ready]') && document.querySelector('[data-txn=\"fin-vendor\"] [data-category-mark=\"uncategorized\"]') ? 'yes' : ''", `clock ${width}`);
       const mark = await evalPage(send, "document.querySelector('[data-txn=\"fin-vendor\"] [data-category-mark]')?.getAttribute('data-category-mark')");
       assert.equal(mark, "uncategorized");
+      if (width === 390) {
+        const tab = await evalPage(send, `(() => {
+          const row = document.querySelector("nav[aria-label='Finance sections'] .finance-tab-row");
+          const link = [...(row?.querySelectorAll("a") || [])].find((el) => (el.textContent || "").trim() === "Spending");
+          if (!row || !link || link.getAttribute("aria-current") !== "page") return "missing";
+          const view = row.getBoundingClientRect();
+          const box = link.getBoundingClientRect();
+          return box.left >= view.left - 1 && box.right <= view.right + 1 && window.scrollY < 2 ? "yes" : "no";
+        })()`);
+        assert.equal(tab, "yes");
+      }
       const overflow = await evalPage(send, "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 ? 'fit' : String(document.documentElement.scrollWidth)");
       assert.equal(overflow, "fit");
     }

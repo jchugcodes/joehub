@@ -96,6 +96,14 @@ async function withPage(cdp, url, width, cookie = "") {
           chart: Boolean(document.querySelector("[aria-label='Net worth chart']")),
           net: (document.querySelector("[data-net-worth]") || {}).textContent || "",
           ytd: document.body.innerText.includes("YTD") || document.body.innerText.includes("no history"),
+          tabVisible: (() => {
+            const row = document.querySelector("nav[aria-label='Finance sections'] .finance-tab-row");
+            const tab = row ? row.querySelector("a[aria-current='page']") : null;
+            if (!row || !tab) return false;
+            const view = row.getBoundingClientRect();
+            const box = tab.getBoundingClientRect();
+            return box.width > 1 && box.left >= view.left - 1 && box.right <= view.right + 1;
+          })(),
           active: (() => {
             const link = nav.querySelector("a[aria-current='page']");
             if (!link) return null;
@@ -108,7 +116,8 @@ async function withPage(cdp, url, width, cookie = "") {
     });
     value = ready.result?.result?.value;
     const productionFinance = value && value.labels.join("|") === "Tasks|Grocery|Finance" && url.endsWith("/finance");
-    const laidOut = value && value.labels.length > 0 && (url.endsWith("/finance") ? value.finance.length > 0 : true) && (url.endsWith("/grocery") ? value.title === "Grocery" : true);
+    const financePage = /\/finance(\/|$)/.test(url);
+    const laidOut = value && value.labels.length > 0 && (financePage ? value.finance.length > 0 && value.tabVisible : true) && (url.endsWith("/grocery") ? value.title === "Grocery" : true);
     if (laidOut && !(productionFinance && !value.net)) break;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
@@ -152,14 +161,26 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.equal(grocery.active.color, "rgb(46, 139, 106)");
     assert.match(grocery.active.bg, /rgba\(46,\s*139,\s*106/);
     const finance = await withPage(cdp, `${server.base}/finance`, 390, server.cookie);
-    assert.deepEqual(finance.finance, ["Overview", "Categories", "Accounts", "Bills"]);
+    assert.deepEqual(finance.finance, ["Overview", "Categories", "Accounts", "Bills", "Spending"]);
     assert.equal(finance.chart, false);
     assert.equal(finance.ytd, false);
     assert.match(finance.net, /\d/);
     assert.equal(finance.active.color, "rgb(46, 139, 106)");
     assert.match(finance.active.bg, /rgba\(46,\s*139,\s*106/);
 
-    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/finance/spending", "/not-a-page"]) {
+    const spendingPage = await withPage(cdp, `${server.base}/finance/spending`, 390, server.cookie);
+    assert.deepEqual(spendingPage.finance, ["Overview", "Categories", "Accounts", "Bills", "Spending"]);
+    assert.equal(spendingPage.tabVisible, true);
+    const authed = await fetch(`${server.base}/finance/spending`, { headers: { cookie: `joehub_session=${server.cookie}` }, redirect: "manual" });
+    assert.equal(authed.status, 200);
+    const anon = await fetch(`${server.base}/finance/spending`, { redirect: "manual" });
+    if (anon.status >= 300 && anon.status < 400) {
+      assert.notEqual(new URL(anon.headers.get("location"), server.base).pathname, "/tasks");
+    } else {
+      assert.equal(anon.status, 200);
+    }
+
+    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/finance/debts", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
       assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);

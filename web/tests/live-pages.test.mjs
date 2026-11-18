@@ -33,22 +33,22 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
     );
     assert.deepEqual(
       financeTabs(env).map((tab) => tab.label),
-      ["Overview", "Categories", "Accounts", "Bills"],
+      ["Overview", "Categories", "Accounts", "Bills", "Spending"],
     );
-    assert.equal(financeTabs(env).some((tab) => tab.label === "Spending"), false);
   }
-  assert.equal(isGatedPath("/finance/spending"), true);
+  assert.equal(isGatedPath("/finance/spending"), false);
+  assert.equal(isGatedPath("/finance/spending/more"), false);
 });
 
 test("production middleware redirects gated pages and leaves auth and api alone", async () => {
   const env = { ...open, NEXT_PUBLIC_VERCEL_ENV: "production" };
-  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/finance/spending", "/not-a-page"]) {
+  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/not-a-page"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "redirect", path);
     assert.equal(decision.location, "/tasks", path);
     assert.equal(isGatedPath(path), true);
   }
-  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/transactions", "/finance/caps"]) {
+  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/spending", "/finance/transactions", "/finance/caps"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "next", path);
   }

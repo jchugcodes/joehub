@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { financeTabsFor } from "../lib/live-pages.mjs";
 import { useProductionNav } from "./LivePages";
 
@@ -24,9 +24,11 @@ export function FinanceTabs() {
   const pathname = usePathname();
   const links = financeTabsFor(useProductionNav());
   const scrollerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    const current = scroller.querySelector("[aria-current='page']");
+    if (current instanceof HTMLElement) revealTab(current, scroller);
     const onFocus = (event: globalThis.FocusEvent) => {
       const item = event.target;
       if (item instanceof HTMLElement && scroller.contains(item)) revealTab(item, scroller);
@@ -34,7 +36,7 @@ export function FinanceTabs() {
     scroller.addEventListener("focusin", onFocus);
     scroller.setAttribute("data-hydrated", "true");
     return () => scroller.removeEventListener("focusin", onFocus);
-  }, []);
+  }, [pathname]);
   return (
     <nav aria-label="Finance sections" data-tabs="contained" className="finance-sections flex w-full min-w-0 items-end border-b border-line">
       <div ref={scrollerRef} className="finance-tab-row -mb-px flex min-h-11 min-w-0 flex-1 items-end justify-start gap-3 overflow-x-auto pl-5 pr-1 max-[389px]:gap-1.5 min-[420px]:px-5 min-[1024px]:gap-5">
