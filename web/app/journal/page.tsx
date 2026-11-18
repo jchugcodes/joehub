@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useSkeletons } from "../../components/LivePages";
+import { JournalSkeleton, LoadError, RefreshBar } from "../../components/Skeleton";
+import { useSkeletonPhase } from "../../components/SkeletonHold";
 import { journal } from "../../lib/design-fixtures";
 import { DEMO_NOTICE, readFilter, readScroll, writeFilter, writeScroll, type JournalFilter } from "../../lib/journal-session";
+import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 
 const filters: { id: JournalFilter; label: string }[] = [
   { id: "feed", label: "Feed" },
@@ -68,6 +72,8 @@ export default function JournalPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(params, skeletonOn);
 
   useEffect(() => {
     setReady(true);
@@ -93,6 +99,11 @@ export default function JournalPage() {
 
   const special = requested === "loading" || requested === "empty" || requested === "error" || requested === "filtered" ? requested : "feed";
   const view = (resolved || (special === "filtered" && filter === "feed")) ? "feed" : special;
+  const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, view === "loading", view === "feed" || view === "filtered");
+  const bones = skeletonOn && (hold === "skel" || (view === "loading" && phase === "skeleton"));
+  const showError = skeletonOn && hold === "error";
+  const showEmptyHold = skeletonOn && hold === "empty";
+  const blocked = bones || showError || showEmptyHold;
   const visible = view === "filtered" ? [] : journal.entries.filter((entry) => matches(filter, entry));
   const groups = visible.reduce<{ label: string; entries: typeof visible }[]>((rows, entry) => {
     const last = rows[rows.length - 1];
@@ -152,7 +163,8 @@ export default function JournalPage() {
 
   return (
     <div data-ready={ready ? "true" : "false"}>
-      <header className="px-5">
+      <header className="relative px-5">
+        {refreshing ? <RefreshBar /> : null}
         <p className="text-ui-13 text-ink">Journal</p>
         <h1 className="text-ui-22 font-bold">Wins & dates</h1>
       </header>
@@ -181,7 +193,10 @@ export default function JournalPage() {
         </p>
       ) : null}
 
-      {view === "loading" ? (
+      {bones ? <JournalSkeleton /> : null}
+      {showError ? <LoadError onRetry={retry} /> : null}
+      {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No entries.</p> : null}
+      {!blocked && view === "loading" && !skeletonOn ? (
         <div className="mt-4 px-4" aria-busy="true">
           {[0, 1, 2].map((item) => (
             <div key={item} className={`card p-4 ${item === 0 ? "" : "mt-3"}`} aria-hidden="true">
@@ -195,7 +210,7 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {view === "empty" ? (
+      {!blocked && view === "empty" ? (
         <div className="mt-4 px-4">
           <div className="card p-4 text-left">
             <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
@@ -215,7 +230,7 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {view === "error" ? (
+      {!blocked && view === "error" ? (
         <div className="mt-4 px-4">
           <div className="card p-4 text-left">
             <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-journal/10 text-ui-24 text-journal" aria-hidden="true">
@@ -237,7 +252,7 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {showFiltered ? (
+      {!blocked && showFiltered ? (
         <div>
           <Streak />
           <div className="mt-3 px-4">
@@ -260,7 +275,7 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {view === "feed" && groups.length > 0 ? (
+      {!blocked && view === "feed" && groups.length > 0 ? (
         <div className="pb-[64px]">
           <Streak />
           <div className="mt-3 space-y-2.5 px-4">
@@ -323,7 +338,7 @@ export default function JournalPage() {
         </div>
       ) : null}
 
-      {view === "feed" && groups.length > 0 ? (
+      {!blocked && view === "feed" && groups.length > 0 ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center">
           <div className="relative h-0 w-full max-w-phone">
             <Link

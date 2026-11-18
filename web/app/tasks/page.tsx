@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
+import { useSkeletons } from "../../components/LivePages";
 import { Sheet } from "../../components/Sheet";
+import { LoadError, RefreshBar, TasksSkeleton } from "../../components/Skeleton";
+import { useSkeletonPhase } from "../../components/SkeletonHold";
+import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 import { ManageLists, TaskListMenu, listAccent, type TaskList } from "../../components/TaskLists";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
 import { nextPaletteColor, resolveTaskList } from "../../lib/list-display.mjs";
@@ -146,7 +150,10 @@ function newKey() {
 }
 
 export default function TasksPage() {
-  const asOf = useSearchParams().get("asOf") || "";
+  const search = useSearchParams();
+  const asOf = search.get("asOf") || "";
+  const skeletonOn = useSkeletons();
+  const hold = readSkeletonHold(search, skeletonOn);
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -184,6 +191,15 @@ export default function TasksPage() {
   const idemRef = useRef("");
   const loadGen = useRef(0);
   const queryRef = useRef("");
+  const seenRef = useRef(false);
+  const skeletonRef = useRef(false);
+  skeletonRef.current = skeletonOn;
+  const [reloading, setReloading] = useState(false);
+  const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, mode === "loading", mode === "ready" && tasks.length > 0);
+  const bones = skeletonOn && (hold === "skel" || phase === "skeleton");
+  const showError = skeletonOn && (hold === "error" || (mode === "error" && hold !== "empty" && hold !== "skel"));
+  const showEmptyHold = skeletonOn && hold === "empty";
+  const blocked = bones || showError || showEmptyHold;
 
   const showCached = useCallback((snap: { savedAt: number; tasks: Task[] } | null) => {
     queryRef.current = "";
@@ -202,6 +218,8 @@ export default function TasksPage() {
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
     const q = queryRef.current.trim();
+    const showBar = seenRef.current && skeletonRef.current;
+    if (showBar) setReloading(true);
     try {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
@@ -231,11 +249,14 @@ export default function TasksPage() {
       setOffline(false);
       setLink(recovered ? "back" : "live");
       setMode("ready");
+      seenRef.current = true;
     } catch {
       if (gen !== loadGen.current) return;
       const snap = readCache();
       showCached(snap);
       if (!snap) setMode("error");
+    } finally {
+      if (showBar) setReloading(false);
     }
   }, [asOf, showCached]);
 
@@ -651,8 +672,8 @@ export default function TasksPage() {
         : [...seen.filter((label) => label !== "No list").sort((a, b) => a.localeCompare(b)), ...seen.filter((label) => label === "No list")];
     return labels.map((label) => ({ key: label, label, items: ordered.filter((task) => labelFor(task) === label) }));
   }, [activeQuery, group, lists, openTasks, sortOrder, tasks]);
-  const showFab = !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
-  const showAddBar = !showFab && !offline && !activeQuery && wide && openTasks.length > 0;
+  const showFab = !blocked && !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
+  const showAddBar = !blocked && !showFab && !offline && !activeQuery && wide && openTasks.length > 0;
   function renderTask(task: Task) {
     const done = task.status === "Done";
     const meta = taskMeta(task, lists);
@@ -714,9 +735,10 @@ export default function TasksPage() {
   }
 
   return (
-    <div data-ready={mode === "loading" ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
+    <div data-ready={mode === "loading" || (skeletonOn && phase === "skeleton" && hold !== "skel") ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`tasks-type ${wide ? "flex min-w-0 items-start gap-6" : "min-w-0"}`}>
       <div className="relative min-w-0 flex-1">
-      <header className="flex items-start justify-between gap-3 px-5 pt-3">
+      <header className="relative flex items-start justify-between gap-3 px-5 pt-3">
+        {skeletonOn && (reloading || refreshing) ? <RefreshBar /> : null}
         <div>
           <p className="text-meta text-muted">joehub</p>
           <h1 className="text-title font-medium">Tasks</h1>
@@ -835,12 +857,15 @@ export default function TasksPage() {
       </>
       )}
       {activeQuery ? <p className="mt-2 px-5 text-meta text-muted">{tasks.length} {tasks.length === 1 ? "match" : "matches"}</p> : null}
-      {mode === "loading" ? (
+      {bones ? <TasksSkeleton /> : null}
+      {showError ? <LoadError onRetry={() => void load()} /> : null}
+      {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No tasks.</p> : null}
+      {!blocked && mode === "loading" && !skeletonOn ? (
         <p className="mt-5 px-5 text-meta text-muted" role="status">
           Loading tasks…
         </p>
       ) : null}
-      {mode === "error" ? (
+      {!blocked && mode === "error" && !skeletonOn ? (
         <div className="px-4">
           <div className="card mt-4 p-4">
             <h2 className="text-section font-medium">Tasks unavailable</h2>
@@ -855,7 +880,7 @@ export default function TasksPage() {
           </button>
         </div>
       ) : null}
-      {mode === "ready" && activeQuery && tasks.length === 0 ? (
+      {!blocked && mode === "ready" && activeQuery && tasks.length === 0 ? (
         <div className="px-4" data-search-empty="true">
           <div className="card mt-4 p-4">
             <h2 className="text-section font-medium">No tasks match this search.</h2>
@@ -870,7 +895,7 @@ export default function TasksPage() {
           </div>
         </div>
       ) : null}
-      {mode === "ready" && !activeQuery && openTasks.length === 0 ? (
+      {!blocked && mode === "ready" && !activeQuery && openTasks.length === 0 ? (
         <div className="mt-16 flex flex-col items-center px-5 text-center" data-empty="true">
           <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--table-header)] text-ink" data-empty-icon="true">
             <Icon name="check-square" size={28} />
@@ -888,7 +913,7 @@ export default function TasksPage() {
           ) : null}
         </div>
       ) : null}
-      {mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
+      {!blocked && mode === "ready" && (activeQuery ? tasks.length > 0 : openTasks.length > 0) ? (
         <div className="mt-4 space-y-4">
           {groups.map((section) => (
             <section key={section.key} aria-label={section.label || undefined}>
@@ -905,7 +930,7 @@ export default function TasksPage() {
           ))}
         </div>
       ) : null}
-      {mode === "ready" && !activeQuery && completedTasks.length > 0 ? (
+      {!blocked && mode === "ready" && !activeQuery && completedTasks.length > 0 ? (
         <section aria-label="Completed" className="mt-6" data-completed="true">
           <h2 className="flex items-center justify-between px-5 text-meta font-medium">
             <span>Completed</span>
