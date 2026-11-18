@@ -51,7 +51,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const composing = pathname.startsWith("/journal/compose");
   const tasksScreen = pathname.startsWith("/tasks");
   const groceryScreen = pathname.startsWith("/grocery");
   const financeScreen = pathname.startsWith("/finance");
@@ -60,7 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const production = useProductionNav();
   const overlays = useOverlays();
   const tabs = production ? LIVE_PRIMARY : DEV_PRIMARY;
-  const wideColumn = pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") || (overlays && pathname.startsWith("/jobs")) || (overlays && pathname.startsWith("/journal") && !pathname.startsWith("/journal/compose"));
+  const wideColumn = pathname.startsWith("/tasks") || pathname.startsWith("/grocery") || pathname.startsWith("/finance") || pathname.startsWith("/more/settings") || (overlays && pathname.startsWith("/jobs")) || (overlays && pathname.startsWith("/journal"));
 
   useEffect(() => {
     const nav = navRef.current;
@@ -73,7 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const observer = new ResizeObserver(apply);
     observer.observe(nav);
     return () => observer.disconnect();
-  }, [composing]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-page text-ink">
@@ -83,11 +82,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Tasks and Grocery widen on desktop. The tab bar stays a full-width bar so it does not cover the column. */}
       <main
         id="content"
-        className={`mx-auto w-full min-w-0 pt-2 ${wideColumn ? "max-w-[1080px]" : "max-w-phone"} ${composing ? "pb-8" : "pb-[calc(var(--primary-nav-height,84px)+28px)]"}`}
+        className={`mx-auto w-full min-w-0 pt-2 ${wideColumn ? "max-w-[1080px]" : "max-w-phone"} pb-[calc(var(--primary-nav-height,84px)+28px)]`}
       >
         {children}
       </main>
-      {composing ? null : (
       <nav ref={navRef} aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30">
         <ul className="flex min-h-[84px] w-full min-w-0 items-stretch border-t border-tab-line bg-tab px-2 py-2 backdrop-blur">
           {tabs.map((tab) => {
@@ -111,7 +109,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </ul>
       </nav>
-      )}
     </div>
   );
 }

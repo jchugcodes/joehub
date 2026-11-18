@@ -8,7 +8,7 @@ import { OverlayPanel } from "./OverlayPanel";
 import { JournalSkeleton, LoadError, RefreshBar } from "./Skeleton";
 import { useSkeletonPhase } from "./SkeletonHold";
 import { journal } from "../lib/design-fixtures";
-import { DEMO_NOTICE, readFilter, readScroll, writeFilter, writeScroll, type JournalFilter } from "../lib/journal-session";
+import { readFilter, readScroll, writeFilter, writeScroll, type JournalFilter } from "../lib/journal-session";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
 
@@ -74,7 +74,6 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
   });
   const [resolved, setResolved] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
@@ -158,7 +157,6 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
     window.setTimeout(() => {
       setBusy(false);
       setResolved(true);
-      setNotice(DEMO_NOTICE);
     }, 300);
   }
 
@@ -192,21 +190,15 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
       ? {
           title: "No wins yet",
           body: "No nightly wins match this filter. Your other entries are still in Feed.",
-          action: "Write your first entry",
-          href: "/journal/compose",
         }
       : filter === "dates"
         ? {
             title: "No dates yet",
             body: "No date entries match this filter. Your other entries are still in Feed.",
-            action: "Add a date",
-            href: "/journal/compose?mode=date",
           }
         : {
             title: "No places yet",
             body: "No entries with a place match this filter. Your other entries are still in Feed.",
-            action: "Add a date",
-            href: "/journal/compose?mode=date",
           };
   const showFiltered = view === "filtered" || (view === "feed" && groups.length === 0);
 
@@ -309,11 +301,6 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
           })}
         </div>
       </div>
-      {notice ? (
-        <p role="status" className="px-4 pt-3 text-ui-14 text-ink">
-          {notice}
-        </p>
-      ) : null}
       {overlayOn && panelOffline ? (
         <p role="status" data-state="offline" className="mx-4 mt-3 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
           You are offline.
@@ -345,14 +332,6 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
             </div>
             <h2 className="text-ui-20 font-bold">A small win counts</h2>
             <p className="mt-2 text-ui-14 leading-relaxed text-ink">A good meal, a kind moment, getting through today. Start with one thing you want to remember.</p>
-          </div>
-          <div className="mt-4 space-y-3">
-            <Link href="/journal/compose" className="action-link">
-              Write your first entry
-            </Link>
-            <Link href="/journal/compose?mode=date" className="action-link action-link-secondary">
-              Add a date
-            </Link>
           </div>
         </div>
       ) : null}
@@ -392,10 +371,7 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
               </h2>
               <p className="mt-2 text-ui-14 leading-relaxed text-ink">{filteredCopy.body}</p>
             </div>
-            <Link href={filteredCopy.href} className="action-link mt-4">
-              {filteredCopy.action}
-            </Link>
-            <button type="button" className="action-link action-link-secondary mt-3" onClick={showAll}>
+            <button type="button" className="action-link mt-4" onClick={showAll}>
               Show all entries
             </button>
           </div>
@@ -403,7 +379,7 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
       ) : null}
 
       {!blocked && view === "feed" && groups.length > 0 ? (
-        <div className="pb-[64px]">
+        <div>
           <Streak />
           <div className="mt-3 space-y-2.5 px-4">
             {groups.map((group) => (
@@ -477,20 +453,6 @@ export function JournalFeed({ selectedSlug = "" }: { selectedSlug?: string }) {
         </div>
       ) : null}
 
-      {!blocked && view === "feed" && groups.length > 0 ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center">
-          <div className={`relative h-0 w-full ${wide && overlayOn ? "max-w-[1080px]" : "max-w-phone"}`}>
-            <Link
-              id="new-entry"
-              href="/journal/compose"
-              aria-label="New entry"
-              className="pointer-events-auto absolute bottom-[calc(var(--primary-nav-height,84px)+16px)] right-5 grid h-14 w-14 place-items-center rounded-full bg-journal text-ui-28 font-bold text-white"
-            >
-              <span aria-hidden="true">+</span>
-            </Link>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 

@@ -96,16 +96,6 @@ async function tab(send) {
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 });
 }
 
-function setField(id, value) {
-  return `(() => {
-    const field = document.getElementById(${JSON.stringify(id)});
-    const proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    proto.call(field, ${JSON.stringify(value)});
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    return field.value;
-  })()`;
-}
-
 test.before(async () => {
   if (!chromeBin) return;
   await boot();
@@ -123,18 +113,10 @@ test("journal pages stay inside 320px and 200% text", { timeout: 180000, skip },
     ["/journal?view=loading", 320, 800, false],
     ["/journal?view=empty", 320, 800, false],
     ["/journal?view=error", 320, 800, false],
-    ["/journal/compose", 320, 800, false],
-    ["/journal/compose?view=typing", 320, 800, false],
-    ["/journal/compose?view=error", 320, 800, false],
-    ["/journal/compose?view=saving", 320, 800, false],
-    ["/journal/compose?view=saved", 320, 800, false],
-    ["/journal/compose?mode=date", 320, 900, false],
     ["/journal/nightly-win-nov-6", 320, 800, false],
     ["/journal?view=filtered", 320, 900, false],
-    ["/journal/compose?view=failed", 320, 900, false],
     ["/journal", 390, 900, true],
     ["/journal?view=empty", 390, 900, true],
-    ["/journal/compose", 390, 900, true],
     ["/journal/nightly-win-nov-6", 390, 900, true],
   ];
   for (const [path, width, height, enlarge] of cases) {
@@ -157,7 +139,6 @@ test("journal pages stay inside 320px and 200% text", { timeout: 180000, skip },
         return {
           overflow: doc.scrollWidth - doc.clientWidth,
           title: h1 ? parseFloat(getComputedStyle(h1).fontSize) : 0,
-          action: action ? action.getBoundingClientRect().height : 0,
           tabs: tabs.map((tab) => (tab.textContent || "").replace(/\\s+/g, " ").trim()),
           tabsInside: tabs.every((tab) => {
             const box = tab.getBoundingClientRect();
@@ -169,23 +150,19 @@ test("journal pages stay inside 320px and 200% text", { timeout: 180000, skip },
     );
     assert.ok(value, `no measurement for ${path}`);
     assert.ok(value.overflow <= 1, `${path} at ${width}${enlarge ? " text 200%" : ""} overflows by ${value.overflow}px`);
-    if (path.startsWith("/journal/compose")) {
-      assert.equal(value.nav, false, `${path} still shows the primary nav`);
-    } else {
-      assert.deepEqual(value.tabs, ["Home", "Finance", "Jobs", "Journal", "More"]);
-      assert.equal(value.tabsInside, true, `${path} clips a primary tab`);
-    }
+    assert.deepEqual(value.tabs, ["Home", "Finance", "Jobs", "Journal", "More"]);
+    assert.equal(value.tabsInside, true, `${path} clips a primary tab`);
     if (enlarge && path === "/journal") {
       assert.ok(Math.abs(value.title - 44) < 0.6, `journal title computed ${value.title}px`);
     }
-    if (path === "/journal?view=empty") {
-      assert.ok(value.action >= 48, `empty action height ${value.action}`);
+    if (path === "/journal" || path === "/journal?view=empty") {
+      assert.equal(value.nav, true);
     }
     await page.close();
   }
 });
 
-test("journal filters and the composer are keyboard reachable", { timeout: 120000, skip }, async () => {
+test("journal filters are keyboard reachable and the composer is gone", { timeout: 120000, skip }, async () => {
   const feed = await openPage("/journal", 320, 800);
   await feed.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   const expected = ["Feed", "Wins", "Dates", "Places"];
@@ -218,133 +195,18 @@ test("journal filters and the composer are keyboard reachable", { timeout: 12000
     if (label !== "Places") await tab(feed.send);
   }
   assert.equal(await evalValue(feed.send, "document.querySelector(\"[aria-pressed='true']\").textContent.trim()"), "Feed");
-  await feed.close();
-
-  const compose = await openPage("/journal/compose?mode=date", 390, 900);
-  await compose.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-  assert.equal(await evalValue(compose.send, "document.querySelector(\"[aria-modal='true']\")"), null);
-  const order = [];
-  for (let step = 0; step < 16; step += 1) {
-    await tab(compose.send);
-    order.push(await evalValue(compose.send, "(document.activeElement.innerText || document.activeElement.id || document.activeElement.getAttribute('aria-label') || '').trim()"));
-  }
-  assert.ok(order.includes("Nightly win"), JSON.stringify(order));
-  assert.ok(order.includes("Date"), JSON.stringify(order));
-  assert.ok(order.includes("Add to journal"), JSON.stringify(order));
-  assert.ok(order.includes("Cancel"), JSON.stringify(order));
-  const cancelAt = order.indexOf("Cancel");
-  const addAt = order.indexOf("Add to journal");
-  assert.ok(addAt >= 0 && cancelAt > addAt, JSON.stringify(order));
-  await compose.close();
-});
-
-test("the selected rating shows a focus ring on its label", { timeout: 120000, skip }, async () => {
-  const page = await openPage("/journal/compose?mode=date", 390, 844);
-  await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-  let ring = null;
-  for (let step = 0; step < 12; step += 1) {
-    await tab(page.send);
-    ring = await evalValue(
-      page.send,
-      `(() => {
-        const input = document.activeElement;
-        if (!(input instanceof HTMLInputElement) || input.type !== "radio") return null;
-        const label = input.closest("label");
-        const style = getComputedStyle(label);
-        return {
-          value: input.value,
-          checked: input.checked,
-          outlineStyle: style.outlineStyle,
-          outlineWidth: parseFloat(style.outlineWidth),
-          outlineColor: style.outlineColor,
-          shadow: style.boxShadow,
-        };
-      })()`,
-    );
-    if (ring && ring.checked) break;
-  }
-  assert.ok(ring, "tab did not reach a rating");
-  assert.equal(ring.value, "Loved");
-  assert.equal(ring.checked, true);
-  const outlined = ring.outlineStyle !== "none" && ring.outlineWidth >= 2;
-  const shadowed = ring.shadow && ring.shadow !== "none";
-  assert.ok(outlined || shadowed, JSON.stringify(ring));
-  await page.close();
-});
-
-test("saving previews the demo sentence and cancel drops a pending save", { timeout: 120000, skip }, async () => {
-  const compose = await openPage("/journal/compose", 390, 844);
-  await evalValue(compose.send, "document.querySelector('form').requestSubmit()");
-  const invalid = await evalValue(
-    compose.send,
+  const gone = await evalValue(
+    feed.send,
     `(() => ({
-      error: document.getElementById("entry-error")?.textContent || "",
-      focus: document.activeElement?.id || "",
-      invalid: document.getElementById("win-text")?.getAttribute("aria-invalid"),
+      composer: document.querySelector("#new-entry, a[href*='/journal/compose']") ? "yes" : "no",
+      demo: document.body.innerText.includes("Demo only. Nothing was saved.") ? "yes" : "no",
+      add: [...document.querySelectorAll("a, button")].some((el) => /^(New entry|Write your first entry|Add a date)$/.test((el.textContent || "").trim()) || (el.getAttribute("aria-label") || "") === "New entry") ? "yes" : "no",
     }))()`,
   );
-  assert.equal(invalid.error, "Write one thing that went well before adding your entry.");
-  assert.equal(invalid.focus, "win-text");
-  assert.equal(invalid.invalid, "true");
-
-  const unique = "Wrote a synthetic line";
-  await evalValue(compose.send, setField("win-text", unique));
-  await evalValue(compose.send, "document.querySelector('form').requestSubmit()");
-  let saved = "";
-  for (let i = 0; i < 20; i++) {
-    saved = await evalValue(compose.send, "document.body.innerText");
-    if (saved.includes("Demo only. Nothing was saved.")) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  assert.match(saved, /Demo only\. Nothing was saved\./);
-  assert.match(saved, /Synthetic saved-state preview\. Nothing was written\./);
-  assert.equal(await evalValue(compose.send, "JSON.stringify(localStorage).includes('Wrote a synthetic line')"), false);
-  await compose.close();
-
-  const feed = await openPage("/journal", 390, 844);
-  const feedText = await evalValue(feed.send, "document.body.innerText");
-  assert.equal(feedText.includes(unique), false);
-  assert.equal(feedText.includes("Finished Globex take-home"), true);
+  assert.equal(gone.composer, "no");
+  assert.equal(gone.demo, "no");
+  assert.equal(gone.add, "no");
   await feed.close();
-
-  const pending = await openPage("/journal/compose", 390, 844);
-  await evalValue(pending.send, setField("win-text", "Pending line to drop"));
-  await evalValue(pending.send, "document.querySelector('form').requestSubmit()");
-  let busy = "";
-  for (let i = 0; i < 15; i++) {
-    busy = await evalValue(pending.send, "document.querySelector('form')?.getAttribute('aria-busy') || ''");
-    if (busy === "true") break;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  assert.equal(busy, "true");
-  await evalValue(pending.send, "[...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Cancel').click()");
-  let after = { path: "", text: "" };
-  for (let i = 0; i < 25; i++) {
-    after = await evalValue(
-      pending.send,
-      `(() => ({ path: location.pathname, text: document.body.innerText }))()`,
-    );
-    if (after.path === "/journal" && after.text.includes("Wins & dates")) break;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  assert.equal(after.path, "/journal");
-  assert.equal(after.text.includes("Entry added"), false);
-  assert.equal(after.text.includes("Pending line to drop"), false);
-  assert.equal(after.text.includes("Demo only. Nothing was saved."), false);
-  await pending.close();
-
-  const date = await openPage("/journal/compose?mode=date", 390, 844);
-  await evalValue(date.send, "document.querySelector('form').requestSubmit()");
-  const place = await evalValue(
-    date.send,
-    `(() => ({
-      error: document.getElementById("entry-error")?.textContent || "",
-      focus: document.activeElement?.id || "",
-    }))()`,
-  );
-  assert.equal(place.error, "Add a place before adding this date.");
-  assert.equal(place.focus, "place");
-  await date.close();
 });
 
 function clickNamed(label, selector) {
@@ -449,53 +311,4 @@ test("show all entries and Feed leave the filtered preview", { timeout: 120000, 
   assert.equal(afterFeed.pressed, "Feed", JSON.stringify(afterFeed));
   assert.equal(afterFeed.win, true, JSON.stringify(afterFeed));
   await feed.close();
-});
-
-test("a failed save keeps the draft and retry returns to the failure", { timeout: 120000, skip }, async () => {
-  const page = await openPage("/journal/compose?view=failed", 390, 900);
-  const unique = "Retry keeps this synthetic draft";
-  const seeded = await evalValue(page.send, "document.getElementById('win-text')?.value || ''");
-  assert.equal(seeded, "Finished Globex take-home.");
-  assert.match(await evalValue(page.send, "document.body.innerText"), /Entry wasn’t saved\./);
-  assert.match(await evalValue(page.send, "document.body.innerText"), /Your draft is still here\./);
-  await evalValue(page.send, setField("win-text", unique));
-  assert.equal(await evalValue(page.send, "document.getElementById('win-text').value"), unique);
-
-  assert.equal(await evalValue(page.send, clickNamed("Retry saving", "button")), "ok");
-  let sawSaving = false;
-  let label = "";
-  for (let i = 0; i < 30; i++) {
-    label = await evalValue(page.send, "document.querySelector('button[type=submit]')?.textContent.trim() || ''");
-    if (label === "Saving…") sawSaving = true;
-    if (sawSaving && label === "Retry saving") break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.equal(sawSaving, true);
-  assert.equal(label, "Retry saving");
-  const after = await evalValue(
-    page.send,
-    `(() => ({
-      draft: document.getElementById("win-text")?.value || "",
-      text: document.body.innerText,
-      stored: JSON.stringify(localStorage).includes(${JSON.stringify(unique)}),
-    }))()`,
-  );
-  assert.equal(after.draft, unique);
-  assert.match(after.text, /Entry wasn’t saved\./);
-  assert.match(after.text, /Your draft is still here\./);
-  assert.equal(after.text.includes("Entry added"), false);
-  assert.equal(after.text.includes("A small win, remembered."), false);
-  assert.equal(after.stored, false);
-
-  assert.equal(await evalValue(page.send, clickNamed("Cancel", "button")), "ok");
-  let feed = { path: "", text: "" };
-  for (let i = 0; i < 25; i++) {
-    feed = await evalValue(page.send, "({ path: location.pathname, text: document.body.innerText })");
-    if (feed.path === "/journal" && feed.text.includes("Wins & dates")) break;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  assert.equal(feed.path, "/journal");
-  assert.equal(feed.text.includes(unique), false);
-  assert.equal(feed.text.includes("Entry added"), false);
-  await page.close();
 });

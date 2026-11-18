@@ -18,7 +18,6 @@ const PAGES = [
   "/jobs/globex",
   "/jobs/globex/stage",
   "/journal",
-  "/journal/compose",
   "/journal/nightly-win-nov-6",
   "/more",
   "/more/database",

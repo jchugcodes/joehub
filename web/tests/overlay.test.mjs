@@ -176,6 +176,10 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.doesNotMatch(jobsUi, /NEXT_PUBLIC_/);
   assert.doesNotMatch(jobsUi, /4,204/);
   assert.match(jobsUi, /data-fit-score="" className="text-ui-26 font-extrabold tabular-nums text-finance-primary"/);
+  assert.doesNotMatch(jobsUi, /Filter pipeline/);
+  assert.doesNotMatch(jobsUi, /Save to pipeline/);
+  assert.doesNotMatch(jobsUi, /Dismiss /);
+  assert.doesNotMatch(jobsUi, /Demo only/);
   const journalUi = readFileSync(new URL("components/JournalFeed.tsx", root), "utf8");
   assert.match(journalUi, /useOverlays\(\)/);
   assert.match(journalUi, /readOverlayHold\(params, useOverlayHolds\(\)\)/);
@@ -190,6 +194,9 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.doesNotMatch(journalUi, /overlay-flag/);
   assert.doesNotMatch(journalUi, /NEXT_PUBLIC_/);
   assert.doesNotMatch(journalUi, /4,204/);
+  assert.doesNotMatch(journalUi, /\/journal\/compose/);
+  assert.doesNotMatch(journalUi, /New entry/);
+  assert.doesNotMatch(journalUi, /Demo only/);
   assert.match(css, /\.row-selected \{[^}]*color: var\(--ink\)/);
   assert.match(tasks, /group === "project" && listColor/);
   assert.match(css, /--selected-row: rgb\(var\(--finance-rgb\) \/ 0\.1\)/);
