@@ -65,6 +65,7 @@ test("accounts read the overlay flag from context and never the public env name"
   const root = new URL("..", import.meta.url);
   const accounts = readFileSync(new URL("components/FinanceAccounts.tsx", root), "utf8");
   const bills = readFileSync(new URL("components/FinanceBills.tsx", root), "utf8");
+  const tasks = readFileSync(new URL("app/tasks/page.tsx", root), "utf8");
   const layout = readFileSync(new URL("app/layout.tsx", root), "utf8");
   assert.match(accounts, /useOverlays\(\)/);
   assert.match(accounts, /readOverlayHold\(search, useOverlayHolds\(\)\)/);
@@ -77,6 +78,13 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(bills, /text-left text-body text-ink/);
   assert.doesNotMatch(bills, /overlay-flag/);
   assert.doesNotMatch(bills, /NEXT_PUBLIC_/);
+  assert.match(tasks, /useOverlays\(\)/);
+  assert.match(tasks, /readOverlayHold\(search, useOverlayHolds\(\)\)/);
+  assert.match(tasks, /ConfirmDialog/);
+  assert.match(tasks, /Mark done/);
+  assert.match(tasks, /text-left text-body text-ink/);
+  assert.doesNotMatch(tasks, /overlay-flag/);
+  assert.doesNotMatch(tasks, /NEXT_PUBLIC_/);
   assert.match(layout, /overlays=\{overlaysEnabled\(\)\}/);
   assert.match(layout, /overlayHolds=\{overlayHoldsEnabled\(\)\}/);
   const motion = readFileSync(new URL("lib/overlay-motion.mjs", root), "utf8");

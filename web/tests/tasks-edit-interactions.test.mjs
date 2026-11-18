@@ -142,7 +142,24 @@ async function shot(send, name) {
   writeFileSync(`${ARTIFACTS}/${name}`, Buffer.from(image.result.data, "base64"));
 }
 
-function press(send, label) {
+const overlaySettled = `(() => { const panel = document.querySelector("[data-overlay='panel']"); if (!panel) return ""; const box = panel.getBoundingClientRect(); const busy = panel.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"); return !busy && panel.getAttribute("data-state") === "open" && box.width > 200 && box.right <= window.innerWidth + 2 && box.left >= -2 ? "yes" : ""; })()`;
+
+async function press(send, label) {
+  if (typeof label === "string" && label.startsWith("Edit ")) {
+    if ((await evalPage(send, "document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''")) !== "yes") {
+      assert.equal(await pressLabel(send, evalPage, label), "yes");
+      if ((await evalPage(send, "document.getElementById('task-title') ? 'yes' : ''")) === "yes") return "yes";
+    }
+    await waitFor(send, overlaySettled, "task detail");
+    if ((await evalPage(send, "document.getElementById('task-title') ? 'yes' : ''")) === "yes") {
+      await waitFor(send, overlaySettled, "edit settled");
+      return "yes";
+    }
+    assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
+    await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "edit form");
+    await waitFor(send, overlaySettled, "edit settled");
+    return "yes";
+  }
   return pressLabel(send, evalPage, label);
 }
 
@@ -258,7 +275,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "cancel sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "Do not keep edit" })), "Do not keep edit");
     assert.equal(await press(send, "Cancel"), "yes");
-    await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "cancel closed");
+    await waitFor(send, "document.getElementById('task-title') ? '' : 'closed'", "cancel closed");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Do not keep edit') ? 'yes' : 'no'"), "no");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Pack the sample crate') ? 'yes' : 'no'"), "yes");
 
@@ -266,7 +283,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "escape sheet");
     assert.equal(await evalPage(send, fill({ "task-title": "Escape should not save" })), "Escape should not save");
     await evalPage(send, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 'yes'");
-    await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "escape closed");
+    await waitFor(send, "document.getElementById('task-title') ? '' : 'closed'", "escape closed");
     assert.equal(await evalPage(send, "document.body.innerText.includes('Escape should not save') ? 'yes' : 'no'"), "no");
 
     assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
@@ -277,7 +294,7 @@ test("editing a task works at phone and desktop widths", { timeout: 300000, skip
     assert.equal(await evalPage(send, "document.activeElement?.id === 'task-title' ? 'yes' : document.activeElement?.id || 'none'"), "yes");
     await shot(send, "tasks_edit_error_390.png");
     assert.equal(await press(send, "Cancel"), "yes");
-    await waitFor(send, "document.querySelector(\"[role='dialog']\") ? '' : 'closed'", "blank closed");
+    await waitFor(send, "document.getElementById('task-title') ? '' : 'closed'", "blank closed");
 
     assert.equal(await press(send, "Edit Pack the sample crate"), "yes");
     await waitFor(send, "document.getElementById('task-title') ? 'yes' : ''", "failed sheet");

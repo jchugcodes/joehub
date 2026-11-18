@@ -94,11 +94,20 @@ test("bot progress is visible and read-only, and other tabs stay on DM Sans", { 
     assert.equal(type.optical, "none");
     await shoot(1280, "tasks_bot_1280.png");
     await pointerClick(send, (_send, expression) => evalPage(expression), controlFinder("Edit Hold for the sample reply"));
-    const editBy = Date.now() + 5000;
-    while (Date.now() < editBy && (await evalPage("document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : ''")) !== "yes") {
+    const detailBy = Date.now() + 8000;
+    while (Date.now() < detailBy && (await evalPage(`(() => { if (document.getElementById('task-title')) return 'yes'; const panel = document.querySelector("[data-overlay='panel']"); if (!panel || panel.getAttribute('data-state') !== 'open') return ''; return panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running') ? '' : 'yes'; })()`)) !== "yes") {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if ((await evalPage("document.getElementById('task-title') ? 'yes' : ''")) !== "yes") {
+      await pointerClick(send, (_send, expression) => evalPage(expression), controlFinder("Edit"));
+    }
+    const editBy = Date.now() + 8000;
+    while (Date.now() < editBy && (await evalPage("document.getElementById('task-title') && document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : ''")) !== "yes") {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    assert.equal(await evalPage("document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : 'no'"), "yes");
+    const botShown = await evalPage("document.querySelector(\"[role='dialog'] [data-bot='Scout']\") ? 'yes' : 'no'");
+    const dialogText = await evalPage("(() => { const dialog = document.querySelector(\"[role='dialog']\"); return dialog ? dialog.innerText.slice(0, 300) : 'no dialog'; })()");
+    assert.equal(botShown, "yes", dialogText);
     assert.equal(await evalPage("document.getElementById('task-title') ? 'yes' : 'no'"), "yes");
     const editWide = await send("Page.captureScreenshot", { format: "png" });
     writeFileSync(`${ARTIFACTS}/tasks_bot_edit_1280.png`, Buffer.from(editWide.result.data, "base64"));

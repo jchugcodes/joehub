@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
-import { useSkeletonHolds, useSkeletons } from "../../components/LivePages";
+import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "../../components/LivePages";
+import { ConfirmDialog, OverlayPanel } from "../../components/OverlayPanel";
 import { Sheet } from "../../components/Sheet";
-import { LoadError, RefreshBar, TasksSkeleton } from "../../components/Skeleton";
+import { LoadError, RefreshBar, TasksSkeleton, TextLine } from "../../components/Skeleton";
 import { useSkeletonPhase } from "../../components/SkeletonHold";
+import { readOverlayHold } from "../../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../../lib/skeleton-gate.mjs";
 import { ManageLists, TaskListMenu, listAccent, type TaskList } from "../../components/TaskLists";
 import { detroitCalendarDate } from "../../lib/detroit-date.mjs";
@@ -155,6 +157,8 @@ export default function TasksPage() {
   const skeletonOn = useSkeletons();
   const holdsOn = useSkeletonHolds();
   const hold = readSkeletonHold(search, holdsOn);
+  const overlayOn = useOverlays();
+  const overlayHold = readOverlayHold(search, useOverlayHolds());
   const [mode, setMode] = useState<"loading" | "ready" | "error">("loading");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -187,6 +191,7 @@ export default function TasksPage() {
   const [manageError, setManageError] = useState("");
   const [manageSaving, setManageSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
   const savingRef = useRef(false);
   const actingRef = useRef(false);
   const idemRef = useRef("");
@@ -369,8 +374,36 @@ export default function TasksPage() {
     setSheet("add");
   }
 
-  function openEdit(task: Task) {
+  function openTask(task: Task) {
     if (offline || mode !== "ready") return;
+    setSelectedId(task.id);
+    setSheet(null);
+    setConfirmDelete(false);
+    setTitleError("");
+    setFormError("");
+  }
+
+  function closeForm() {
+    setSheet(null);
+    setTitleError("");
+    setFormError("");
+    setConfirmDelete(false);
+    setListOpen(false);
+  }
+
+  function closeOverlay() {
+    setSelectedId("");
+    setSheet(null);
+    setEditingId("");
+    setConfirmDelete(false);
+    setTitleError("");
+    setFormError("");
+    setListOpen(false);
+    setDraft(emptyDraft());
+  }
+
+  function openEdit(task: Task) {
+    if (offline || mode !== "ready" || overlayHold === "offline") return;
     const status: Status = task.status === "Doing" || task.status === "Blocked" ? task.status : "To do";
     setEditingId(task.id);
     setDraft({
@@ -384,6 +417,11 @@ export default function TasksPage() {
     setTitleError("");
     setFormError("");
     setGone("");
+    if (overlayOn) {
+      setSelectedId(task.id);
+      window.setTimeout(() => setSheet("edit"), 0);
+      return;
+    }
     setSheet("edit");
   }
 
@@ -401,6 +439,7 @@ export default function TasksPage() {
       setConfirmDelete(false);
       setSheet(null);
       setEditingId("");
+      setSelectedId("");
     } catch {
       setFormError("Couldn't delete this task. It is still here.");
       setConfirmDelete(false);
@@ -538,6 +577,7 @@ export default function TasksPage() {
       if (response.status === 404 && editing) {
         setSheet(null);
         setEditingId("");
+        setSelectedId("");
         setDraft(emptyDraft());
         setGone(body?.detail || "This task is no longer here.");
         void load();
@@ -562,6 +602,7 @@ export default function TasksPage() {
       setSavedAt(at);
       setSheet(null);
       setEditingId("");
+      setSelectedId("");
       setDraft(emptyDraft());
       void load();
     } catch {
@@ -579,7 +620,7 @@ export default function TasksPage() {
   }
 
   async function completeTask(task: Task) {
-    if (offline || actingRef.current) return;
+    if (offline || overlayHold === "offline" || actingRef.current) return;
     actingRef.current = true;
     try {
       const response = await fetch(`/api/tasks/${task.id}/complete`, { method: "POST" });
@@ -605,7 +646,7 @@ export default function TasksPage() {
   }
 
   async function reopenTask(task: Task) {
-    if (offline || actingRef.current) return;
+    if (offline || overlayHold === "offline" || actingRef.current) return;
     actingRef.current = true;
     try {
       const response = await fetch(`/api/tasks/${task.id}/reopen`, { method: "POST" });
@@ -674,6 +715,9 @@ export default function TasksPage() {
     return labels.map((label) => ({ key: label, label, items: ordered.filter((task) => labelFor(task) === label) }));
   }, [activeQuery, group, lists, openTasks, sortOrder, tasks]);
   const showFab = !blocked && !wide && !offline && mode === "ready" && !activeQuery && openTasks.length > 0;
+  const selectedTask = tasks.find((task) => task.id === selectedId) || null;
+  const panelOffline = overlayOn && (overlayHold === "offline" || offline);
+  const panelOpen = overlayOn && (Boolean(selectedTask) || (sheet === "edit" && Boolean(editingId)));
   const showAddBar = !blocked && !showFab && !offline && !activeQuery && wide && openTasks.length > 0;
   function renderTask(task: Task) {
     const done = task.status === "Done";
@@ -705,7 +749,7 @@ export default function TasksPage() {
           </span>
         </button>
         <div className="min-w-0 flex-1 py-2 pr-2">
-          <button type="button" className="block w-full text-left disabled:opacity-50" aria-label={`Edit ${task.title}`} disabled={offline} onClick={() => openEdit(task)}>
+          <button type="button" className="block w-full text-left disabled:opacity-50" aria-label={`Edit ${task.title}`} disabled={offline} onClick={() => (overlayOn ? openTask(task) : openEdit(task))}>
             <div className="flex items-start justify-between gap-3">
               <h2 className={`min-w-0 break-words text-body font-medium ${done ? "text-muted line-through" : ""}`}>{task.title}</h2>
               <span data-done={done ? "true" : undefined} className="shrink-0 rounded-full px-2.5 py-1 text-meta font-medium" style={{ color: statusColor, backgroundColor: `color-mix(in srgb, ${statusColor} 8%, transparent)` }}>
@@ -959,37 +1003,15 @@ export default function TasksPage() {
         </button>
       ) : null}
       </div>
-      {wide && !sheet ? (
+      {wide && !sheet && !panelOpen ? (
         <aside className="card mt-4 h-fit w-[420px] shrink-0 p-5">
           <h2 className="pt-8 text-center text-section font-medium text-muted">Select a task</h2>
         </aside>
       ) : null}
-      {sheet && !manage ? (
-        <Sheet
-          title={sheet === "edit" ? "Edit task" : "Add a task"}
-          onClose={cancel}
-          frame
-          dock={wide ? "panel" : "sheet"}
-          header="slim"
-          titleClassName="text-section font-medium"
-          formId="task-form"
-          saveLabel={saving ? "Saving…" : "Save"}
-          saveDisabled={offline || saving}
-          aside={
-            wide && sheet === "edit" ? (
-              <button
-                type="button"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50"
-                onClick={() => setConfirmDelete(true)}
-                disabled={offline}
-              >
-                Delete
-              </button>
-            ) : null
-          }
-        >
+      {(() => {
+        const taskForm = (
           <form id="task-form" className="space-y-5" onSubmit={save}>
-            {sheet === "edit" && !wide ? (
+            {sheet === "edit" && !wide && !overlayOn ? (
               <button type="button" className="flex min-h-11 min-w-11 items-center text-body font-medium text-warn disabled:opacity-50" onClick={() => setConfirmDelete(true)} disabled={offline}>
                 Delete
               </button>
@@ -1130,8 +1152,103 @@ export default function TasksPage() {
               </p>
             ) : null}
           </form>
-        </Sheet>
-      ) : null}
+        );
+        const overlayBody = overlayHold === "error" ? (
+          <LoadError onRetry={() => void load()} />
+        ) : overlayHold === "skel" ? (
+          <div data-skeleton="task" aria-busy="true" className="px-5 py-4">
+            <TextLine height={24} width={180} />
+            <TextLine height={12} width={120} className="mt-3" />
+            <TextLine height={13} width={160} className="mt-3" />
+            <TextLine height={24} width={280} className="mt-5" />
+          </div>
+        ) : sheet === "edit" ? (
+          <div className="px-5 py-4">
+            {taskForm}
+            <button type="button" disabled={panelOffline} onClick={() => { if (!panelOffline) setConfirmDelete(true); }} className="mt-2 flex min-h-11 items-center text-body font-medium" style={{ color: "var(--ink)", opacity: panelOffline ? 0.4 : 1 }}>
+              Delete
+            </button>
+          </div>
+        ) : selectedTask ? (
+          <div className="px-5 py-4" data-task-detail="true">
+            <h2 className="text-title font-medium">{selectedTask.title}</h2>
+            {selectedTask.project ? <p className="mt-2 text-body">{resolveTaskList(selectedTask.project, lists).label}</p> : null}
+            {selectedTask.dueDate ? <p className="mt-1 text-body text-muted">{dueLabel(selectedTask.dueDate)}</p> : null}
+            {overlayHold === "empty" ? <p className="mt-3 text-body text-muted" data-state="empty">No notes.</p> : selectedTask.notes ? <p className="mt-3 text-body">{selectedTask.notes}</p> : null}
+            {selectedTask.bot ? <BotLine bot={selectedTask.bot} /> : null}
+            <button
+              type="button"
+              disabled={panelOffline}
+              onClick={() => void (selectedTask.status === "Done" ? reopenTask(selectedTask) : completeTask(selectedTask))}
+              className="mt-5 flex h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-body font-medium text-page disabled:opacity-40"
+            >
+              {selectedTask.status === "Done" ? "Reopen" : "Mark done"}
+            </button>
+            {panelOffline ? (
+              <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+                You are offline.
+              </p>
+            ) : null}
+          </div>
+        ) : null;
+        const panel = (panelWide: boolean) => (
+          <OverlayPanel
+            wide={panelWide}
+            depth={sheet === "edit" ? 1 : 0}
+            title={sheet === "edit" ? "Edit task" : selectedTask?.title || "Task"}
+            onClose={closeOverlay}
+            onBack={sheet === "edit" && selectedId ? closeForm : undefined}
+            form={sheet === "edit"}
+            confirming={confirmDelete}
+            slim={sheet === "edit"}
+            sheet={sheet === "edit"}
+            action={sheet === "edit" ? (
+              <button type="submit" form="task-form" disabled={offline || saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+                <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
+              </button>
+            ) : (
+              <button type="button" disabled={panelOffline} onClick={() => { if (selectedTask && !panelOffline) openEdit(selectedTask); }} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-ink"}`}>
+                Edit
+              </button>
+            )}
+          >
+            {overlayBody}
+          </OverlayPanel>
+        );
+        return (
+          <>
+            {sheet && !manage && (!overlayOn || sheet === "add") ? (
+              <Sheet
+                title={sheet === "edit" ? "Edit task" : "Add a task"}
+                onClose={cancel}
+                frame
+                dock={wide ? "panel" : "sheet"}
+                header="slim"
+                titleClassName="text-section font-medium"
+                formId="task-form"
+                saveLabel={saving ? "Saving…" : "Save"}
+                saveDisabled={offline || saving}
+                aside={
+                  wide && sheet === "edit" ? (
+                    <button
+                      type="button"
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-body font-medium text-warn disabled:opacity-50"
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={offline}
+                    >
+                      Delete
+                    </button>
+                  ) : null
+                }
+              >
+                {taskForm}
+              </Sheet>
+            ) : null}
+            {panelOpen && !manage && wide ? panel(true) : null}
+            {panelOpen && !manage && !wide ? panel(false) : null}
+          </>
+        );
+      })()}
       {manage ? (
         <ManageLists
           lists={lists}
@@ -1168,7 +1285,10 @@ export default function TasksPage() {
           }}
         />
       ) : null}
-      {confirmDelete ? (
+      {overlayOn && confirmDelete ? (
+        <ConfirmDialog title="Delete this task?" onCancel={() => setConfirmDelete(false)} onConfirm={() => void removeTask()} />
+      ) : null}
+      {!overlayOn && confirmDelete ? (
         <div id="delete-dialog" className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 pb-[calc(var(--primary-nav-height,84px)+28px)]" role="alertdialog" aria-labelledby="delete-title">
           <div className="card w-full max-w-phone p-5 shadow-2xl">
             <h2 id="delete-title" className="text-section font-medium">Delete this task?</h2>
