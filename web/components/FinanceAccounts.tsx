@@ -887,12 +887,13 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           </div>
         )}
 
-        {wide && overlayOn ? (
+        {wide && overlayOn && (selected || mode) ? (
           <OverlayPanel
             wide
+            depth={openTxn || mode ? 1 : 0}
             title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
-            onClose={mode ? closeForm : closeOverlay}
-            onBack={openTxn ? () => setTxnId("") : mode ? closeForm : undefined}
+            onClose={selected ? closeOverlay : closeForm}
+            onBack={openTxn ? () => setTxnId("") : mode && selected ? closeForm : undefined}
             form={Boolean(mode)}
             nested={Boolean(openTxn)}
             confirming={confirming}
@@ -910,6 +911,12 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           >
             {overlayBody}
           </OverlayPanel>
+        ) : wide && overlayOn ? (
+          <aside className="sticky top-2 w-[440px] shrink-0">
+            <div className="flex min-h-[520px] items-center justify-center rounded-[20px] border border-line bg-surface p-8">
+              <p className="text-body text-muted">Select an account</p>
+            </div>
+          </aside>
         ) : wide ? (
           <aside className="sticky top-2 w-[420px] shrink-0">
             {mode === "add" || mode === "edit" ? (
@@ -956,9 +963,10 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       {overlayOn && !wide && (selected || mode) ? (
         <OverlayPanel
           wide={false}
+          depth={openTxn || mode ? 1 : 0}
           title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
-          onClose={mode ? closeForm : closeOverlay}
-          onBack={openTxn ? () => setTxnId("") : mode ? closeForm : undefined}
+          onClose={selected ? closeOverlay : closeForm}
+          onBack={openTxn ? () => setTxnId("") : mode && selected ? closeForm : undefined}
           form={Boolean(mode)}
           nested={Boolean(openTxn)}
           confirming={confirming}

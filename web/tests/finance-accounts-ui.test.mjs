@@ -147,6 +147,38 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await shot(send, "A01-app.png");
 
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
+    const tappable = await evalPage(send, `new Promise((resolve) => {
+      let node = null;
+      let born = 0;
+      const tick = () => {
+        const panel = document.querySelector("[data-overlay='panel']");
+        if (panel !== node) {
+          node = panel;
+          born = panel ? performance.now() : 0;
+        }
+        const button = panel && panel.querySelector("[aria-label='Hide from net worth']");
+        const elapsed = born ? performance.now() - born : 0;
+        if (button && born) {
+          const rect = button.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const top = document.elementFromPoint(x, y);
+          const hit = top && (top === button || button.contains(top));
+          if (hit && x >= 0 && x <= window.innerWidth && rect.width > 1) {
+            const transform = getComputedStyle(panel).transform;
+            resolve({ ok: true, ms: Math.round(elapsed), state: panel.getAttribute("data-state"), transform });
+            return;
+          }
+        }
+        if (born && elapsed > 450) resolve({ ok: false, ms: Math.round(elapsed), state: panel && panel.getAttribute("data-state") });
+        else if (!born && performance.now() > 8000) resolve({ ok: false, reason: "no panel" });
+        else requestAnimationFrame(tick);
+      };
+      tick();
+    })`);
+    assert.equal(tappable.ok, true, JSON.stringify(tappable));
+    assert.ok(tappable.ms <= 450, JSON.stringify(tappable));
+    assert.equal(tappable.state, "open");
     await waitFor(send, `document.body.innerText.includes('Joe\\'s Pizza') && document.body.innerText.includes('Nov 8, 2026') && ${overlaySettled} ? 'yes' : ''`, "ledger");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : 'no'"), "no");
     await shot(send, "A02-app.png");
@@ -155,6 +187,7 @@ test("accounts list, ledger, manual edit, offline, and desktop panels", { skip }
     await open(send, "/finance/accounts", 390, 1600);
     await waitFor(send, "document.body.innerText.includes('Hidden') && document.body.innerText.includes('131,664') ? 'yes' : ''", "hidden rollup");
     await open(send, "/finance/accounts/acct-checking", 390, 1200);
+    await waitFor(send, `${overlaySettled} && document.querySelector("[aria-label='Hide from net worth']") ? 'yes' : ''`, "checking again");
     await pressLabel(send, evalPage, "Hide from net worth");
     await waitFor(send, "document.querySelector(\"[role='switch']\")?.getAttribute('aria-checked') === 'false' ? 'yes' : ''", "shown again");
 

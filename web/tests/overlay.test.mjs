@@ -75,4 +75,9 @@ test("accounts read the overlay flag from context and never the public env name"
   const panel = readFileSync(new URL("components/OverlayPanel.tsx", root), "utf8");
   assert.doesNotMatch(motion, /NEXT_PUBLIC_/);
   assert.doesNotMatch(panel, /NEXT_PUBLIC_/);
+  assert.match(panel, /translateX\(100%\)/);
+  assert.match(panel, /data-state=\{phase\}/);
+  assert.match(panel, /requestAnimationFrame/);
+  assert.doesNotMatch(panel, /pointer-events-none/);
+  assert.doesNotMatch(panel, /transitionend/);
 });
