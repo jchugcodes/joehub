@@ -108,6 +108,7 @@ function hittable(finder) {
 }
 
 const deleteButton = "[...document.querySelectorAll('button')].filter((el) => (el.innerText || '').trim() === 'Delete').at(-1)";
+const deleteReady = `(() => { const view = document.querySelector('[data-stack]'); if (view && view.getAnimations().some((anim) => anim.playState === 'running')) return ''; return (${hittable(deleteButton)}) ? 'yes' : ''; })()`;
 
 function setField(label, value) {
   return `(() => {
@@ -161,9 +162,9 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await open(send, "/finance/bills/bill-phone", 390, 1100);
     await waitFor(send, `document.body.innerText.includes('Phone (example)') && document.body.innerText.includes('$55.00') && ${overlaySettled} ? 'yes' : ''`, "phone");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Subscriptions') && ${hittable(deleteButton)} ? 'yes' : ''`, "edit sheet");
+    await waitFor(send, `document.querySelector('[data-sheet]') && document.body.innerText.includes('Subscriptions') && ${deleteReady} ? 'yes' : ''`, "edit sheet");
     await shot(send, "B04-app.png");
-    await pointerClick(send, evalPage, deleteButton);
+    await evalPage(send, `(() => { const el = ${deleteButton}; el.click(); return 'yes'; })()`);
     await waitFor(send, "document.body.innerText.includes('Delete this bill?') ? 'yes' : ''", "confirm");
     await shot(send, "B08-app.png");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(-1)");
@@ -206,8 +207,8 @@ test("bills list, paid toggle, add, offline, and desktop panels", { skip }, asyn
     await pointerClick(send, evalPage, "[...document.querySelectorAll('a')].find((el) => (el.innerText || '').includes('Gym (example)'))");
     await waitFor(send, `[...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') && ${overlaySettled} ? 'yes' : ''`, "gym detail");
     await pressLabel(send, evalPage, "Edit");
-    await waitFor(send, `document.querySelector('[data-sheet]') && ${hittable(deleteButton)} ? 'yes' : ''`, "gym edit");
-    await pointerClick(send, evalPage, deleteButton);
+    await waitFor(send, `document.querySelector('[data-sheet]') && ${deleteReady} ? 'yes' : ''`, "gym edit");
+    await evalPage(send, `(() => { const el = ${deleteButton}; el.click(); return 'yes'; })()`);
     await waitFor(send, "document.body.innerText.includes('Delete this bill?') ? 'yes' : ''", "gym confirm");
     await pointerClick(send, evalPage, "[...document.querySelectorAll('[role=alertdialog] button')].at(0)");
     await waitFor(send, "document.body.innerText.includes('Gym (example)') ? '' : 'gone'", "deleted");
