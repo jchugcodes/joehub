@@ -306,6 +306,9 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
     </div>
   );
 
+  const targetCents = centsFromInput(draft.target);
+  const canSaveGoal = draft.name.trim().length > 0 && targetCents != null && targetCents > 0;
+
   const detailBody = selected ? (
     <div className="px-5 py-4" data-goal-detail="true">
       <Detail goal={selected} panel showPercent={!wide} showTarget={!wide} />
@@ -331,8 +334,8 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       slim
       sheet
       action={
-        <button type="submit" form="goal-add" disabled={saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center px-3 text-body font-medium text-ink disabled:opacity-50">
-          Save
+        <button type="submit" form="goal-add" disabled={!canSaveGoal || saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+          <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
         </button>
       }
     >

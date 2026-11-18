@@ -152,6 +152,9 @@ test("accounts read the overlay flag from context and never the public env name"
   assert.match(goalsUi, /You are offline\./);
   assert.match(goalsUi, /Add a goal/);
   assert.match(goalsUi, /showTarget=\{!wide\}/);
+  assert.match(goalsUi, /draft\.name\.trim\(\)/);
+  assert.match(goalsUi, /h-8 items-center justify-center rounded-xl bg-ink px-3\.5/);
+  assert.match(goalsUi, /disabled:opacity-50/);
   assert.doesNotMatch(goalsUi, /ConfirmDialog/);
   assert.doesNotMatch(goalsUi, /Delete this goal/);
   assert.doesNotMatch(goalsUi, /overlay-flag/);

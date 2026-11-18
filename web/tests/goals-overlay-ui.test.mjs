@@ -276,3 +276,63 @@ test("adding a goal from the empty state uses the overlay save header", { timeou
     await release();
   }
 });
+
+test("add goal save stays disabled until the name and target are valid", { timeout: 180000, skip }, async () => {
+  let page = null;
+  try {
+    const cookie = await boot({ JOEHUB_SEED_GOALS: "0" });
+    page = await openPage(cookie);
+    const { send } = page;
+    await size(send, 390, 844);
+    await send("Page.navigate", { url: `${base()}/finance/goals` });
+    await waitFor(send, "document.querySelector(\"[data-ready='true']\") && document.querySelector(\"[data-hydrated]\") && document.body.innerText.includes('No goals yet') ? 'yes' : ''", "empty");
+    await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Add a goal')?.click()");
+    await waitFor(send, `${settled} && document.getElementById('goal-name') ? "yes" : ""`, "add form");
+    const measure = `(() => {
+      const panel = document.querySelector("[data-overlay='panel']");
+      const save = [...panel.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Save");
+      const pill = save?.querySelector("span");
+      const pillBox = pill?.getBoundingClientRect();
+      const saveBox = save?.getBoundingClientRect();
+      return JSON.stringify({
+        disabled: Boolean(save?.disabled),
+        opacity: save ? getComputedStyle(save).opacity : "",
+        buttonH: saveBox ? Math.round(saveBox.height) : 0,
+        pillH: pillBox ? Math.round(pillBox.height) : 0,
+        pillBg: pill ? getComputedStyle(pill).backgroundColor : "",
+        pillColor: pill ? getComputedStyle(pill).color : "",
+      });
+    })()`;
+    const empty = JSON.parse(await evalPage(send, measure));
+    assert.equal(empty.disabled, true);
+    assert.equal(empty.opacity, "0.5");
+    assert.equal(empty.buttonH, 44);
+    assert.equal(empty.pillH, 32);
+    assert.equal(empty.pillBg, "rgb(31, 42, 36)");
+    assert.equal(empty.pillColor, "rgb(245, 246, 244)");
+    await evalPage(send, `(() => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const fill = (id, value) => { const el = document.getElementById(id); set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); };
+      fill("goal-name", "   ");
+      fill("goal-target", "0");
+      return "yes";
+    })()`);
+    assert.equal(JSON.parse(await evalPage(send, measure)).disabled, true);
+    await evalPage(send, `(() => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const fill = (id, value) => { const el = document.getElementById(id); set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); };
+      fill("goal-name", "Cabin fund");
+      fill("goal-target", "500");
+      return "yes";
+    })()`);
+    const ready = JSON.parse(await evalPage(send, measure));
+    assert.equal(ready.disabled, false);
+    assert.equal(ready.opacity, "1");
+    assert.equal(ready.pillH, 32);
+  } finally {
+    if (page) await page.close();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+  }
+});

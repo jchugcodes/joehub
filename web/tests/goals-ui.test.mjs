@@ -219,6 +219,8 @@ test("an empty goals response shows the add action and not the seed", { skip }, 
     assert.equal(header.savedMode, "decimal");
     assert.equal(header.savedHint, "next");
     assert.equal(header.monthlyHint, "done");
+    await evalPage(send, setField("goal-name", "Cabin fund"));
+    await evalPage(send, setField("goal-target", "500"));
     await pressLabel(send, evalPage, "Save");
     await waitFor(send, "document.body.innerText.includes('Enter an amount.') ? 'yes' : ''", "blank amount");
     await evalPage(send, setField("goal-name", "Cabin fund"));
