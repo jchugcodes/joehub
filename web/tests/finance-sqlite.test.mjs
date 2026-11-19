@@ -248,7 +248,7 @@ test("an empty production finance database rejects reads", async () => {
     const sqlite = createSqliteStore({ client, env: QUIET });
     await assert.rejects(() => sqlite.financeGoals(), StoreError);
     await assert.rejects(() => upstash.financeGoals(), StoreError);
-    assert.throws(() => sqlite.financeSaveCaps({ caps: {} }, "k"), /not migrated/);
+    await assert.rejects(() => sqlite.financeSaveCaps({ caps: {} }, "k"), StoreError);
   } finally {
     client.close();
     fake.stop();
@@ -375,7 +375,7 @@ test("the same custom book matches, including not_started and inactive", async (
   }
 });
 
-test("finance sqlite reads miss redis and finance writes still use it", async () => {
+test("finance sqlite reads and writes miss redis", async () => {
   const fake = await startFakeUpstash();
   const client = await openDb();
   try {
@@ -405,8 +405,17 @@ test("finance sqlite reads miss redis and finance writes still use it", async ()
     await runtime.store.financeTransactions(NOW);
     await runtime.store.financeTransaction("fin-sample-oats");
     assert.equal(financeHit(fake.commands.slice(mark)), false);
-    await assert.rejects(() => runtime.store.financeSaveCaps({ caps: {} }, "sample-key"), StoreError);
-    assert.equal(financeHit(fake.commands.slice(mark)), true);
+    const saved = await runtime.store.financeSaveCaps({ caps: { "sample-market": 0 } }, "sample-key");
+    assert.equal(saved.status, 200);
+    const replay = await runtime.store.financeSaveCaps({ caps: {} }, "sample-key");
+    assert.equal(replay.status, 200);
+    assert.deepEqual(replay.body, saved.body);
+    const created = await runtime.store.financeCreateGoal(
+      { name: "Sample jar goal", savedCents: 100, targetCents: 1000, kind: "Savings" },
+      "sample-goal",
+    );
+    assert.equal(created.status, 201);
+    assert.equal(financeHit(fake.commands.slice(mark)), false);
     assert.equal(Number(await cell(client, "SELECT COUNT(*) AS n FROM tasks")), 0);
     assert.equal(Number(await cell(client, "SELECT COUNT(*) AS n FROM grocery_items")), 0);
   } finally {

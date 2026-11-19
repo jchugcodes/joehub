@@ -12,6 +12,7 @@ import {
 import { validateListCreate, validateListPatch } from "./list-store.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { createFinanceReads } from "./finance-box.mjs";
+import { createFinanceWrites } from "./finance-writes.mjs";
 import { StoreError } from "./store-upstash.mjs";
 import {
   buildSampleTasks,
@@ -31,7 +32,7 @@ const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 
 // Tasks tables come from web/migrations-libsql/003_tasks.sql.
 // Grocery documents come from 004_grocery_and_lists.sql plus 006_grocery_documents.sql.
-// Finance reads come from 007_finance_reads.sql. Writes stay off this store.
+// Finance reads come from 007_finance_reads.sql. Finance writes use 008_finance_writes.sql.
 // createSqliteStore does not migrate.
 const LIST_ID = /^[A-Za-z0-9-]{1,80}$/;
 const TASK_METHODS = [
@@ -71,6 +72,28 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
 
   async function run(sql, args = []) {
     return db.execute({ sql, args });
+  }
+
+  async function transact(work) {
+    const tx = await db.transaction("write");
+    try {
+      const result = await work({ execute: (query) => tx.execute(query) });
+      await tx.commit();
+      tx.close();
+      return result;
+    } catch (error) {
+      try {
+        await tx.rollback();
+      } catch {
+        // The transaction may already be closed.
+      }
+      try {
+        tx.close();
+      } catch {
+        // The transaction may already be closed.
+      }
+      throw error;
+    }
   }
 
   async function one(sql, args = []) {
@@ -574,7 +597,8 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
       await ensureGrocerySeeded();
       return performGroceryClear(grocery);
     },
-    ...createFinanceReads({ execute: (query) => run(query.sql, query.args || []) }, { allowSeed, env }),
+    ...createFinanceReads({ execute: (query) => run(query.sql, query.args || []) }, { allowSeed, env, transact }),
+    ...createFinanceWrites(transact, { allowSeed, env }),
   };
 
   return new Proxy(api, {
