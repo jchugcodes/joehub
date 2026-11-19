@@ -411,9 +411,9 @@ export function createFinanceReads(db, { allowSeed = false, env = {}, transact =
       const current = await state();
       return spendingMonth(current.transactions, now, current.caps, current.categories, current.budgetsSaved, current.planCents, month);
     },
-    async financeBuckets() {
+    async financeBuckets(now = Date.now()) {
       const current = await state();
-      return bucketsSnapshot(current.categories);
+      return bucketsSnapshot(current.categories, current.transactions, now);
     },
     async financeAccounts(now = Date.now(), options = {}) {
       const current = await state();

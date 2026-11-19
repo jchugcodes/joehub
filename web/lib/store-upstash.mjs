@@ -831,9 +831,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (idemKey) await command(["SET", k(`joehub:finance:budget:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
       return result;
     },
-    async financeBuckets() {
+    async financeBuckets(now = Date.now()) {
       const state = await this.financeBundle();
-      return bucketsSnapshot(state.categories);
+      return bucketsSnapshot(state.categories, state.transactions, now);
     },
     async financeCreateCategory(body, key = "") {
       const state = await this.financeBundle();

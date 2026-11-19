@@ -513,13 +513,13 @@ export async function handleFinanceSpendingMonth(headers, env, store, limiter, n
   }
 }
 
-export async function handleFinanceBuckets(headers, env, store, limiter, now, ip) {
+export async function handleFinanceBuckets(headers, env, store, limiter, now, ip, url = "") {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;
   if (gate.result) return gate.result;
   try {
     if (!store || typeof store.financeBuckets !== "function") return { status: 503, body: { detail: "unavailable" } };
-    return { status: 200, body: await store.financeBuckets() };
+    return { status: 200, body: await store.financeBuckets(financeWhen(now, url).now) };
   } catch (error) {
     if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
     return { status: 503, body: { detail: "unavailable" } };

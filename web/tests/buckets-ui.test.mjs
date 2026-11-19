@@ -7,7 +7,7 @@ import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess,
 import { pointerClick } from "./support/pointer.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SHOTS = fileURLToPath(new URL("../../artifacts/vFN7", import.meta.url));
+const SHOTS = fileURLToPath(new URL("../../artifacts/vFN7-2", import.meta.url));
 const chromeBin = ["google-chrome", "google-chrome-stable"].find((bin) => spawnSync("which", [bin]).status === 0);
 const skip = chromeBin ? false : "google-chrome is not installed";
 
@@ -108,6 +108,26 @@ async function onScreen(send, finder, label) {
   );
 }
 
+async function pressKey(send, key, modifiers = 0) {
+  const code = key === "Escape" ? "Escape" : "Tab";
+  const windowsVirtualKeyCode = key === "Escape" ? 27 : 9;
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode, modifiers });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode, modifiers });
+}
+
+async function scrollBucket(send, slug) {
+  await evalPage(send, `(() => {
+    const row = document.querySelector(${JSON.stringify(`[data-bucket="${slug}"]`)});
+    const scroller = document.querySelector("[data-overlay='panel'] [data-stack]");
+    if (!row || !scroller) return "";
+    const rowBox = row.getBoundingClientRect();
+    const box = scroller.getBoundingClientRect();
+    if (rowBox.bottom > box.bottom - 8) scroller.scrollTop += rowBox.bottom - box.bottom + 16;
+    if (rowBox.top < box.top + 8) scroller.scrollTop -= box.top - rowBox.top + 16;
+    return "yes";
+  })()`);
+}
+
 async function shot(send, name) {
   await new Promise((resolve) => setTimeout(resolve, 200));
   const image = await send("Page.captureScreenshot", { format: "png" });
@@ -170,10 +190,24 @@ test("bucket sheets hide, rename, add, and remove on the spending tab", { timeou
     await evalPage(send, "document.querySelectorAll('nextjs-portal').forEach((node) => node.style.setProperty('display', 'none', 'important')); 'yes'");
     const before = Number(await evalPage(send, "document.querySelector('[data-month-spent]')?.getAttribute('data-month-spent')"));
     assert.ok(before > 0);
+    assert.equal(await evalPage(send, "document.querySelector('[data-hidden-buckets]') ? 'yes' : 'no'"), "no");
+    const entry = JSON.parse(await evalPage(send, `(() => {
+      const el = document.querySelector('[data-open-buckets]');
+      const box = el.getBoundingClientRect();
+      return JSON.stringify({ tag: el.tagName, label: el.getAttribute('aria-label'), text: el.innerText, h: box.height, w: box.width, chevron: Boolean(el.querySelector('svg')) });
+    })()`));
+    assert.equal(entry.tag, "BUTTON");
+    assert.equal(entry.label, "Manage buckets");
+    assert.match(entry.text, /Buckets/);
+    assert.match(entry.text, /Manage/);
+    assert.equal(entry.chevron, true);
+    assert.ok(entry.h >= 44 && entry.w >= 44, `entry ${entry.w}x${entry.h}`);
     await fit(send, 390, 844);
-    await shot(send, "390-totals-before.png");
+    await shot(send, "390-entry.png");
+    await shot(send, "390-spent-clear.png");
     await fit(send, 1280, 900);
-    await shot(send, "1280-totals-before.png");
+    await shot(send, "1280-entry.png");
+    await shot(send, "1280-spent-clear.png");
 
     await fit(send, 390, 844);
     const openBuckets = "document.querySelector('[data-open-buckets]')";
@@ -187,23 +221,29 @@ test("bucket sheets hide, rename, add, and remove on the spending tab", { timeou
     const hiddenSpent = Number(await evalPage(send, "document.querySelector('[data-month-spent]')?.getAttribute('data-month-spent')"));
     assert.ok(hiddenSpent < before, `spent ${hiddenSpent} should be under ${before}`);
     await fit(send, 390, 844);
-    await shot(send, "390-bucket-list-hidden.png");
+    await shot(send, "390-bucket-list.png");
     await fit(send, 1280, 900);
-    await shot(send, "1280-bucket-list-hidden.png");
+    await shot(send, "1280-bucket-list.png");
 
     const closeList = "document.querySelector(\"[data-overlay='panel'] [aria-label='Close']\")";
     await onScreen(send, closeList, "close");
     await pointerClick(send, evalPage, closeList);
     await waitFor(send, "!document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''", "list closed");
+    await waitFor(send, "document.querySelector('[data-hidden-buckets]')?.innerText.trim() === '1 bucket hidden' ? 'yes' : ''", "hidden line");
+    const lineBox = JSON.parse(await evalPage(send, `(() => { const el = document.querySelector('[data-hidden-buckets]'); const box = el.getBoundingClientRect(); return JSON.stringify({ h: box.height, w: box.width, tag: el.tagName }); })()`));
+    assert.equal(lineBox.tag, "BUTTON");
+    assert.ok(lineBox.h >= 44 && lineBox.w >= 44, `hidden line ${lineBox.w}x${lineBox.h}`);
+    await evalPage(send, "document.querySelector('[data-hidden-buckets]').scrollIntoView({ block: 'center' })");
     await fit(send, 390, 844);
-    await shot(send, "390-totals-after.png");
+    await shot(send, "390-hidden-line.png");
     await fit(send, 1280, 900);
-    await shot(send, "1280-totals-after.png");
+    await shot(send, "1280-hidden-line.png");
 
     await fit(send, 390, 844);
-    await onScreen(send, openBuckets, "buckets again");
-    await pointerClick(send, evalPage, openBuckets);
-    await waitFor(send, "document.querySelector('[data-buckets=\"list\"]') ? 'yes' : ''", "list again");
+    const hiddenLine = "document.querySelector('[data-hidden-buckets]')";
+    await onScreen(send, hiddenLine, "hidden line");
+    await pointerClick(send, evalPage, hiddenLine);
+    await waitFor(send, "document.querySelector('[data-buckets=\"list\"]') ? 'yes' : ''", "list from hidden line");
     const renameGroceries = "document.querySelector(\"[data-bucket='groceries'] [data-bucket-action='rename']\")";
     await onScreen(send, renameGroceries, "rename control");
     await pointerClick(send, evalPage, renameGroceries);
@@ -235,31 +275,64 @@ test("bucket sheets hide, rename, add, and remove on the spending tab", { timeou
     await pointerClick(send, evalPage, saveButton);
     await waitFor(send, "document.querySelector('[data-buckets=\"list\"]') && document.body.innerText.includes('Sample oats') ? 'yes' : ''", "added");
 
+    await scrollBucket(send, "fun");
     const removeFun = "document.querySelector(\"[data-bucket='fun'] [data-bucket-action='remove']\")";
-    await evalPage(send, `(() => {
-      const row = document.querySelector("[data-bucket='fun']");
-      const scroller = document.querySelector("[data-overlay='panel'] [data-stack]");
-      if (!row || !scroller) return "";
-      const rowBox = row.getBoundingClientRect();
-      const box = scroller.getBoundingClientRect();
-      scroller.scrollTop += rowBox.bottom - box.bottom + 12;
-      return "yes";
-    })()`);
-    await onScreen(send, removeFun, "remove control");
+    await onScreen(send, removeFun, "remove empty");
     await pointerClick(send, evalPage, removeFun);
-    await waitFor(send, "document.querySelector('[data-buckets=\"remove\"]') && document.body.innerText.includes('Uncategorized') ? 'yes' : ''", "remove");
+    await waitFor(send, "document.querySelector(\"[role='alertdialog']\")?.innerText.includes('Fun moves to Uncategorized.') ? 'yes' : ''", "empty remove");
+    assert.equal(await evalPage(send, "document.querySelector(\"[role='alertdialog']\")?.innerText.includes('$') ? 'yes' : 'no'"), "no");
+    await pressKey(send, "Escape");
+    await waitFor(send, "!document.querySelector(\"[role='alertdialog']\") && document.querySelector('[data-buckets=\"list\"]') ? 'yes' : ''", "escape closes dialog");
+    await scrollBucket(send, "fun");
+    await onScreen(send, removeFun, "remove empty again");
+    await pointerClick(send, evalPage, removeFun);
+    await waitFor(send, "document.querySelector(\"[role='alertdialog']\")?.innerText.includes('Fun moves to Uncategorized.') ? 'yes' : ''", "empty remove again");
+    const cancelButton = "[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => (el.innerText || '').trim() === 'Cancel')";
+    await onScreen(send, cancelButton, "cancel empty");
+    await pointerClick(send, evalPage, cancelButton);
+    await waitFor(send, "!document.querySelector(\"[role='alertdialog']\") && document.querySelector('[data-buckets=\"list\"]') ? 'yes' : ''", "cancel closes dialog");
+
+    await scrollBucket(send, "dining-out");
+    const removeDining = "document.querySelector(\"[data-bucket='dining-out'] [data-bucket-action='remove']\")";
+    await onScreen(send, removeDining, "remove control");
+    await pointerClick(send, evalPage, removeDining);
+    await waitFor(send, "document.querySelector(\"[role='alertdialog']\")?.innerText.match(/\\$[\\d,.]+ in Dining Out moves to Uncategorized\\./) ? 'yes' : ''", "remove");
+    assert.equal(await evalPage(send, "document.querySelector('[data-buckets]')?.getAttribute('data-buckets')"), "list");
+    assert.equal(await evalPage(send, "document.activeElement?.innerText?.trim()"), "Cancel");
+    await pressKey(send, "Tab");
+    assert.equal(await evalPage(send, "document.activeElement?.closest(\"[role='alertdialog']\") ? document.activeElement.innerText.trim() : ''"), "Remove");
+    await pressKey(send, "Tab", 8);
+    assert.equal(await evalPage(send, "document.activeElement?.innerText?.trim()"), "Cancel");
+    const dialogAt = async (width) => {
+      const box = JSON.parse(await evalPage(send, `(() => {
+        const node = document.querySelector("[role='alertdialog']");
+        const rect = node.getBoundingClientRect();
+        const buttons = [...node.querySelectorAll("button")].map((el) => { const b = el.getBoundingClientRect(); return { label: (el.innerText || "").trim(), w: b.width, h: b.height }; });
+        return JSON.stringify({ left: rect.left, top: rect.top, width: rect.width, height: rect.height, vw: innerWidth, vh: innerHeight, buttons });
+      })()`));
+      assert.ok(box.width < 320 && box.width > 160, `dialog width ${box.width} at ${width}`);
+      assert.ok(Math.abs(box.left + box.width / 2 - box.vw / 2) < 24, `dialog not centered at ${width}`);
+      assert.ok(box.top > 40 && box.top + box.height < box.vh - 20, `dialog not in the middle at ${width}`);
+      for (const button of box.buttons) assert.ok(button.w >= 44 && button.h >= 44, `${button.label} ${button.w}x${button.h}`);
+    };
     await fit(send, 390, 844);
+    await dialogAt(390);
     await shot(send, "390-remove.png");
     await fit(send, 1280, 900);
+    await dialogAt(1280);
     await shot(send, "1280-remove.png");
-    const removeButton = "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Remove')";
-    await onScreen(send, removeButton, "remove confirm");
-    await pointerClick(send, evalPage, removeButton);
-    await waitFor(send, "document.querySelector('[data-buckets=\"list\"]') && !document.querySelector(\"[data-bucket='fun']\") ? 'yes' : ''", "removed");
+    await fit(send, 390, 844);
+    const removeConfirm = "[...document.querySelectorAll(\"[role='alertdialog'] button\")].find((el) => (el.innerText || '').trim() === 'Remove')";
+    await onScreen(send, removeConfirm, "remove confirm");
+    await pointerClick(send, evalPage, removeConfirm);
+    await waitFor(send, "!document.querySelector(\"[role='alertdialog']\") && document.querySelector('[data-buckets=\"list\"]') && !document.querySelector(\"[data-bucket='dining-out']\") && document.querySelector(\"[data-bucket='fun']\") ? 'yes' : ''", "removed");
 
     await onScreen(send, hideGroceries, "show control");
     await pointerClick(send, evalPage, hideGroceries);
     await waitFor(send, "document.querySelector(\"[data-bucket='groceries']\")?.getAttribute('data-hidden') === 'false' ? 'yes' : ''", "shown");
+    await onScreen(send, closeList, "close after show");
+    await pointerClick(send, evalPage, closeList);
+    await waitFor(send, "!document.querySelector(\"[data-overlay='panel']\") && !document.querySelector('[data-hidden-buckets]') ? 'yes' : ''", "hidden line gone");
     const restored = Number(await evalPage(send, "document.querySelector('[data-month-spent]')?.getAttribute('data-month-spent')"));
     assert.equal(restored, before);
     ws.close();

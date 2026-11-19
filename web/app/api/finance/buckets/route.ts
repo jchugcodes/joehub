@@ -5,5 +5,5 @@ import { clientIp, jsonResult } from "../../../../lib/respond";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return jsonResult(await handleFinanceBuckets(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request)));
+  return jsonResult(await handleFinanceBuckets(request.headers, process.env, store, apiLimiter, Date.now(), clientIp(request), request.url));
 }

@@ -122,6 +122,7 @@ export function ConfirmDialog({
   error,
   onCancel,
   onConfirm,
+  confirmLabel = "Delete",
   confirmClassName,
   confirmDisabled = false,
 }: {
@@ -130,6 +131,7 @@ export function ConfirmDialog({
   error?: string;
   onCancel: () => void;
   onConfirm: () => void;
+  confirmLabel?: string;
   confirmClassName?: string;
   confirmDisabled?: boolean;
 }) {
@@ -160,9 +162,9 @@ export function ConfirmDialog({
             disabled={confirmDisabled}
             className={confirmClassName || "order-2 inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-finance-dining text-body font-medium text-white disabled:opacity-50"}
           >
-            Delete
+            {confirmLabel}
           </button>
-          <button type="button" onClick={onCancel} className="order-1 inline-flex h-11 flex-1 items-center justify-center rounded-xl border border-line bg-surface text-body font-medium">
+          <button type="button" onClick={onCancel} className="order-1 inline-flex h-11 min-w-11 flex-1 items-center justify-center rounded-xl border border-line bg-surface text-body font-medium">
             Cancel
           </button>
         </div>
@@ -280,9 +282,11 @@ export function OverlayPanel({
     const node = panelRef.current;
     const focusable = () =>
       [...(node?.querySelectorAll<HTMLElement>("button, input, textarea, select, a[href], [tabindex]") ?? [])].filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
-    const preferred = node?.querySelector<HTMLElement>("[data-autofocus]");
-    if (preferred && !preferred.hasAttribute("disabled")) preferred.focus();
-    else focusable()[0]?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+    if (!confirming) {
+      const preferred = node?.querySelector<HTMLElement>("[data-autofocus]");
+      if (preferred && !preferred.hasAttribute("disabled")) preferred.focus();
+      else focusable()[0]?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         const actionName = overlayEscape({ confirming, form, nested: Boolean(backRef.current) || nested });
@@ -310,7 +314,7 @@ export function OverlayPanel({
   }, [wide, confirming, form, nested, title]);
 
   useEffect(() => {
-    if (!wide) return;
+    if (!wide || confirming) return;
     let startX = 0;
     let startY = 0;
     let moved = 0;
@@ -336,7 +340,7 @@ export function OverlayPanel({
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
     };
-  }, [wide]);
+  }, [wide, confirming]);
 
   function onTouchStart(event: TouchEvent) {
     if (wide || phaseRef.current === "leave") return;

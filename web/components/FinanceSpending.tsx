@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { countsAsSpend, money, spendCents } from "../lib/finance.mjs";
+import { countsAsSpend, hiddenBucketsLabel, money, removeBucketDetail, spendCents } from "../lib/finance.mjs";
 import { showMonthBudget } from "../lib/live-pages.mjs";
 import { categoryBar } from "../lib/spending-bars.mjs";
 import { readOverlayHold } from "../lib/overlay-motion.mjs";
@@ -13,7 +13,7 @@ import { Detail as CategoryDrill, type CategoryDetail } from "./FinanceCategory"
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
-import { OverlayPanel } from "./OverlayPanel";
+import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { useSkeletonPhase } from "./SkeletonHold";
 import { LoadError, RefreshBar, SpendingSkeleton } from "./Skeleton";
 
@@ -49,6 +49,7 @@ type Bucket = {
   name: string;
   color?: string;
   hidden: boolean;
+  spentCents?: number;
 };
 
 type Txn = {
@@ -163,13 +164,15 @@ export function FinanceSpending() {
   const [panelTxn, setPanelTxn] = useState("");
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [bucketsOpen, setBucketsOpen] = useState(false);
-  const [bucketMode, setBucketMode] = useState<"list" | "add" | "rename" | "remove">("list");
+  const [bucketMode, setBucketMode] = useState<"list" | "add" | "rename">("list");
   const [bucketSlug, setBucketSlug] = useState("");
   const [bucketName, setBucketName] = useState("");
   const [bucketError, setBucketError] = useState("");
   const [bucketSaving, setBucketSaving] = useState(false);
+  const [removeSlug, setRemoveSlug] = useState("");
   const idempotency = useRef("");
   const bucketIdem = useRef("");
+  const confirmRef = useRef<HTMLDivElement>(null);
   const pending = !snapshot && !failed && hold !== "refresh" && hold !== "empty" && hold !== "error" && hold !== "skel";
   const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, pending, Boolean(snapshot) || hold === "refresh" || hold === "empty");
   const bones = skeletonOn && (hold === "skel" || (phase === "skeleton" && !snapshot));
@@ -179,7 +182,9 @@ export function FinanceSpending() {
   const showEmptyHold = skeletonOn && hold === "empty";
 
   const load = useCallback(async () => {
-    const bucketResponse = await fetch("/api/finance/buckets", { cache: "no-store" });
+    const bucketQuery = new URLSearchParams();
+    if (asOf) bucketQuery.set("asOf", asOf);
+    const bucketResponse = await fetch(`/api/finance/buckets${bucketQuery.size ? `?${bucketQuery.toString()}` : ""}`, { cache: "no-store" });
     if (!bucketResponse.ok) throw new Error("buckets");
     const bucketBody = (await bucketResponse.json()) as { buckets?: Bucket[] };
     const list = Array.isArray(bucketBody.buckets) ? bucketBody.buckets : [];
@@ -249,6 +254,34 @@ export function FinanceSpending() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    if (!removeSlug) return;
+    const node = confirmRef.current;
+    const buttons = () => [...(node?.querySelectorAll<HTMLElement>("button") ?? [])].filter((el) => !el.hasAttribute("disabled"));
+    buttons().find((el) => el.textContent?.trim() === "Cancel")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!bucketSaving) {
+          setRemoveSlug("");
+          setBucketError("");
+        }
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = buttons();
+      if (!items.length) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const index = items.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey ? (index <= 0 ? items.length - 1 : index - 1) : index < 0 || index === items.length - 1 ? 0 : index + 1;
+      items[next]?.focus();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [removeSlug, bucketSaving]);
 
   useEffect(() => {
     const onOffline = () => setTone("offline");
@@ -462,10 +495,17 @@ export function FinanceSpending() {
   }
 
   function closeBuckets() {
+    if (removeSlug) return;
     setBucketsOpen(false);
     setBucketMode("list");
     setBucketError("");
     setBucketName("");
+  }
+
+  function closeRemove() {
+    if (bucketSaving) return;
+    setRemoveSlug("");
+    setBucketError("");
   }
 
   async function setHidden(slug: string, hidden: boolean) {
@@ -522,18 +562,18 @@ export function FinanceSpending() {
     }
   }
 
-  async function confirmRemove(event: FormEvent) {
-    event.preventDefault();
+  async function confirmRemove() {
+    if (!removeSlug || bucketSaving) return;
     setBucketSaving(true);
     setBucketError("");
     try {
-      const response = await fetch(categoryUrl(bucketSlug), { method: "DELETE" });
+      const response = await fetch(categoryUrl(removeSlug), { method: "DELETE" });
       const body = (await response.json().catch(() => ({}))) as { detail?: string };
       if (!response.ok) {
         setBucketError(body.detail || "Couldn’t remove.");
         return;
       }
-      setBucketMode("list");
+      setRemoveSlug("");
       await load();
     } catch {
       setBucketError("Couldn’t remove.");
@@ -824,8 +864,9 @@ export function FinanceSpending() {
       </OverlayPanel>
     ) : null;
 
-  const bucketTarget = buckets.find((item) => item.slug === bucketSlug) || null;
-  const bucketTitle = bucketMode === "add" ? "Add bucket" : bucketMode === "rename" ? "Rename" : bucketMode === "remove" ? "Remove" : "Buckets";
+  const removeTarget = buckets.find((item) => item.slug === removeSlug) || null;
+  const hiddenLabel = hiddenBucketsLabel(buckets.filter((item) => item.hidden).length);
+  const bucketTitle = bucketMode === "add" ? "Add bucket" : bucketMode === "rename" ? "Rename" : "Buckets";
   const bucketPanel = (panelWide: boolean) => (
     <OverlayPanel
       wide={panelWide}
@@ -835,14 +876,11 @@ export function FinanceSpending() {
       form={bucketMode !== "list"}
       slim={bucketMode !== "list"}
       sheet={bucketMode !== "list"}
+      confirming={Boolean(removeSlug)}
       action={
         bucketMode === "list" ? (
           <button type="button" onClick={() => { setBucketMode("add"); setBucketName(""); setBucketError(""); }} className="inline-flex h-11 items-center px-2 text-body font-medium text-finance-primary">
             Add
-          </button>
-        ) : bucketMode === "remove" ? (
-          <button type="submit" form="bucket-remove-form" disabled={bucketSaving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
-            <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{bucketSaving ? "Removing…" : "Remove"}</span>
           </button>
         ) : (
           <button type="submit" form="bucket-form" disabled={bucketSaving || panelOffline || !bucketName.trim()} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
@@ -868,17 +906,13 @@ export function FinanceSpending() {
                   <button type="button" data-bucket-action="rename" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => { setBucketSlug(item.slug); setBucketName(item.name); setBucketError(""); setBucketMode("rename"); }}>
                     Rename
                   </button>
-                  <button type="button" data-bucket-action="remove" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => { setBucketSlug(item.slug); setBucketError(""); setBucketMode("remove"); }}>
+                  <button type="button" data-bucket-action="remove" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => { setRemoveSlug(item.slug); setBucketError(""); }}>
                     Remove
                   </button>
                 </div>
               </li>
             ))}
           </ul>
-        ) : bucketMode === "remove" ? (
-          <form id="bucket-remove-form" onSubmit={confirmRemove}>
-            <p className="text-body text-ink">Transactions in {bucketTarget?.name || "this bucket"} move to Uncategorized.</p>
-          </form>
         ) : (
           <form id="bucket-form" onSubmit={saveBucket}>
             <label className="block" htmlFor="bucket-name">
@@ -950,8 +984,12 @@ export function FinanceSpending() {
         <FinanceTabs />
       </div>
       <div className="px-5">
-        <button type="button" data-open-buckets="true" className="inline-flex min-h-11 items-center text-body text-ink disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={openBuckets}>
-          Buckets
+        <button type="button" data-open-buckets="true" aria-label="Manage buckets" className="flex min-h-11 w-full items-center justify-between gap-3 text-body text-ink disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={openBuckets}>
+          <span className="font-medium">Buckets</span>
+          <span className="inline-flex items-center gap-1 font-medium text-finance-primary">
+            Manage
+            <Icon name="chevron" size={16} className="shrink-0" />
+          </span>
         </button>
       </div>
       <div data-period-track="true" className="mx-4 mt-1 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
@@ -985,6 +1023,11 @@ export function FinanceSpending() {
                     {planOn && month?.planCents != null ? <span className="text-body font-normal text-muted"> of {money(month.planCents)} {month.saved ? "plan" : "estimate"}</span> : null}
                   </p>
                   {planOn && month?.percent != null ? <p className="mt-2 text-meta text-muted">{month.percent}% used</p> : null}
+                  {hiddenLabel ? (
+                    <button type="button" data-hidden-buckets={buckets.filter((item) => item.hidden).length} className="mt-1 inline-flex min-h-11 items-center text-meta text-muted" onClick={openBuckets}>
+                      {hiddenLabel}
+                    </button>
+                  ) : null}
                 </section>
               ) : (
                 <div className="mt-5 px-5">
@@ -1091,6 +1134,20 @@ export function FinanceSpending() {
       {overlayOn && !wide && selectedId ? panel(false) : null}
       {overlayOn && !wide && !selectedId && bucketsOpen ? bucketPanel(false) : null}
       {overlayOn && !wide && !selectedId && !bucketsOpen && (cat || budgetsOpen) ? categoryPanel(false) : null}
+      {removeSlug ? (
+        <div ref={confirmRef} data-remove-dialog="true">
+          <ConfirmDialog
+            title="Remove"
+            detail={removeBucketDetail(removeTarget?.name || "This bucket", removeTarget?.spentCents || 0)}
+            error={bucketError}
+            confirmLabel={bucketSaving ? "Removing…" : "Remove"}
+            confirmDisabled={bucketSaving || panelOffline}
+            confirmClassName="order-2 inline-flex h-11 min-w-11 flex-1 items-center justify-center rounded-xl bg-warn text-body font-medium text-on-warn disabled:opacity-50"
+            onCancel={closeRemove}
+            onConfirm={() => void confirmRemove()}
+          />
+        </div>
+      ) : null}
     </main>
   );
 }

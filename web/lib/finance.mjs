@@ -851,8 +851,35 @@ function nextBucketColor(categories) {
   return BUCKET_COLORS.find((color) => !used.has(color.toLowerCase())) || BUCKET_COLORS[0];
 }
 
-export function bucketsSnapshot(categories = CATEGORIES) {
-  return { buckets: pageCategories(categories, { includeHidden: true }).map(presentBucket) };
+export function hiddenBucketsLabel(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n < 1) return "";
+  return n === 1 ? "1 bucket hidden" : `${n} buckets hidden`;
+}
+
+export function removeBucketDetail(name, spentCents) {
+  const label = String(name || "").trim() || "This bucket";
+  const cents = Number(spentCents);
+  if (Number.isInteger(cents) && cents > 0) return `${money(cents)} in ${label} moves to Uncategorized.`;
+  return `${label} moves to Uncategorized.`;
+}
+
+export function bucketsSnapshot(categories = CATEGORIES, txns, now = Date.now()) {
+  const spent = new Map();
+  if (Array.isArray(txns)) {
+    for (const row of rowsInMonth(txns, detroitYmd(now))) {
+      if (!row.category) continue;
+      const cents = spendCents(row);
+      if (!cents) continue;
+      spent.set(row.category, (spent.get(row.category) || 0) + cents);
+    }
+  }
+  return {
+    buckets: pageCategories(categories, { includeHidden: true }).map((item) => ({
+      ...presentBucket(item),
+      spentCents: spent.get(item.slug) || 0,
+    })),
+  };
 }
 
 export function createBucket(categories, body) {
@@ -2077,7 +2104,7 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     if (key) idem.set(`budgets:${key}`, result);
     return result;
   };
-  store.financeBuckets = async () => bucketsSnapshot(categoryRows);
+  store.financeBuckets = async (now = Date.now()) => bucketsSnapshot(categoryRows, rows, now);
   store.financeCreateCategory = async (body, key = "") => {
     if (key && idem.has(`category:${key}`)) return idem.get(`category:${key}`);
     const result = createBucket(categoryRows, body);

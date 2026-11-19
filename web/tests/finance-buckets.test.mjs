@@ -7,7 +7,7 @@ import {
   handleFinanceDeleteCategory,
   handleFinancePatchCategory,
 } from "../lib/api.mjs";
-import { chartFor, installMemoryFinance, SEED_CATEGORIES, SEED_TRANSACTIONS } from "../lib/finance.mjs";
+import { chartFor, hiddenBucketsLabel, installMemoryFinance, removeBucketDetail, SEED_CATEGORIES, SEED_TRANSACTIONS } from "../lib/finance.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { seal } from "../lib/sessions.mjs";
 import { createRuntime } from "../lib/store.mjs";
@@ -15,6 +15,18 @@ import { migrateLibsql } from "../scripts/libsql-migrate.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
 
 const NOW = Date.parse("2026-11-11T11:42:00.000Z");
+
+test("a hidden bucket is named on the spent card, and a clear month is not", () => {
+  assert.equal(hiddenBucketsLabel(0), "");
+  assert.equal(hiddenBucketsLabel(1), "1 bucket hidden");
+  assert.equal(hiddenBucketsLabel(2), "2 buckets hidden");
+});
+
+test("remove copy names this month's spend, and skips the amount when there is none", () => {
+  assert.equal(removeBucketDetail("Fun", 3240), "$32.40 in Fun moves to Uncategorized.");
+  assert.equal(removeBucketDetail("Fun", 0), "Fun moves to Uncategorized.");
+  assert.equal(removeBucketDetail("Fun"), "Fun moves to Uncategorized.");
+});
 const SECRET = "finance-bucket-route-secret";
 const IP = "203.0.113.46";
 
@@ -237,6 +249,8 @@ test("bucket routes match on sqlite and do not touch redis", async () => {
     assert.equal(listed.status, 200);
     assert.equal(listed.body.buckets.some((item) => item.slug === "dining-out"), false);
     assert.equal(listed.body.buckets.find((item) => item.slug === "groceries").hidden, true);
+    assert.ok(listed.body.buckets.find((item) => item.slug === "groceries").spentCents > 0);
+    assert.equal(listed.body.buckets.find((item) => item.slug === "sample-oats").spentCents, 0);
     assert.equal(financeHit(base.commands), false);
   } finally {
     fake.stop();
