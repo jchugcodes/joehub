@@ -137,7 +137,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     const full = await withPage(cdp, `${server.base}/`, 390);
     assert.deepEqual(full.labels, ["Home", "Finance", "Jobs", "Journal", "More"]);
     const previewFinance = await withPage(cdp, `${server.base}/finance`, 390);
-    assert.deepEqual(previewFinance.finance, ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills", "Spending"]);
+    assert.deepEqual(previewFinance.finance, ["Overview", "Spending", "Goals", "Accounts", "Debts", "Bills"]);
     await stopProcess(server.child);
     server = await boot(true);
 
@@ -161,7 +161,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.equal(grocery.active.color, "rgb(46, 139, 106)");
     assert.match(grocery.active.bg, /rgba\(46,\s*139,\s*106/);
     const finance = await withPage(cdp, `${server.base}/finance`, 390, server.cookie);
-    assert.deepEqual(finance.finance, ["Overview", "Categories", "Accounts", "Bills", "Spending"]);
+    assert.deepEqual(finance.finance, ["Overview", "Spending", "Accounts", "Bills"]);
     assert.equal(finance.chart, false);
     assert.equal(finance.ytd, false);
     assert.match(finance.net, /\d/);
@@ -169,7 +169,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.match(finance.active.bg, /rgba\(46,\s*139,\s*106/);
 
     const spendingPage = await withPage(cdp, `${server.base}/finance/spending`, 390, server.cookie);
-    assert.deepEqual(spendingPage.finance, ["Overview", "Categories", "Accounts", "Bills", "Spending"]);
+    assert.deepEqual(spendingPage.finance, ["Overview", "Spending", "Accounts", "Bills"]);
     assert.equal(spendingPage.tabVisible, true);
     const authed = await fetch(`${server.base}/finance/spending`, { headers: { cookie: `joehub_session=${server.cookie}` }, redirect: "manual" });
     assert.equal(authed.status, 200);

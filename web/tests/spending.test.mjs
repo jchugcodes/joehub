@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { countsAsSpend, installMemoryFinance, spendCents } from "../lib/finance.mjs";
 import { financeTabs, isGatedPath } from "../lib/live-pages.mjs";
+import { spendingPath } from "../lib/spending-href.mjs";
 
 const root = new URL("..", import.meta.url);
 
@@ -12,9 +13,12 @@ test("spending is live in production", () => {
   assert.equal(financeTabs({}).some((tab) => tab.href === "/finance/spending" && tab.shipped === true && tab.live === true), true);
   assert.deepEqual(
     financeTabs({ VERCEL_ENV: "production" }).map((tab) => tab.label),
-    ["Overview", "Categories", "Accounts", "Bills", "Spending"],
+    ["Overview", "Spending", "Accounts", "Bills"],
   );
   assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending" && tab.live === true), true);
+  assert.equal(financeTabs({}).filter((tab) => tab.label === "Spending").length, 1);
+  assert.equal(financeTabs({}).some((tab) => tab.label === "Categories"), false);
+  assert.equal(financeTabs({}).findIndex((tab) => tab.label === "Spending"), 1);
 });
 
 test("the spending page reads this month from the finance APIs and edits through the existing patch", () => {
@@ -24,7 +28,7 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /showMonthBudget\(production, month\)/);
   assert.match(ui, /\/api\/finance\/categories/);
   assert.match(ui, /\/api\/finance\/overview/);
-  assert.match(ui, /period", "month"/);
+  assert.match(ui, /period === "week" \? "week" : "month"/);
   assert.match(ui, /spentCents > 0/);
   assert.match(ui, /SpendingSkeleton/);
   assert.match(ui, /data-state="empty"/);
@@ -46,9 +50,42 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /txnMoney\(selected\.amountCents\)/);
   assert.match(ui, /row\.uncategorized \? "uncategorized"/);
   assert.match(ui, /No spending this month\./);
+  assert.match(ui, /Monthly budgets/);
+  assert.match(ui, /id="budget-form"/);
+  assert.match(ui, /\/api\/finance\/budgets/);
+  assert.match(ui, /data-category-detail="true"/);
+  assert.match(ui, /data-period-track="true"/);
+  assert.match(ui, /Edit budgets/);
+  assert.match(ui, /set\("cat"/);
+  assert.doesNotMatch(ui, /\/finance\/categories\/\$\{/);
   assert.doesNotMatch(ui, /#[0-9A-Fa-f]{3,8}/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
   assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger|reset-ledger/);
+});
+
+test("category urls redirect onto spending and keep the query", () => {
+  const list = readFileSync(new URL("app/finance/categories/page.tsx", root), "utf8");
+  const slug = readFileSync(new URL("app/finance/categories/[slug]/page.tsx", root), "utf8");
+  const middleware = readFileSync(new URL("middleware.ts", root), "utf8");
+  assert.match(list, /permanentRedirect\(spendingPath/);
+  assert.match(slug, /permanentRedirect\(spendingPath/);
+  assert.match(middleware, /status: 308/);
+  assert.match(middleware, /\/finance\/categories/);
+  const month = new URL(spendingPath({ period: "month", asOf: "2026-11-11T15:00:00-05:00", panel: "1" }), "http://local");
+  assert.equal(month.pathname, "/finance/spending");
+  assert.equal(month.searchParams.get("period"), "month");
+  assert.equal(month.searchParams.get("asOf"), "2026-11-11T15:00:00-05:00");
+  assert.equal(month.searchParams.get("panel"), "1");
+  assert.equal(month.searchParams.get("cat"), null);
+  const dining = new URL(spendingPath({ period: "month", xe: "offline", asOf: "2026-11-11T15:00:00-05:00" }, "dining-out"), "http://local");
+  assert.equal(dining.pathname, "/finance/spending");
+  assert.equal(dining.searchParams.get("cat"), "dining-out");
+  assert.equal(dining.searchParams.get("period"), "month");
+  assert.equal(dining.searchParams.get("xe"), "offline");
+  assert.equal(spendingPath({}), "/finance/spending");
+  const overview = readFileSync(new URL("components/FinanceOverview.tsx", root), "utf8");
+  assert.match(overview, /\/finance\/spending\?cat=/);
+  assert.doesNotMatch(overview, /\/finance\/categories/);
 });
 
 test("this month's spending rows reconcile with the month total", async () => {

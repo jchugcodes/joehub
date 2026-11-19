@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
 import { decide } from "./lib/gate.mjs";
+import { spendingPath } from "./lib/spending-href.mjs";
 
 export async function middleware(request: Request) {
+  const url = new URL(request.url);
+  if (url.pathname === "/finance/categories" || (url.pathname.startsWith("/finance/categories/") && !url.pathname.slice("/finance/categories/".length).includes("/"))) {
+    const search: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => {
+      search[key] = value;
+    });
+    const slug = url.pathname === "/finance/categories" ? "" : decodeURIComponent(url.pathname.slice("/finance/categories/".length));
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || new URL(request.url).host;
+    const target = new URL(spendingPath(search, slug || undefined), `http://${host}`);
+    return new NextResponse(null, { status: 308, headers: { location: target.toString() } });
+  }
   const decision = await decide(request, process.env, Date.now());
   if (decision.type === "next") return NextResponse.next();
   if (decision.type === "redirect" && "location" in decision && typeof decision.location === "string") {

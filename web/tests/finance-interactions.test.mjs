@@ -158,7 +158,7 @@ test("finance week, chart, goals, caps, and offline reconnect at 390 and 1280", 
       await waitFor(send, "document.body.innerText.includes('Nov 2–8') ? 'yes' : ''", `previous ${width}`);
       await pressLabel(send, evalPage, "Next week");
       await waitFor(send, "document.body.innerText.includes('This week') ? 'yes' : ''", `current ${width}`);
-      await pointerClick(send, evalPage, "document.querySelector(\"a[href*='/finance/categories/dining-out']\")");
+      await pointerClick(send, evalPage, "document.querySelector(\"a[href*='cat=dining-out']\")");
       await waitFor(send, "document.querySelector(\"[aria-label='Back to overview']\") && document.body.innerText.includes('over') && document.body.innerText.includes('This week’s transactions') ? 'yes' : ''", `dining ${width}`);
       if (width === 390) assert.equal(await evalPage(send, "document.body.innerText.includes('$12 over') ? 'yes' : 'no'"), "yes");
       const back = await evalPage(send, "document.querySelector(\"[aria-label='Back to overview']\")?.getAttribute('href') || ''");

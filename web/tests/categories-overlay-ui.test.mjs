@@ -41,7 +41,7 @@ async function boot() {
     },
   });
   child = started.child;
-  await waitForHttp(`${base()}/finance/categories`, {
+  await waitForHttp(`${base()}/finance/spending`, {
     child,
     log: started.log,
     accept: (response) => response.status === 200 && (response.headers.get("content-type") || "").includes("text/html"),
@@ -139,15 +139,31 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
   let page = null;
   try {
     const secret = await boot();
+    const listed = await fetch(`${base()}/finance/categories?period=month&panel=1&asOf=${encodeURIComponent(AS_OF)}`, { redirect: "manual" });
+    assert.ok(listed.status === 307 || listed.status === 308, `list status ${listed.status}`);
+    const listLocation = listed.headers.get("location") || "";
+    const listUrl = new URL(listLocation, base());
+    assert.equal(listUrl.pathname, "/finance/spending");
+    assert.equal(listUrl.searchParams.get("period"), "month");
+    assert.equal(listUrl.searchParams.get("panel"), "1");
+    assert.equal(listUrl.searchParams.get("asOf"), AS_OF);
+    const slugged = await fetch(`${base()}/finance/categories/dining-out?period=month&xe=offline&asOf=${encodeURIComponent(AS_OF)}`, { redirect: "manual" });
+    assert.ok(slugged.status === 307 || slugged.status === 308, `slug status ${slugged.status}`);
+    const slugUrl = new URL(slugged.headers.get("location") || "", base());
+    assert.equal(slugUrl.pathname, "/finance/spending");
+    assert.equal(slugUrl.searchParams.get("cat"), "dining-out");
+    assert.equal(slugUrl.searchParams.get("period"), "month");
+    assert.equal(slugUrl.searchParams.get("xe"), "offline");
+    assert.equal(slugUrl.searchParams.get("asOf"), AS_OF);
     page = await openPage(secret);
     for (const viewport of [
       { width: 1280, height: 800, pin: true },
       { width: 390, height: 844, pin: false },
     ]) {
       await size(page.send, viewport.width, viewport.height);
-      await page.send("Page.navigate", { url: `${base()}/finance/categories?period=month&asOf=${encodeURIComponent(AS_OF)}` });
+      await page.send("Page.navigate", { url: `${base()}/finance/spending?period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, "document.body.innerText.includes('Dining Out') ? 'yes' : ''", "categories");
-      assert.equal(await pointerClick(page.send, evalPage, "document.querySelector(\"a[href*='/finance/categories/dining-out']\")"), "yes");
+      assert.equal(await pointerClick(page.send, evalPage, "document.querySelector(\"a[href*='cat=dining-out']\")"), "yes");
       await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true'] button")?.innerText.includes("Joe's Pizza") ? 'yes' : ''`, "detail");
       const detail = JSON.parse(await evalPage(page.send, `(() => {
         const root = document.querySelector("[data-category-detail='true']");
@@ -231,13 +247,13 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
         throw new Error(`form stayed open ${info}`);
       }
 
-      await page.send("Page.navigate", { url: `${base()}/finance/categories/utilities?period=month&asOf=${encodeURIComponent(AS_OF)}` });
+      await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=utilities&period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "Bills & Utilities" ? 'yes' : ''`, "utilities");
       const utilities = await evalPage(page.send, "document.querySelector(\"[data-item-meta]\")?.textContent || ''");
       assert.equal(String(utilities).includes(" of "), false);
       assert.equal(String(utilities).includes("4,204"), false);
 
-      await page.send("Page.navigate", { url: `${base()}/finance/categories/school?period=month&asOf=${encodeURIComponent(AS_OF)}` });
+      await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=school&period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, `${settled} && document.querySelector("[role='dialog'] h2")?.textContent === "School" ? 'yes' : ''`, "school");
       assert.equal(await pressLabel(page.send, evalPage, "Edit"), "yes");
       await waitFor(page.send, `${settled} && document.activeElement?.id === "budget-school" ? 'yes' : ''`, "school focus");
@@ -264,7 +280,7 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
     }
 
     await size(page.send, 390, 844);
-    await page.send("Page.navigate", { url: `${base()}/finance/categories/dining-out?period=month&xe=offline&asOf=${encodeURIComponent(AS_OF)}` });
+    await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=dining-out&period=month&xe=offline&asOf=${encodeURIComponent(AS_OF)}` });
     await waitFor(page.send, `${settled} && document.querySelector("[data-state='offline']")?.textContent.includes("You are offline.") ? 'yes' : ''`, "offline");
     assert.equal(await evalPage(page.send, "[...document.querySelectorAll('[data-overlay=panel] button')].some((button) => (button.innerText || '').trim() === 'Edit' && button.disabled) ? 'yes' : 'no'"), "yes");
   } finally {

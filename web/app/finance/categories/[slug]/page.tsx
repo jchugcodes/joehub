@@ -1,9 +1,15 @@
-"use client";
+import { permanentRedirect } from "next/navigation";
+import { spendingPath } from "../../../../lib/spending-href.mjs";
 
-import { use } from "react";
-import { FinanceCategory } from "../../../../components/FinanceCategory";
+export const dynamic = "force-dynamic";
 
-export default function CategoryPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  return <FinanceCategory slug={decodeURIComponent(slug)} />;
+export default async function CategoryRedirect({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { slug } = await params;
+  permanentRedirect(spendingPath((await searchParams) || {}, decodeURIComponent(slug)));
 }

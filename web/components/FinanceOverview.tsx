@@ -733,7 +733,7 @@ export function FinanceOverview() {
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3">
               {overview.caps.map((cap) => (
-                <Link key={cap.slug} href={`/finance/categories/${cap.slug}${suffix}`} className="min-h-11 rounded-2xl border border-line p-3">
+                <Link key={cap.slug} href={`/finance/spending?cat=${encodeURIComponent(cap.slug)}${suffix ? `&${suffix.slice(1)}` : ""}`} className="min-h-11 rounded-2xl border border-line p-3">
                   <span className="block h-2 w-2 rounded-full" style={{ background: cap.color }} />
                   <span className="mt-2 block text-meta">{cap.name}</span>
                   <span className="mt-1 block text-body font-medium">{money(cap.spentCents)}</span>

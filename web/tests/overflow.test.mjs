@@ -216,7 +216,7 @@ test("finance tabs do not widen the page", { timeout: 180000, skip: chromeBin ? 
         await send("Runtime.evaluate", {
           expression: "document.querySelector(\"[aria-label='Finance sections'] a\").focus()",
         });
-        const expected = ["Overview", "Categories", "Goals", "Accounts"];
+        const expected = ["Overview", "Spending", "Goals", "Accounts"];
         for (let step = 0; step < expected.length; step += 1) {
           if (step > 0) {
             await send("Input.dispatchKeyEvent", {
