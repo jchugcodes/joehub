@@ -161,7 +161,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.equal(grocery.active.color, "rgb(46, 139, 106)");
     assert.match(grocery.active.bg, /rgba\(46,\s*139,\s*106/);
     const finance = await withPage(cdp, `${server.base}/finance`, 390, server.cookie);
-    assert.deepEqual(finance.finance, ["Overview", "Spending", "Accounts", "Bills"]);
+    assert.deepEqual(finance.finance, ["Overview", "Spending", "Goals", "Accounts", "Bills"]);
     assert.equal(finance.chart, false);
     assert.equal(finance.ytd, false);
     assert.match(finance.net, /\d/);
@@ -169,7 +169,7 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
     assert.match(finance.active.bg, /rgba\(46,\s*139,\s*106/);
 
     const spendingPage = await withPage(cdp, `${server.base}/finance/spending`, 390, server.cookie);
-    assert.deepEqual(spendingPage.finance, ["Overview", "Spending", "Accounts", "Bills"]);
+    assert.deepEqual(spendingPage.finance, ["Overview", "Spending", "Goals", "Accounts", "Bills"]);
     assert.equal(spendingPage.tabVisible, true);
     const authed = await fetch(`${server.base}/finance/spending`, { headers: { cookie: `joehub_session=${server.cookie}` }, redirect: "manual" });
     assert.equal(authed.status, 200);
@@ -180,9 +180,17 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
       assert.equal(anon.status, 200);
     }
 
+    for (const path of ["/finance/goals", "/finance/goals/emergency-fund"]) {
+      const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
+      if (response.status >= 300 && response.status < 400) {
+        assert.notEqual(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);
+      } else {
+        assert.equal(response.status, 200, path);
+      }
+    }
     const settings = await fetch(`${server.base}/more/settings`, { redirect: "manual" });
     assert.equal(settings.status, 200);
-    for (const path of ["/", "/jobs", "/journal", "/journal/compose", "/more", "/more/database", "/more/settings/extra", "/finance/goals", "/finance/debts", "/not-a-page"]) {
+    for (const path of ["/", "/jobs", "/journal", "/journal/compose", "/more", "/more/database", "/more/settings/extra", "/finance/debts", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
       assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);

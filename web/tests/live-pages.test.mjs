@@ -33,7 +33,7 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
     );
     assert.deepEqual(
       financeTabs(env).map((tab) => tab.label),
-      ["Overview", "Spending", "Accounts", "Bills"],
+      ["Overview", "Spending", "Goals", "Accounts", "Bills"],
     );
   }
   assert.equal(isGatedPath("/finance/spending"), false);
@@ -42,13 +42,13 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
 
 test("production middleware redirects gated pages and leaves auth and api alone", async () => {
   const env = { ...open, NEXT_PUBLIC_VERCEL_ENV: "production" };
-  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/goals", "/finance/goals/emergency-fund", "/finance/debts", "/not-a-page"]) {
+  for (const path of ["/", "/jobs", "/jobs/one", "/journal", "/journal/compose", "/more", "/more/database", "/finance/debts", "/not-a-page"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "redirect", path);
     assert.equal(decision.location, "/tasks", path);
     assert.equal(isGatedPath(path), true);
   }
-  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/spending", "/finance/transactions", "/finance/caps", "/more/settings"]) {
+  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/spending", "/finance/transactions", "/finance/caps", "/finance/goals", "/finance/goals/emergency-fund", "/more/settings"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "next", path);
     assert.equal(isGatedPath(path), false, path);
@@ -80,6 +80,8 @@ test("production gate list is the live pages plus appearance settings", async ()
     "/finance",
     "/finance/spending",
     "/finance/spending/more",
+    "/finance/goals",
+    "/finance/goals/emergency-fund",
     "/finance/accounts",
     "/finance/bills",
     "/finance/transactions",
@@ -95,8 +97,6 @@ test("production gate list is the live pages plus appearance settings", async ()
     "/more",
     "/more/database",
     "/more/settings/extra",
-    "/finance/goals",
-    "/finance/goals/emergency-fund",
     "/finance/debts",
     "/finance/debts/one",
     "/not-a-page",
