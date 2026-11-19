@@ -47,7 +47,8 @@ export function boxAccountType(type) {
 
 export function boxGoalStatus(goal) {
   const status = goalStatus(goal);
-  if (status === "paused" || status === "inactive") return "paused";
+  if (status === "inactive" || status === "paused") return "paused";
+  if (status === "not_started" || status === "active") return "active";
   return "active";
 }
 
@@ -114,6 +115,7 @@ async function clearFinance(db) {
   await exec(db, "DELETE FROM finance_docs");
   await exec(db, "DELETE FROM finance_ids");
   await exec(db, "DELETE FROM finance_blobs");
+  await exec(db, "DELETE FROM finance_sources");
 }
 
 function categoryRows(bundle) {
@@ -238,6 +240,14 @@ export async function writeFinanceBundle(db, bundle) {
       JSON.stringify(row),
       financeScore(row),
     ]);
+    if (typeof row.sourceId === "string" && row.sourceId) {
+      await exec(
+        db,
+        `INSERT INTO finance_sources (source_id, web_id) VALUES (?, ?)
+         ON CONFLICT(source_id) DO UPDATE SET web_id = excluded.web_id`,
+        [row.sourceId, row.id],
+      );
+    }
   }
 
   for (const bill of bundle.bills || []) {
@@ -290,6 +300,34 @@ async function readDocs(db, entity, direction) {
   });
 }
 
+export async function loadFinanceRaw(db, { allowSeed = false, env = {} } = {}) {
+  let plan = await readBlob(db, "plan");
+  if (!plan) {
+    if (!allowSeed) throw new StoreError();
+    await writeFinanceBundle(db, seedBundle());
+    plan = await readBlob(db, "plan");
+  }
+  const caps = await readBlob(db, "caps");
+  const categories = await readBlob(db, "categories");
+  const snapshot = await readBlob(db, "snapshots");
+  const legacyAccounts = await readBlob(db, "accounts");
+  const goals = await readBlob(db, "goals");
+  if ((!caps && !categories) || !plan || !Number.isInteger(plan.cents) || !snapshot || !legacyAccounts || !Array.isArray(goals)) {
+    throw new StoreError();
+  }
+  return {
+    transactions: await readDocs(db, "transaction", "DESC"),
+    categories,
+    caps: caps && typeof caps === "object" && !Array.isArray(caps) ? caps : null,
+    plan,
+    snapshot,
+    legacyAccounts,
+    goals,
+    accounts: await readDocs(db, "account", "ASC"),
+    bills: await readDocs(db, "bill", "ASC"),
+  };
+}
+
 export async function loadFinanceState(db, { allowSeed = false, env = {} } = {}) {
   let plan = await readBlob(db, "plan");
   if (!plan) {
@@ -327,7 +365,7 @@ async function saveBills(db, bills) {
   }
 }
 
-export function createFinanceReads(db, { allowSeed = false, env = {} } = {}) {
+export function createFinanceReads(db, { allowSeed = false, env = {}, transact = null } = {}) {
   async function state() {
     return loadFinanceState(db, { allowSeed, env });
   }
@@ -335,8 +373,14 @@ export function createFinanceReads(db, { allowSeed = false, env = {} } = {}) {
   async function bills(now = Date.now()) {
     const current = await state();
     const projected = projectBills(current.bills, now);
-    if (projected.changed) await saveBills(db, projected.bills);
-    return billsSnapshot(projected.bills, current.transactions, current.manualAccounts, now);
+    if (!projected.changed) return billsSnapshot(projected.bills, current.transactions, current.manualAccounts, now);
+    const apply = async (handle) => {
+      const fresh = await loadFinanceState(handle, { allowSeed, env });
+      const again = projectBills(fresh.bills, now);
+      if (again.changed) await saveBills(handle, again.bills);
+      return billsSnapshot(again.bills, fresh.transactions, fresh.manualAccounts, now);
+    };
+    return transact ? transact(apply) : apply(db);
   }
 
   return {
@@ -407,6 +451,23 @@ export function createFinanceReads(db, { allowSeed = false, env = {} } = {}) {
       const rows = await readDocs(db, "transaction", "DESC");
       const row = rows.find((item) => item.id === id);
       return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+    },
+    async financeRows() {
+      return (await state()).transactions;
+    },
+    async financeBundle() {
+      const current = await state();
+      return {
+        transactions: current.transactions,
+        caps: current.caps,
+        categories: current.categories,
+        planCents: current.planCents,
+        budgetsSaved: current.budgetsSaved,
+        snapshot: current.snapshot,
+        accounts: current.legacyAccounts,
+        goals: current.goals,
+        manualAccounts: current.manualAccounts,
+      };
     },
   };
 }

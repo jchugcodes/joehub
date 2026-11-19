@@ -286,7 +286,7 @@ test("startup allows a remote libSQL URL only when an area is sqlite", () => {
   );
 });
 
-test("sqlite tasks match upstash and finance writes stay unmigrated", async () => {
+test("sqlite tasks match upstash and an empty finance store stays closed", async () => {
   const quiet = { VERCEL_ENV: "production" };
   const fake = await startFakeUpstash();
   const seedFake = await startFakeUpstash();
@@ -305,7 +305,7 @@ test("sqlite tasks match upstash and finance writes stay unmigrated", async () =
     assert.deepEqual(await sqlite.listGrocery(), []);
     assert.deepEqual(await sqlite.listLists(), []);
     await assert.rejects(() => sqlite.financeGoals(), /store unavailable/);
-    assert.throws(() => sqlite.financeSaveCaps({ caps: {} }, "k"), /not migrated/);
+    await assert.rejects(() => sqlite.financeSaveCaps({ caps: {} }, "k"), /store unavailable/);
     assert.throws(() => sqlite.getSession("session", NOW), /not migrated/);
 
     const bare = createClient({ url: ":memory:" });

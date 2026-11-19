@@ -35,7 +35,7 @@ const GROCERY_METHODS = [
   "clearGrocery",
 ];
 
-const FINANCE_READS = [
+const FINANCE_METHODS = [
   "financeOverview",
   "financeCategory",
   "financeCategories",
@@ -49,6 +49,24 @@ const FINANCE_READS = [
   "financeGoals",
   "financeTransactions",
   "financeTransaction",
+  "financeRows",
+  "financeBundle",
+  "financeSaveCaps",
+  "financeSaveBudgets",
+  "financeCreateAccount",
+  "financePatchAccount",
+  "financeDeleteAccount",
+  "financeCreateBill",
+  "financePatchBill",
+  "financeDeleteBill",
+  "financeImportTransaction",
+  "financeCreateGoal",
+  "financePatchGoal",
+  "financeDeleteGoal",
+  "financeCreateTransaction",
+  "financePatchTransaction",
+  "financeSimulateRefresh",
+  "financeResetLedger",
 ];
 
 function unavailableStore() {
@@ -95,8 +113,8 @@ function unavailableStore() {
 // reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves Tasks
 // and the task lists that read or write those tasks onto libSQL.
 // JOEHUB_BACKEND_GROCERY=sqlite moves Grocery onto libSQL.
-// JOEHUB_BACKEND_FINANCE=sqlite moves Finance reads onto libSQL. Finance
-// writes stay on this store. One flag does not move another area. The libSQL
+// JOEHUB_BACKEND_FINANCE=sqlite moves Finance reads and writes onto libSQL
+// together. One flag does not move another area. The libSQL
 // URL and token are JOEHUB_LIBSQL_URL and JOEHUB_LIBSQL_AUTH_TOKEN, then
 // TURSO_DATABASE_URL and TURSO_AUTH_TOKEN. The Turso names do not select a
 // backend. Sessions and devices stay on this store.
@@ -157,7 +175,7 @@ export function createRuntime(env = process.env, options = {}) {
   let store = runtime.store;
   if (tasksOn) store = useSqliteMethods(store, sqlite, TASK_METHODS);
   if (groceryOn) store = useSqliteMethods(store, sqlite, GROCERY_METHODS);
-  if (financeOn) store = useSqliteMethods(store, sqlite, FINANCE_READS);
+  if (financeOn) store = useSqliteMethods(store, sqlite, FINANCE_METHODS);
   return { ...runtime, store };
 }
 

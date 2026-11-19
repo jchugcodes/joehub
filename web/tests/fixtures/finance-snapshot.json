@@ -1,0 +1,103 @@
+{
+  "kind": "joehub-finance-snapshot",
+  "version": 1,
+  "prefix": "joehub:",
+  "categories": [
+    {
+      "slug": "sample-market",
+      "name": "Sample market",
+      "weeklyCapCents": 0,
+      "monthlyCapCents": 11100,
+      "sort": 1,
+      "color": "#111111"
+    }
+  ],
+  "caps": {
+    "sample-market": 0
+  },
+  "plan": {
+    "cents": 111100
+  },
+  "goals": [
+    {
+      "slug": "sample-cabin",
+      "name": "Sample cabin",
+      "value": 0,
+      "amount": "$0",
+      "target": "$10",
+      "note": "",
+      "savedCents": 0,
+      "targetCents": 1000,
+      "kind": "Savings",
+      "account": "",
+      "color": "#111111",
+      "status": "inactive"
+    }
+  ],
+  "snapshots": {
+    "netWorthCents": 111100,
+    "ytdDeltaCents": 111,
+    "caption": "Sample book",
+    "points": [100000, 111100]
+  },
+  "legacyAccounts": {
+    "netWorthCents": 111100,
+    "assetsCents": 111100,
+    "liabilitiesCents": 0,
+    "updatedAt": "2026-11-10T00:00:00.000Z",
+    "accounts": []
+  },
+  "transactions": [
+    {
+      "id": "fin-sample-oats",
+      "body": {
+        "id": "fin-sample-oats",
+        "payee": "Synthetic oats",
+        "date": "2026-11-10",
+        "category": "sample-market",
+        "type": "expense",
+        "amountCents": -111,
+        "source": "manual",
+        "createdAt": 1763000000000,
+        "updatedAt": 1763000000000,
+        "accountId": "acct-sample"
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acct-sample",
+      "body": {
+        "id": "acct-sample",
+        "name": "Sample jar",
+        "type": "cash",
+        "source": "manual",
+        "balanceCents": 11100,
+        "createdAt": 1763000000000,
+        "updatedAt": 1763000000000,
+        "balanceAsOf": 1763000000000,
+        "hiddenFromNetWorth": false,
+        "closed": false
+      }
+    }
+  ],
+  "bills": [
+    {
+      "id": "bill-sample",
+      "body": {
+        "id": "bill-sample",
+        "name": "Synthetic power",
+        "amountCents": 111,
+        "dueDate": "2026-11-20",
+        "recurrence": "monthly",
+        "category": "sample-market",
+        "accountId": "acct-sample",
+        "paid": false,
+        "paidOn": null,
+        "sort": 1763000000000,
+        "createdAt": 1763000000000,
+        "updatedAt": 1763000000000
+      }
+    }
+  ]
+}
