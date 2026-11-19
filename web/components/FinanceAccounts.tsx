@@ -9,7 +9,7 @@ import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSk
 import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { AccountsSkeleton, LoadError, TextLine } from "./Skeleton";
 import { Sheet } from "./Sheet";
-import { accountUrls, prefetchAccount, warmGet } from "../lib/account-warm.mjs";
+import { accountUrls, clearAccountWarm, prefetchAccount, warmGet } from "../lib/account-warm.mjs";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
@@ -272,6 +272,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       setNotice("");
       setTone("reconnecting");
       try {
+        clearAccountWarm();
         await load();
         setNotice("");
         setTone("back");
@@ -423,6 +424,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       setNotice("Couldn’t update that account.");
       return;
     }
+    clearAccountWarm();
     await load();
   }
 
@@ -462,6 +464,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     const saved = (await response.json()) as Account;
     closeForm();
     if (!editing) router.push(`/finance/accounts/${saved.id}${suffix}`);
+    clearAccountWarm();
     await load();
   }
 
@@ -476,6 +479,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     setConfirming(false);
     closeForm();
     router.push(listHref);
+    clearAccountWarm();
     await load();
   }
 
@@ -607,7 +611,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     </p>
   ) : null;
   const overlayBody = panelHold === "error" ? (
-    <LoadError onRetry={() => void load()} />
+    <LoadError onRetry={() => { clearAccountWarm(); void load(); }} />
   ) : panelHold === "skel" || opening ? (
     <div data-skeleton="account" aria-busy="true" className="px-5 py-4">
       <TextLine height={12} width={120} />

@@ -31,6 +31,10 @@ export function warmGet(url) {
   return promise;
 }
 
+export function clearAccountWarm() {
+  warm.clear();
+}
+
 export function prefetchAccount(id, asOf = "") {
   if (!id) return;
   const urls = accountUrls(id, asOf);
