@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createGoal, deleteGoal, patchGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createGoal, deleteGoal, patchGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, spendingMonth, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
@@ -75,14 +75,24 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     return typeof id === "string" ? id : "";
   }
 
-  async function readJson(key) {
-    const raw = await command(["GET", key]);
+  function parseStored(raw) {
     if (raw == null) return null;
     try {
       return JSON.parse(raw);
     } catch {
       throw new StoreError();
     }
+  }
+
+  async function readJson(key) {
+    return parseStored(await command(["GET", key]));
+  }
+
+  async function readMany(keys) {
+    if (!keys.length) return [];
+    const raws = await command(["MGET", ...keys]);
+    if (!Array.isArray(raws)) throw new StoreError();
+    return raws.map(parseStored);
   }
 
   async function placeSample(sample) {
@@ -331,12 +341,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
 
   async function listTransactions() {
     const ids = (await command(["ZREVRANGE", k("joehub:finance:txns"), "0", "-1"])) || [];
-    const transactions = [];
-    for (const id of ids) {
-      const row = await readJson(k(`joehub:finance:txn:${id}`));
-      if (row) transactions.push(row);
-    }
-    return transactions;
+    if (!ids.length) return [];
+    const rows = await readMany(ids.map((id) => k(`joehub:finance:txn:${id}`)));
+    return rows.filter(Boolean);
   }
 
   async function ensureFinance() {
@@ -377,12 +384,9 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
 
   async function listManualAccounts() {
     const ids = (await command(["ZRANGEBYSCORE", k("joehub:finance:accounts:index"), "0", "9007199254740991"])) || [];
-    const accounts = [];
-    for (const id of ids) {
-      const account = await readJson(k(`joehub:finance:account:${id}`));
-      if (account) accounts.push(account);
-    }
-    return accounts;
+    if (!ids.length) return [];
+    const accounts = await readMany(ids.map((id) => k(`joehub:finance:account:${id}`)));
+    return accounts.filter(Boolean);
   }
 
   function accountIdOk(id) {
@@ -757,12 +761,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     },
     async financeBundle() {
       await ensureFinance();
-      const storedCaps = await readJson(k("joehub:finance:caps"));
-      const storedCategories = await readJson(k("joehub:finance:categories"));
-      const plan = await readJson(k("joehub:finance:plan"));
-      const snapshot = await readJson(k("joehub:finance:snapshots"));
-      const accounts = await readJson(k("joehub:finance:accounts"));
-      const goals = await readJson(k("joehub:finance:goals"));
+      const [storedCaps, storedCategories, plan, snapshot, accounts, goals] = await readMany([
+        k("joehub:finance:caps"),
+        k("joehub:finance:categories"),
+        k("joehub:finance:plan"),
+        k("joehub:finance:snapshots"),
+        k("joehub:finance:accounts"),
+        k("joehub:finance:goals"),
+      ]);
       const manualAccounts = await listManualAccounts();
       const categories = normalizeCategories(storedCategories, storedCategories ? null : storedCaps);
       const caps = storedCaps && typeof storedCaps === "object" && !Array.isArray(storedCaps) ? storedCaps : defaultCaps(categories);
@@ -789,6 +795,10 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
     async financeCategories(now, period) {
       const state = await this.financeBundle();
       return categoriesSnapshot(state.transactions, now, period, state.caps, state.categories, state.budgetsSaved);
+    },
+    async financeSpendingMonth(now, month = "") {
+      const state = await this.financeBundle();
+      return spendingMonth(state.transactions, now, state.caps, state.categories, state.budgetsSaved, state.planCents, month);
     },
     async financeSaveCaps(body, idemKey) {
       const state = await this.financeBundle();

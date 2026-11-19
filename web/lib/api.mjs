@@ -498,6 +498,21 @@ export async function handleFinanceDeleteAccount(id, headers, env, store, limite
   }
 }
 
+export async function handleFinanceSpendingMonth(headers, env, store, limiter, now, ip, url = "") {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeSpendingMonth !== "function") return { status: 503, body: { detail: "unavailable" } };
+    const query = financeWhen(now, url);
+    const month = url ? new URL(url, "http://localhost").searchParams.get("month") || "" : "";
+    return await store.financeSpendingMonth(query.now, month);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinanceCategories(headers, env, store, limiter, now, ip, url = "") {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

@@ -118,7 +118,7 @@ test("spending edit keeps Save disabled until a change, and Cancel or Escape dis
 
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await send("Page.navigate", { url: `${base()}/finance/spending?asOf=${clock}&txn=fin-shell` });
-    await waitFor(send, "document.querySelector('[data-txn-detail]') && document.body.innerText.includes('Shell (example)') && document.body.innerText.includes('Gas & Transport') ? 'yes' : ''", "panel");
+    await waitFor(send, "document.querySelector('[data-overlay=panel][data-state=open]') && ![...document.querySelectorAll('[data-overlay=panel]')].some((panel) => panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) && document.querySelector('[data-txn-detail]') && document.body.innerText.includes('Shell (example)') && document.body.innerText.includes('Gas & Transport') ? 'yes' : ''", "panel");
     assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
     await waitFor(send, "document.querySelector('[data-edit=\"open\"]') && document.body.innerText.includes('Edit transaction') ? 'yes' : ''", "edit");
     assert.equal(await evalPage(send, saveDisabled()), "yes");
@@ -158,7 +158,7 @@ test("spending edit keeps Save disabled until a change, and Cancel or Escape dis
 
     const spentBefore = Number(await evalPage(send, "document.querySelector('[data-month-spent]')?.getAttribute('data-month-spent')"));
     await send("Page.navigate", { url: `${base()}/finance/spending?asOf=${clock}&txn=fin-pizza` });
-    await waitFor(send, "document.querySelector('[data-txn-detail]') && document.body.innerText.includes(\"Joe's Pizza\") ? 'yes' : ''", "pizza");
+    await waitFor(send, "document.querySelector('[data-overlay=panel][data-state=open]') && ![...document.querySelectorAll('[data-overlay=panel]')].some((panel) => panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) && document.querySelector('[data-txn-detail]') && document.body.innerText.includes(\"Joe's Pizza\") ? 'yes' : ''", "pizza");
     assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
     await waitFor(send, "document.querySelector('[data-edit=\"open\"]') ? 'yes' : ''", "pizza edit");
     assert.equal(await evalPage(send, saveDisabled()), "yes");

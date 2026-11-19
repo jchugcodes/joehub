@@ -160,9 +160,27 @@ export function FinanceSpending() {
   const showEmptyHold = skeletonOn && hold === "empty";
 
   const load = useCallback(async () => {
+    if (period !== "week") {
+      const params = new URLSearchParams();
+      if (asOf) params.set("asOf", asOf);
+      const response = await fetch(`/api/finance/spending/month${params.size ? `?${params.toString()}` : ""}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("month");
+      const body = (await response.json()) as Snapshot & { month?: Month | null; transactions?: Txn[] };
+      setSnapshot({
+        label: body.label,
+        spentCents: body.spentCents,
+        weekStart: body.weekStart,
+        budgetLabel: body.budgetLabel,
+        categories: body.categories,
+      });
+      setMonth(body.month ?? null);
+      setTxns(Array.isArray(body.transactions) ? body.transactions : []);
+      setFailed(false);
+      return;
+    }
     const params = new URLSearchParams();
     if (asOf) params.set("asOf", asOf);
-    params.set("period", period === "week" ? "week" : "month");
+    params.set("period", "week");
     const overview = new URLSearchParams();
     if (asOf) overview.set("asOf", asOf);
     const [categoriesResponse, overviewResponse] = await Promise.all([
@@ -242,6 +260,20 @@ export function FinanceSpending() {
     setBudgetsOpen(false);
     setBudgetError("");
   }, [cat]);
+
+  useEffect(() => {
+    if (!cat || selectedId || budgetsOpen || panelTxn) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      const next = new URLSearchParams(window.location.search);
+      next.delete("cat");
+      const query = next.toString();
+      router.replace(query ? `/finance/spending?${query}` : "/finance/spending", { scroll: false });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [cat, selectedId, budgetsOpen, panelTxn, router]);
 
   useEffect(() => {
     if (!cat) {

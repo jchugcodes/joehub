@@ -1467,6 +1467,55 @@ export function transactionsForWeek(rows, now = Date.now(), week = "", accountId
   };
 }
 
+/** The month transaction walk the Spending page used to do in the browser. */
+export function collectMonthTransactions(pages) {
+  const collected = [];
+  const seen = new Set();
+  for (const page of pages) {
+    const monthStart = `${String(page.today || "").slice(0, 7)}-01`;
+    for (const row of page.rows || []) {
+      if (seen.has(row.id) || row.date < monthStart || row.date > page.today || !countsAsSpend(row)) continue;
+      seen.add(row.id);
+      collected.push(row);
+    }
+  }
+  collected.sort((left, right) => (left.date < right.date ? 1 : left.date > right.date ? -1 : 0));
+  return collected;
+}
+
+export function monthTransactionPages(txns, now = Date.now()) {
+  const today = detroitYmd(now);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const pages = [];
+  let week = "";
+  for (let step = 0; step < 8; step += 1) {
+    const page = transactionsForWeek(txns, now, week, "");
+    if (page.status !== 200) break;
+    pages.push(page.body);
+    if (!page.body.previousWeek || page.body.weekStart <= monthStart) break;
+    week = page.body.previousWeek;
+  }
+  return pages;
+}
+
+export function spendingMonth(txns, now = Date.now(), caps = defaultCaps(), categories = CATEGORIES, saved = false, planCents = PLAN_CENTS, month = "", env = process.env) {
+  const today = detroitYmd(now);
+  const current = today.slice(0, 7);
+  if (month && !/^\d{4}-\d{2}$/.test(month)) return { status: 400, body: { detail: "Enter a month.", field: "month" } };
+  if (month && month !== current) return { status: 400, body: { detail: "That month is not open.", field: "month" } };
+  const listed = categories || CATEGORIES;
+  const snapshot = categoriesSnapshot(txns, now, "month", caps, listed, saved);
+  const card = monthProgress(txns, today, planCents ?? PLAN_CENTS, listed, env, saved === true);
+  return {
+    status: 200,
+    body: {
+      month: card,
+      ...snapshot,
+      transactions: collectMonthTransactions(monthTransactionPages(txns, now)),
+    },
+  };
+}
+
 function readDraft(body, shown = {}, categories = CATEGORIES) {
   const type = String((body && body.type) || shown.type || "");
   if (!TXN_TYPES.has(type)) return { ok: false, detail: "Choose a type.", field: "type" };
@@ -1793,6 +1842,7 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   store.financeOverview = (now, week, range) => overview(rows, now, week, range, caps, context());
   store.financeCategory = (now, week, category, period) => categoryView(rows, now, week, category, caps, categoryRows, period);
   store.financeCategories = (now, period) => categoriesSnapshot(rows, now, period, caps, categoryRows, budgetsSaved);
+  store.financeSpendingMonth = (now, month = "") => spendingMonth(rows, now, caps, categoryRows, budgetsSaved, planCents, month);
   store.financeSaveBudgets = async (body, key) => {
     if (key && idem.has(`budgets:${key}`)) return idem.get(`budgets:${key}`);
     const parsed = parseMonthlyBudgets(body && body.budgets, categoryRows);
