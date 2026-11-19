@@ -88,6 +88,7 @@ test("libSQL config prefers the Joehub names and does not switch the area", () =
   assert.deepEqual(readAreaBackends({ TURSO_DATABASE_URL: "libsql://turso.example", TURSO_AUTH_TOKEN: "turso-token" }), {
     tasks: "upstash",
     grocery: "upstash",
+    finance: "upstash",
   });
   assert.doesNotThrow(() =>
     assertSafeToStart(

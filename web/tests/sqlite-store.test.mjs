@@ -168,10 +168,10 @@ async function listScenario(store, now) {
 }
 
 test("tasks flag defaults to upstash and rejects an unknown value", () => {
-  assert.deepEqual(readAreaBackends({}), { tasks: "upstash", grocery: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "  " }), { tasks: "upstash", grocery: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "upstash" }), { tasks: "upstash", grocery: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "sqlite" }), { tasks: "sqlite", grocery: "upstash" });
+  assert.deepEqual(readAreaBackends({}), { tasks: "upstash", grocery: "upstash", finance: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "  " }), { tasks: "upstash", grocery: "upstash", finance: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "upstash" }), { tasks: "upstash", grocery: "upstash", finance: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "sqlite" }), { tasks: "sqlite", grocery: "upstash", finance: "upstash" });
   assert.throws(() => readAreaBackends({ JOEHUB_BACKEND_TASKS: "postgres" }), /unknown JOEHUB_BACKEND_TASKS/);
   assert.throws(() => readAreaBackends({ JOEHUB_BACKEND_TASKS: "SQLite" }), /unknown JOEHUB_BACKEND_TASKS/);
 });
@@ -286,7 +286,7 @@ test("startup allows a remote libSQL URL only when an area is sqlite", () => {
   );
 });
 
-test("sqlite tasks match upstash and finance stays unmigrated", async () => {
+test("sqlite tasks match upstash and finance writes stay unmigrated", async () => {
   const quiet = { VERCEL_ENV: "production" };
   const fake = await startFakeUpstash();
   const seedFake = await startFakeUpstash();
@@ -304,7 +304,8 @@ test("sqlite tasks match upstash and finance stays unmigrated", async () => {
 
     assert.deepEqual(await sqlite.listGrocery(), []);
     assert.deepEqual(await sqlite.listLists(), []);
-    assert.throws(() => sqlite.financeGoals(), /not migrated/);
+    await assert.rejects(() => sqlite.financeGoals(), /store unavailable/);
+    assert.throws(() => sqlite.financeSaveCaps({ caps: {} }, "k"), /not migrated/);
     assert.throws(() => sqlite.getSession("session", NOW), /not migrated/);
 
     const bare = createClient({ url: ":memory:" });
