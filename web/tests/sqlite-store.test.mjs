@@ -3,7 +3,8 @@ import test from "node:test";
 import { createClient } from "@libsql/client";
 import { readAreaBackends } from "../lib/backend.mjs";
 import { createRuntime } from "../lib/store.mjs";
-import { createSqliteStore, TASKS_DDL } from "../lib/store-sqlite.mjs";
+import { migrateLibsql } from "../scripts/libsql-migrate.mjs";
+import { createSqliteStore } from "../lib/store-sqlite.mjs";
 import { createUpstashStore } from "../lib/store-upstash.mjs";
 import { assertSafeToStart } from "../lib/startup.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
@@ -28,7 +29,7 @@ function oidc(extra = {}) {
 
 async function openTasks() {
   const client = createClient({ url: ":memory:" });
-  for (const sql of TASKS_DDL) await client.execute(sql);
+  await migrateLibsql({ client, url: ":memory:", test: true });
   return client;
 }
 
