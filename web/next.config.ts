@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      { source: "/finance/categories", destination: "/finance/spending", permanent: true },
+      { source: "/finance/categories/:slug", destination: "/finance/spending?cat=:slug", permanent: true },
+    ];
+  },
   output: "standalone",
   env: {
     NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV || process.env.VERCEL_ENV || "",

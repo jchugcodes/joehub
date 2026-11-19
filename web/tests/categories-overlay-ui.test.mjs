@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { acquireBrowserLock, reservePort, spawnLogged, startChrome, stopProcess, waitForChrome, waitForHttp } from "./support/harness.mjs";
@@ -129,6 +130,52 @@ async function size(send, width, height) {
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 500 });
 }
 
+function redirected(path) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path,
+        method: "GET",
+        headers: { host: "evil.example", "x-forwarded-host": "spoofed.example" },
+      },
+      (res) => {
+        res.resume();
+        resolve({ status: res.statusCode, location: res.headers.location || "" });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function assertSameOrigin(location, path) {
+  assert.equal(location.toLowerCase().includes("evil.example"), false, `${path} ${location}`);
+  assert.equal(location.toLowerCase().includes("spoofed.example"), false, `${path} ${location}`);
+  assert.equal(/^https?:\/\//i.test(location), false, `${path} ${location}`);
+  const target = new URL(location, base());
+  assert.equal(target.origin, new URL(base()).origin, location);
+  assert.equal(target.pathname, "/finance/spending");
+  return target;
+}
+
+const barRows = `(() => {
+  const rows = [...document.querySelectorAll("a[href*='cat=']")].map((link) => {
+    const fill = link.querySelector("[data-bar]");
+    const style = fill ? getComputedStyle(fill) : null;
+    return {
+      name: link.querySelector(".truncate")?.textContent || "",
+      text: (link.innerText || "").replace(/\\s+/g, " "),
+      mode: fill?.getAttribute("data-bar") || "",
+      over: fill?.getAttribute("data-over") || "",
+      width: fill?.style.width || "",
+      color: style ? style.backgroundColor : "",
+    };
+  });
+  return JSON.stringify(rows);
+})()`;
+
 const settled = `(() => {
   const panel = document.querySelector("[data-overlay='panel']");
   if (!panel || panel.getAttribute("data-state") !== "open") return "";
@@ -155,6 +202,15 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
     assert.equal(slugUrl.searchParams.get("period"), "month");
     assert.equal(slugUrl.searchParams.get("xe"), "offline");
     assert.equal(slugUrl.searchParams.get("asOf"), AS_OF);
+    const query = await redirected("/finance/categories?x=1");
+    assert.equal(query.status, 308);
+    const queryTarget = assertSameOrigin(query.location, "/finance/categories?x=1");
+    assert.equal(queryTarget.searchParams.get("x"), "1");
+    assert.equal(queryTarget.searchParams.get("cat"), null);
+    const groceries = await redirected("/finance/categories/groceries");
+    assert.equal(groceries.status, 308);
+    const groceriesTarget = assertSameOrigin(groceries.location, "/finance/categories/groceries");
+    assert.equal(groceriesTarget.searchParams.get("cat"), "groceries");
     page = await openPage(secret);
     for (const viewport of [
       { width: 1280, height: 800, pin: true },
@@ -163,6 +219,40 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       await size(page.send, viewport.width, viewport.height);
       await page.send("Page.navigate", { url: `${base()}/finance/spending?period=month&asOf=${encodeURIComponent(AS_OF)}` });
       await waitFor(page.send, "document.body.innerText.includes('Dining Out') ? 'yes' : ''", "categories");
+      const monthBars = JSON.parse(await evalPage(page.send, barRows));
+      const over = monthBars.find((row) => row.name === "Groceries");
+      const under = monthBars.find((row) => row.name === "Dining Out");
+      const share = monthBars.find((row) => row.name === "Bills & Utilities");
+      assert.equal(over.mode, "estimate");
+      assert.equal(over.over, "true");
+      assert.equal(over.width, "100%");
+      assert.match(over.text, /120%/);
+      assert.equal(over.color, "rgb(224, 122, 95)");
+      assert.equal(under.mode, "estimate");
+      assert.equal(under.over, "false");
+      assert.equal(under.width, "72%");
+      assert.match(under.text, /72%/);
+      assert.equal(share.mode, "share");
+      assert.equal(share.over, "false");
+      assert.equal(share.width, "10%");
+      assert.notEqual(share.color, "rgb(224, 122, 95)");
+      if (viewport.pin) {
+        await page.send("Page.navigate", { url: `${base()}/finance/spending?period=week&asOf=${encodeURIComponent(AS_OF)}` });
+        await waitFor(page.send, "document.body.innerText.includes('Dining Out') && document.querySelector(\"[data-bar][data-over='true']\") ? 'yes' : ''", "week bars");
+        const weekBars = JSON.parse(await evalPage(page.send, barRows));
+        const weekOver = weekBars.find((row) => row.name === "Dining Out");
+        const weekShare = weekBars.find((row) => row.name === "Bills & Utilities");
+        assert.equal(weekOver.mode, "estimate");
+        assert.equal(weekOver.over, "true");
+        assert.equal(weekOver.width, "100%");
+        assert.match(weekOver.text, /115%/);
+        assert.equal(weekOver.color, "rgb(224, 122, 95)");
+        assert.equal(weekShare.mode, "share");
+        assert.equal(weekShare.over, "false");
+        assert.notEqual(weekShare.color, "rgb(224, 122, 95)");
+        await page.send("Page.navigate", { url: `${base()}/finance/spending?period=month&asOf=${encodeURIComponent(AS_OF)}` });
+        await waitFor(page.send, "document.body.innerText.includes('Groceries') ? 'yes' : ''", "month again");
+      }
       assert.equal(await pointerClick(page.send, evalPage, "document.querySelector(\"a[href*='cat=dining-out']\")"), "yes");
       await waitFor(page.send, `${settled} && document.querySelector("[data-category-detail='true'] button")?.innerText.includes("Joe's Pizza") ? 'yes' : ''`, "detail");
       const detail = JSON.parse(await evalPage(page.send, `(() => {

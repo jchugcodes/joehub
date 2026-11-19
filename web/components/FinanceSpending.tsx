@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { countsAsSpend, money, spendCents } from "../lib/finance.mjs";
 import { showMonthBudget } from "../lib/live-pages.mjs";
+import { categoryBar } from "../lib/spending-bars.mjs";
 import { readOverlayHold } from "../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
 import { CategoryMark } from "./CategoryMark";
@@ -751,7 +752,7 @@ export function FinanceSpending() {
               {breakdown.length ? (
                 <ul className="mt-4 px-4">
                   {breakdown.map((item) => {
-                    const share = spent > 0 ? Math.max(1, Math.round((item.spentCents / spent) * 100)) : 0;
+                    const bar = categoryBar(item, spent);
                     return (
                       <li key={item.slug} data-selected={item.slug === cat ? "true" : undefined} className={item.slug === cat ? "row-selected rounded-2xl" : ""}>
                         <Link href={hrefFor(search, (next) => { next.set("cat", item.slug); next.set("period", period); next.delete("txn"); })} className="flex min-h-11 items-center gap-3 px-1 py-3">
@@ -766,7 +767,7 @@ export function FinanceSpending() {
                             </span>
                             {item.percent != null ? <span className="mt-0.5 block text-right text-meta text-muted">{item.percent}% · {item.status}</span> : item.status ? <span className="mt-0.5 block text-right text-meta text-muted">{item.status}</span> : null}
                             <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-line">
-                              <span className="block h-full rounded-full" style={{ width: `${share}%`, background: item.color || "var(--muted)" }} />
+                              <span data-bar={bar.mode} data-over={bar.over ? "true" : "false"} className="block h-full rounded-full" style={{ width: `${bar.width}%`, background: bar.color }} />
                             </span>
                           </span>
                           <Icon name="chevron" size={16} className="shrink-0 text-muted" />

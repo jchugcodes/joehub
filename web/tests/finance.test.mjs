@@ -87,7 +87,7 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(resolvedMonthlyCents({ slug: "dining-out", monthlyCapCents: null, weeklyCapCents: 8000 }).cents, 34667);
   const monthCategories = categoriesSnapshot(SEED_TRANSACTIONS, NOW, "month");
   assert.equal(monthCategories.spentCents, 112600);
-  assert.equal(monthCategories.budgetCents, 169000);
+  assert.equal(monthCategories.budgetCents, 143000);
   assert.equal(monthCategories.estimates, true);
   assert.match(monthCategories.budgetLabel, /estimates/);
   assert.equal(monthCategories.aside, "Day 10 of 30");
@@ -104,7 +104,12 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(diningMonth.status, "$98.67 left");
   assert.equal(diningMonth.estimate, true);
   assert.equal(groceriesMonth.spentCents, 31200);
-  assert.equal(groceriesMonth.percent, 60);
+  assert.equal(groceriesMonth.capCents, 26000);
+  assert.equal(groceriesMonth.percent, 120);
+  assert.equal(groceriesMonth.state, "over");
+  assert.equal(groceriesMonth.fill, 100);
+  assert.equal(groceriesMonth.status, "$52 over");
+  assert.equal(groceriesMonth.estimate, true);
   assert.equal(transportMonth.spentCents, 14118);
   assert.equal(transportMonth.percent, 54);
   assert.equal(subsMonth.spentCents, 4675);
@@ -150,7 +155,7 @@ test("a weekly envelope is not a monthly plan", () => {
   assert.equal(month.percent, null);
   assert.equal(month.saved, false);
   const fromCategories = monthProgress(SEED_TRANSACTIONS, "2026-11-10", ENVELOPE_CENTS, SEED_CATEGORIES);
-  assert.equal(fromCategories.planCents, 169000);
+  assert.equal(fromCategories.planCents, 143000);
   assert.notEqual(fromCategories.planCents, ENVELOPE_CENTS);
   assert.notEqual(fromCategories.planCents, PLAN_CENTS);
   const view = overview(SEED_TRANSACTIONS, NOW, "", "YTD", undefined, { planCents: ENVELOPE_CENTS, categories: blank });

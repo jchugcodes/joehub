@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { countsAsSpend, installMemoryFinance, spendCents } from "../lib/finance.mjs";
+import { categoriesSnapshot, countsAsSpend, installMemoryFinance, SEED_TRANSACTIONS, spendCents } from "../lib/finance.mjs";
 import { financeTabs, isGatedPath } from "../lib/live-pages.mjs";
+import { categoryBar } from "../lib/spending-bars.mjs";
 import { spendingPath } from "../lib/spending-href.mjs";
 
 const root = new URL("..", import.meta.url);
@@ -57,20 +58,73 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /data-period-track="true"/);
   assert.match(ui, /Edit budgets/);
   assert.match(ui, /set\("cat"/);
+  assert.match(ui, /categoryBar\(item, spent\)/);
+  assert.match(ui, /data-bar=\{bar\.mode\}/);
+  assert.match(ui, /data-over=\{bar\.over \? "true" : "false"\}/);
+  assert.match(readFileSync(new URL("lib/spending-bars.mjs", root), "utf8"), /var\(--chart-negative\)/);
   assert.doesNotMatch(ui, /\/finance\/categories\/\$\{/);
   assert.doesNotMatch(ui, /#[0-9A-Fa-f]{3,8}/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
   assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger|reset-ledger/);
 });
 
+test("category bars fill against the estimate and share only when there is no cap", () => {
+  const now = Date.parse("2026-11-10T15:00:00-05:00");
+  const month = categoriesSnapshot(SEED_TRANSACTIONS, now, "month");
+  const groceries = month.categories.find((item) => item.slug === "groceries");
+  const dining = month.categories.find((item) => item.slug === "dining-out");
+  const utilities = month.categories.find((item) => item.slug === "utilities");
+  const uncategorized = month.categories.find((item) => item.slug === "uncategorized");
+  const over = categoryBar(groceries, month.spentCents);
+  assert.ok(groceries.percent > 100);
+  assert.equal(over.mode, "estimate");
+  assert.equal(over.over, true);
+  assert.equal(over.width, 100);
+  assert.equal(over.color, "var(--chart-negative)");
+  const under = categoryBar(dining, month.spentCents);
+  assert.equal(dining.percent, 72);
+  assert.equal(under.mode, "estimate");
+  assert.equal(under.over, false);
+  assert.equal(under.width, dining.percent);
+  assert.notEqual(under.color, "var(--chart-negative)");
+  for (const row of [utilities, uncategorized]) {
+    const share = Math.min(100, Math.max(1, Math.round((row.spentCents / month.spentCents) * 100)));
+    const bar = categoryBar(row, month.spentCents);
+    assert.equal(row.capCents, null);
+    assert.equal(bar.mode, "share");
+    assert.equal(bar.over, false);
+    assert.equal(bar.width, share);
+    assert.notEqual(bar.color, "var(--chart-negative)");
+  }
+  const week = categoriesSnapshot(SEED_TRANSACTIONS, now, "week");
+  const weekDining = week.categories.find((item) => item.slug === "dining-out");
+  const weekOver = categoryBar(weekDining, week.spentCents);
+  assert.ok(weekDining.percent > 100);
+  assert.equal(weekOver.mode, "estimate");
+  assert.equal(weekOver.width, 100);
+  assert.equal(weekOver.over, true);
+  const weekUtilities = week.categories.find((item) => item.slug === "utilities");
+  const weekShare = categoryBar(weekUtilities, week.spentCents);
+  assert.equal(weekUtilities.percent, null);
+  assert.equal(weekUtilities.status, "No cap set");
+  assert.equal(weekShare.mode, "share");
+  assert.equal(weekShare.over, false);
+  assert.equal(weekShare.width, Math.min(100, Math.max(1, Math.round((weekUtilities.spentCents / week.spentCents) * 100))));
+  assert.notEqual(weekShare.color, "var(--chart-negative)");
+});
+
 test("category urls redirect onto spending and keep the query", () => {
   const list = readFileSync(new URL("app/finance/categories/page.tsx", root), "utf8");
   const slug = readFileSync(new URL("app/finance/categories/[slug]/page.tsx", root), "utf8");
   const middleware = readFileSync(new URL("middleware.ts", root), "utf8");
+  const config = readFileSync(new URL("next.config.ts", root), "utf8");
   assert.match(list, /permanentRedirect\(spendingPath/);
   assert.match(slug, /permanentRedirect\(spendingPath/);
-  assert.match(middleware, /status: 308/);
-  assert.match(middleware, /\/finance\/categories/);
+  assert.match(config, /source: "\/finance\/categories"/);
+  assert.match(config, /source: "\/finance\/categories\/:slug"/);
+  assert.match(config, /destination: "\/finance\/spending\?cat=:slug"/);
+  assert.match(config, /permanent: true/);
+  assert.doesNotMatch(middleware, /x-forwarded-host|headers\.get\(["']host["']\)|headers\.get\(["']x-forwarded-host["']\)/);
   const month = new URL(spendingPath({ period: "month", asOf: "2026-11-11T15:00:00-05:00", panel: "1" }), "http://local");
   assert.equal(month.pathname, "/finance/spending");
   assert.equal(month.searchParams.get("period"), "month");
