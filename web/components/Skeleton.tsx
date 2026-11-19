@@ -336,7 +336,7 @@ export function GoalsSkeleton({ wide = false }: { wide?: boolean }) {
         <TextLine height={13} width={72} />
       </div>
       <div className={`mt-2.5 space-y-2.5 ${inset}`}>
-        {[0, 1, 2].map((index) => (
+        {[0, 1, 2, 3].map((index) => (
           <Card key={index} className="flex min-h-11 items-center gap-4 p-4">
             <Circle size={72} />
             <span className="flex min-w-0 flex-1 flex-col">

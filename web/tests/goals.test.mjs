@@ -7,8 +7,16 @@ import { createStore, login } from "../lib/sessions.mjs";
 import { createUpstashStore, StoreError } from "../lib/store-upstash.mjs";
 import { startFakeUpstash } from "./support/fakes.mjs";
 
-test("the Artie seed is four goals that add up to $740 a month", () => {
-  assert.deepEqual(GOALS.map((goal) => goal.name), ["Loan payoff", "Emergency fund", "NYC move", "Travel — Japan"]);
+test("the Artie seed is five goals that add up to $740 a month", () => {
+  assert.deepEqual(GOALS.map((goal) => goal.name), ["Loan payoff", "Emergency fund", "NYC move", "Lake cabin", "Travel — Japan"]);
+  const cabin = GOALS.find((goal) => goal.slug === "lake-cabin");
+  assert.equal(cabin.period, "yearly");
+  assert.equal(cabin.amount, "$1,200");
+  assert.equal(cabin.target, "$6,000");
+  assert.equal(cabin.savedCents, 120_000);
+  assert.equal(cabin.targetCents, 600_000);
+  assert.equal(cabin.monthlyCents, undefined);
+  assert.equal(goalIsHidden(cabin), false);
   const emergency = GOALS.find((goal) => goal.slug === "emergency-fund");
   assert.equal(emergency.amount, "$8,400");
   assert.equal(emergency.target, "$12,600");
@@ -95,7 +103,8 @@ test("status on the goal wins, and the note is only a fallback", () => {
   assert.equal(goalStatus({ note: "3 months of expenses" }), "active");
   assert.equal(goalStatus({ status: "active", note: "Paused" }), "active");
   assert.equal(goalIsHidden({ status: "inactive", note: "Extra payments" }), true);
-  assert.equal(GOALS.some((goal) => goal.status || goal.period || goal.targetDate), false);
+  assert.equal(GOALS.some((goal) => goal.status || goal.targetDate), false);
+  assert.deepEqual(GOALS.filter((goal) => goal.period).map((goal) => goal.slug), ["lake-cabin"]);
   const paused = { ...GOALS[0], status: "paused", monthlyCents: 50_000 };
   assert.equal(goalMonthlyCents([paused, GOALS[1]]), 22_000);
 });
@@ -125,6 +134,10 @@ test("patch writes only the fields Joe edits, and delete removes the goal", () =
   assert.equal(cleared.body.status, "not_started");
   assert.equal(patchGoal(cleared.goals, "missing", { name: "Nope" }).status, 404);
   assert.equal(patchGoal(cleared.goals, "cabin-fund", { targetDate: "2027-02-31" }).status, 400);
+  const zero = patchGoal(cleared.goals, "cabin-fund", { targetCents: 0 });
+  assert.equal(zero.status, 400);
+  assert.equal(zero.body.detail, "Enter a target.");
+  assert.equal(patchGoal(cleared.goals, "cabin-fund", { targetCents: -1 }).status, 400);
   assert.equal(deleteGoal(cleared.goals, "missing").status, 404);
   const removed = deleteGoal(cleared.goals, "cabin-fund");
   assert.equal(removed.status, 200);
@@ -148,4 +161,8 @@ test("goal patch and delete require the owner and 404 an unknown slug", async ()
   assert.equal(patched.body.period, "yearly");
   assert.equal(patched.body.note, "3 months of expenses");
   assert.equal((await store.financeGoals()).find((goal) => goal.slug === "student-loan-payoff").period, undefined);
+  const zeroed = await handleFinancePatchGoal("emergency-fund", headers, env, store, limiter, now, "127.0.0.1", { json: async () => ({ targetCents: 0 }) });
+  assert.equal(zeroed.status, 400);
+  assert.equal(zeroed.body.detail, "Enter a target.");
+  assert.equal((await store.financeGoals()).find((goal) => goal.slug === "emergency-fund").targetCents, 1_260_000);
 });

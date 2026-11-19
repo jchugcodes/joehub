@@ -374,11 +374,13 @@ export const GOAL_COLORS = ["#2E8B6A", "#3A86C8", "#E9B949", "#8E7CC3"];
 // Monthly cents are seed bookkeeping so the list heading sums to $740.
 // The frame draws $220 only on the emergency fund. Loan payoff keeps the
 // earlier synthetic $400 auto-pay. The paused trip contributes $0, and the
-// NYC move holds the remaining $120.
+// NYC move holds the remaining $120. Lake cabin is a made-up yearly goal
+// with no monthly amount, so it does not change that sum.
 export const GOALS = [
   { slug: "student-loan-payoff", name: "Loan payoff", value: 62, amount: "$12,400", target: "$20,000", note: "Extra payments", savedCents: 1_240_000, targetCents: 2_000_000, monthlyCents: 40_000, kind: "Debt", account: "", color: "#2E8B6A" },
   { slug: "emergency-fund", name: "Emergency fund", value: 67, amount: "$8,400", target: "$12,600", note: "3 months of expenses", savedCents: 840_000, targetCents: 1_260_000, monthlyCents: 22_000, kind: "Savings", account: "Emergency savings", color: "#3A86C8" },
   { slug: "nyc-move-fund", name: "NYC move", value: 28, amount: "$2,240", target: "$8,000", note: "Aug 2027", savedCents: 224_000, targetCents: 800_000, monthlyCents: 12_000, kind: "Savings", account: "", color: "#E9B949" },
+  { slug: "lake-cabin", name: "Lake cabin", value: 20, amount: "$1,200", target: "$6,000", note: "", savedCents: 120_000, targetCents: 600_000, kind: "Savings", account: "", color: "#5B6B8C", period: "yearly" },
   { slug: "travel-japan", name: "Travel — Japan", value: 15, amount: "$450", target: "$3,000", note: "Paused", savedCents: 45_000, targetCents: 300_000, monthlyCents: 0, kind: "Savings", account: "", color: "#8E7CC3" },
 ];
 

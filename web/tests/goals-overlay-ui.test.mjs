@@ -345,7 +345,7 @@ test("editing a goal keeps save disabled until a change, then delete asks inside
     const { send } = page;
     await size(send, 390, 844);
     await send("Page.navigate", { url: `${base()}/finance/goals` });
-    await waitFor(send, "document.body.innerText.includes('Show 1 hidden') && !document.body.innerText.includes('Travel — Japan') && !document.querySelector('[data-yearly]') ? 'yes' : ''", "hidden trip");
+    await waitFor(send, "document.body.innerText.includes('Show 1 hidden') && !document.body.innerText.includes('Travel — Japan') && document.querySelector(\"[data-goal='lake-cabin'] [data-yearly]\")?.textContent === 'yearly' ? 'yes' : ''", "hidden trip");
     await evalPage(send, "document.querySelector(\"[data-goal='emergency-fund']\")?.click()");
     await waitFor(send, `${settled} && document.querySelector("[data-goal-action='edit']") ? "yes" : ""`, "detail edit");
     await evalPage(send, "document.querySelector(\"[data-goal-action='edit']\").click()");
@@ -355,13 +355,21 @@ test("editing a goal keeps save disabled until a change, then delete asks inside
       const save = [...panel.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Save");
       const name = document.getElementById("goal-edit-name");
       const target = document.getElementById("goal-edit-target");
+      const saved = document.getElementById("goal-edit-saved");
       const monthly = document.getElementById("goal-edit-monthly");
+      const prefix = (input) => input?.parentElement?.querySelector("[data-prefix]")?.textContent || "";
       return JSON.stringify({
         disabled: Boolean(save?.disabled),
         height: save ? Math.round(save.getBoundingClientRect().height) : 0,
         nameSize: name ? parseFloat(getComputedStyle(name).fontSize) : 0,
+        targetSize: target ? parseFloat(getComputedStyle(target).fontSize) : 0,
         targetMode: target ? target.getAttribute("inputmode") : "",
+        savedMode: saved ? saved.getAttribute("inputmode") : "",
+        monthlyMode: monthly ? monthly.getAttribute("inputmode") : "",
+        targetHint: target ? target.getAttribute("enterkeyhint") : "",
+        savedHint: saved ? saved.getAttribute("enterkeyhint") : "",
         monthlyHint: monthly ? monthly.getAttribute("enterkeyhint") : "",
+        prefixes: [prefix(target), prefix(saved), prefix(monthly)],
         labels: [...panel.querySelectorAll("button")].map((el) => (el.innerText || "").replace(/\\s+/g, " ").trim()).filter(Boolean),
       });
     })()`;
@@ -369,9 +377,31 @@ test("editing a goal keeps save disabled until a change, then delete asks inside
     assert.equal(untouched.disabled, true);
     assert.equal(untouched.height, 44);
     assert.ok(untouched.nameSize >= 16);
+    assert.ok(untouched.targetSize >= 16);
     assert.equal(untouched.targetMode, "decimal");
+    assert.equal(untouched.savedMode, "decimal");
+    assert.equal(untouched.monthlyMode, "decimal");
+    assert.equal(untouched.targetHint, "next");
+    assert.equal(untouched.savedHint, "next");
     assert.equal(untouched.monthlyHint, "done");
+    assert.deepEqual(untouched.prefixes, ["$", "$", "$"]);
     assert.deepEqual(untouched.labels, ["Cancel", "Save", "Delete"]);
+    await evalPage(send, `(() => {
+      const input = document.getElementById("goal-edit-target");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      proto.call(input, "0");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return "yes";
+    })()`);
+    const zeroed = JSON.parse(await evalPage(send, saveState));
+    assert.equal(zeroed.disabled, true);
+    await evalPage(send, `(() => {
+      const input = document.getElementById("goal-edit-target");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      proto.call(input, "12600");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return "yes";
+    })()`);
     await evalPage(send, `(() => {
       const period = document.getElementById("goal-edit-period");
       period.value = "yearly";

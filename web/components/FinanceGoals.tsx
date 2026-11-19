@@ -364,6 +364,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
   }
 
   const fieldClass = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base outline-none focus:border-2 focus:border-ink";
+  const moneyClass = "min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface py-3 pl-7 pr-3 text-base outline-none focus:border-2 focus:border-ink";
 
   const goalForm = (
     <form id="goal-add" key={formKey} onSubmit={save} className="space-y-4">
@@ -433,11 +434,17 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       </div>
       <div>
         <label className="block text-meta font-medium" htmlFor="goal-edit-target">Target</label>
-        <input id="goal-edit-target" inputMode="decimal" enterKeyHint="next" value={edit.target} onChange={(event) => changeEdit({ target: event.target.value })} autoComplete="off" className={fieldClass} />
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-target" inputMode="decimal" enterKeyHint="next" value={edit.target} onChange={(event) => changeEdit({ target: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
       </div>
       <div>
         <label className="block text-meta font-medium" htmlFor="goal-edit-saved">Saved</label>
-        <input id="goal-edit-saved" inputMode="decimal" enterKeyHint="next" value={edit.saved} onChange={(event) => changeEdit({ saved: event.target.value })} autoComplete="off" className={fieldClass} />
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-saved" inputMode="decimal" enterKeyHint="next" value={edit.saved} onChange={(event) => changeEdit({ saved: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
       </div>
       <div>
         <label className="block text-meta font-medium" htmlFor="goal-edit-status">Status</label>
@@ -461,7 +468,10 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       </div>
       <div>
         <label className="block text-meta font-medium" htmlFor="goal-edit-monthly">Monthly</label>
-        <input id="goal-edit-monthly" inputMode="decimal" enterKeyHint="done" value={edit.monthly} onChange={(event) => changeEdit({ monthly: event.target.value })} autoComplete="off" className={fieldClass} />
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-monthly" inputMode="decimal" enterKeyHint="done" value={edit.monthly} onChange={(event) => changeEdit({ monthly: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
       </div>
       {error ? (
         <p role="alert" className="text-meta font-medium text-warn" data-field={field}>
@@ -531,7 +541,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
           type="button"
           data-hidden-toggle="true"
           aria-pressed={showHidden}
-          className={`mt-1 inline-flex min-h-11 items-center text-meta text-muted ${wide ? "" : "px-5"}`}
+          className={`mt-1 inline-flex min-h-11 min-w-11 items-center text-meta text-muted ${wide ? "px-1" : "px-5"}`}
           onClick={() => setShowHidden((value) => !value)}
         >
           {showHidden ? "Hide" : `Show ${hidden.length} hidden`}
@@ -636,14 +646,9 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
         {overlayOn && adding ? addPanel(wide) : null}
         {overlayOn && editing ? editPanel(wide) : null}
         {overlayOn && !adding && !editing && wide && slug ? detailPanel(true) : null}
-        {overlayOn && !adding && !editing && wide && !slug ? (
+        {!overlayOn && wide && !adding && !editing && selected ? (
           <aside className="card w-[420px] shrink-0 p-5">
-            <p className="py-16 text-center text-body text-muted">Select a goal</p>
-          </aside>
-        ) : null}
-        {!overlayOn && wide && !adding && !editing ? (
-          <aside className="card w-[420px] shrink-0 p-5">
-            {selected ? <Detail goal={selected} titled onEdit={panelOffline ? undefined : openEdit} /> : <p className="py-16 text-center text-body text-muted">Select a goal</p>}
+            <Detail goal={selected} titled onEdit={panelOffline ? undefined : openEdit} />
           </aside>
         ) : null}
         {!overlayOn && !wide && detailOnly ? (
