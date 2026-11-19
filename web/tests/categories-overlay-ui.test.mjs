@@ -171,6 +171,7 @@ const barRows = `(() => {
       over: fill?.getAttribute("data-over") || "",
       width: fill?.style.width || "",
       color: style ? style.backgroundColor : "",
+      meta: link.querySelector("[data-row-meta]") ? getComputedStyle(link.querySelector("[data-row-meta]")).color : "",
     };
   });
   return JSON.stringify(rows);
@@ -227,7 +228,11 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       assert.equal(over.over, "true");
       assert.equal(over.width, "100%");
       assert.match(over.text, /120%/);
-      assert.equal(over.color, "rgb(224, 122, 95)");
+      const negative = await evalPage(page.send, `(() => { const probe = document.createElement("i"); probe.style.color = "var(--chart-negative)"; document.body.appendChild(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; })()`);
+      const categoryColors = JSON.parse(await evalPage(page.send, `(() => { const names = ["--cat-groceries","--cat-dining","--cat-transport","--cat-subscriptions","--cat-shopping","--cat-utilities","--cat-loan","--cat-income","--chart-negative","--warn"]; const probe = document.createElement("i"); document.body.appendChild(probe); const colors = names.map((name) => { probe.style.backgroundColor = "var(" + name + ")"; return getComputedStyle(probe).backgroundColor; }); probe.remove(); return JSON.stringify(colors); })()`));
+      assert.equal(over.meta, negative);
+      assert.notEqual(under.meta, negative);
+      assert.equal(categoryColors.includes(over.color), false);
       assert.equal(under.mode, "estimate");
       assert.equal(under.over, "false");
       assert.equal(under.width, "72%");
@@ -246,7 +251,8 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
         assert.equal(weekOver.over, "true");
         assert.equal(weekOver.width, "100%");
         assert.match(weekOver.text, /115%/);
-        assert.equal(weekOver.color, "rgb(224, 122, 95)");
+        assert.equal(weekOver.meta, negative);
+        assert.equal(categoryColors.includes(weekOver.color), false);
         assert.equal(weekShare.mode, "share");
         assert.equal(weekShare.over, "false");
         assert.notEqual(weekShare.color, "rgb(224, 122, 95)");

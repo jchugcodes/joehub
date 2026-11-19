@@ -765,7 +765,13 @@ export function FinanceSpending() {
                                 {item.capCents ? <span className="font-normal text-muted"> of {money(item.capCents)}{item.estimate ? " estimate" : ""}</span> : null}
                               </span>
                             </span>
-                            {item.percent != null ? <span className="mt-0.5 block text-right text-meta text-muted">{item.percent}% · {item.status}</span> : item.status ? <span className="mt-0.5 block text-right text-meta text-muted">{item.status}</span> : null}
+                            {item.percent != null ? (
+                              <span className={`mt-0.5 block text-right text-meta ${bar.over ? "" : "text-muted"}`} data-row-meta={bar.over ? "over" : "under"} style={bar.over ? { color: "var(--chart-negative)" } : undefined}>
+                                {item.percent}% · {item.status}
+                              </span>
+                            ) : item.status ? (
+                              <span className="mt-0.5 block text-right text-meta text-muted">{item.status}</span>
+                            ) : null}
                             <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-line">
                               <span data-bar={bar.mode} data-over={bar.over ? "true" : "false"} className="block h-full rounded-full" style={{ width: `${bar.width}%`, background: bar.color }} />
                             </span>

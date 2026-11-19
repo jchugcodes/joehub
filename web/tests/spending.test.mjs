@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { categoriesSnapshot, countsAsSpend, installMemoryFinance, SEED_TRANSACTIONS, spendCents } from "../lib/finance.mjs";
+import { SEED_CATEGORIES, categoriesSnapshot, countsAsSpend, installMemoryFinance, SEED_TRANSACTIONS, spendCents } from "../lib/finance.mjs";
 import { financeTabs, isGatedPath } from "../lib/live-pages.mjs";
-import { categoryBar } from "../lib/spending-bars.mjs";
+import { OVER_FILL, categoryBar } from "../lib/spending-bars.mjs";
 import { spendingPath } from "../lib/spending-href.mjs";
 
 const root = new URL("..", import.meta.url);
@@ -62,6 +62,8 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /data-bar=\{bar\.mode\}/);
   assert.match(ui, /data-over=\{bar\.over \? "true" : "false"\}/);
   assert.match(readFileSync(new URL("lib/spending-bars.mjs", root), "utf8"), /var\(--chart-negative\)/);
+  assert.match(ui, /data-row-meta=\{bar\.over \? "over" : "under"\}/);
+  assert.match(ui, /style=\{bar\.over \? \{ color: "var\(--chart-negative\)" \} : undefined\}/);
   assert.doesNotMatch(ui, /\/finance\/categories\/\$\{/);
   assert.doesNotMatch(ui, /#[0-9A-Fa-f]{3,8}/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
@@ -80,7 +82,7 @@ test("category bars fill against the estimate and share only when there is no ca
   assert.equal(over.mode, "estimate");
   assert.equal(over.over, true);
   assert.equal(over.width, 100);
-  assert.equal(over.color, "var(--chart-negative)");
+  assert.equal(over.color, OVER_FILL);
   const under = categoryBar(dining, month.spentCents);
   assert.equal(dining.percent, 72);
   assert.equal(under.mode, "estimate");
@@ -111,6 +113,32 @@ test("category bars fill against the estimate and share only when there is no ca
   assert.equal(weekShare.over, false);
   assert.equal(weekShare.width, Math.min(100, Math.max(1, Math.round((weekUtilities.spentCents / week.spentCents) * 100))));
   assert.notEqual(weekShare.color, "var(--chart-negative)");
+  assert.equal(weekOver.color, OVER_FILL);
+});
+
+test("an over row uses the negative token for its meta and a fill that is not a category color", () => {
+  const css = readFileSync(new URL("app/globals.css", root), "utf8");
+  const tokens = [...css.matchAll(/--cat-[a-z0-9-]+:\s*(#[0-9a-fA-F]{3,8})/g)].map((match) => match[1].toLowerCase());
+  const colors = new Set([...SEED_CATEGORIES.map((category) => String(category.color).toLowerCase()), ...tokens, "#e07a5f", "#6b746e"]);
+  const now = Date.parse("2026-11-10T15:00:00-05:00");
+  const month = categoriesSnapshot(SEED_TRANSACTIONS, now, "month");
+  const groceries = month.categories.find((item) => item.slug === "groceries");
+  const dining = month.categories.find((item) => item.slug === "dining-out");
+  const over = categoryBar(groceries, month.spentCents);
+  const under = categoryBar(dining, month.spentCents);
+  assert.equal(over.over, true);
+  assert.equal(under.over, false);
+  assert.equal(colors.has(over.color.toLowerCase()), false);
+  assert.match(over.color, /color-mix\(in srgb, var\(--chart-negative\) \d+%, black\)/);
+  for (const category of month.categories) {
+    if (!category.color) continue;
+    assert.notEqual(over.color.toLowerCase(), String(category.color).toLowerCase());
+  }
+  assert.equal(under.color.toLowerCase(), String(dining.color).toLowerCase());
+  const ui = readFileSync(new URL("components/FinanceSpending.tsx", root), "utf8");
+  assert.match(ui, /data-row-meta=\{bar\.over \? "over" : "under"\}/);
+  assert.match(ui, /style=\{bar\.over \? \{ color: "var\(--chart-negative\)" \} : undefined\}/);
+  assert.match(ui, /bar\.over \? "" : "text-muted"/);
 });
 
 test("category urls redirect onto spending and keep the query", () => {

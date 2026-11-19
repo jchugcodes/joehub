@@ -1,5 +1,8 @@
 /** Bar for one spending row. A cap or estimate fills against that amount. Otherwise the bar is that row's share of the period, and it is never marked over. */
 
+// No existing token is a deeper red in both themes: --warn and --status-blocked match --chart-negative in the dark theme, and that value is Dining Out's coral. Darken the negative token so the over fill stays in the same family and stays distinct from every category color.
+export const OVER_FILL = "color-mix(in srgb, var(--chart-negative) 62%, black)";
+
 export function categoryBar(item, periodSpent) {
   const cap = item && item.capCents;
   const percent = item && item.percent;
@@ -10,7 +13,7 @@ export function categoryBar(item, periodSpent) {
       mode: "estimate",
       width: Math.min(100, Math.max(0, percent)),
       over,
-      color: over ? "var(--chart-negative)" : item.color || "var(--muted)",
+      color: over ? OVER_FILL : item.color || "var(--muted)",
     };
   }
   const spent = Number.isInteger(periodSpent) && periodSpent > 0 ? periodSpent : 0;
