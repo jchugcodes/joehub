@@ -36,6 +36,8 @@ export async function decide(request, env, now) {
   const url = new URL(request.url);
   const pathname = url.pathname;
   if (pathname === "/api/health") return { type: "next" };
+  // Ingest authenticates with a bearer token. Skip the session cookie and the Upstash session read.
+  if (pathname === "/api/ingest" || pathname.startsWith("/api/ingest/")) return { type: "next" };
   if (productionNav(env) && !pathname.startsWith("/api/") && isGatedPath(pathname)) {
     return { type: "redirect", location: TASKS_PATH };
   }
