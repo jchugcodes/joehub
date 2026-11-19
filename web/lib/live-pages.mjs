@@ -2,6 +2,7 @@
  * Production shows only the live primary tabs and the live Finance subtabs.
  * Preview and local dev keep the full nav. Flip a Finance subtab on by setting live: true.
  * Debts is shipped for preview. Production keeps live false and the route gated.
+ * Settings is the one production page outside those tabs, and it is Appearance only.
  */
 
 export const DEV_PRIMARY = [
@@ -30,6 +31,7 @@ export const FINANCE_TABS = [
 ];
 
 const LIVE_PREFIXES = ["/tasks", "/grocery", "/finance"];
+const LIVE_EXACT = new Set(["/more/settings"]);
 const GATED_FINANCE = ["/finance/goals", "/finance/debts"];
 
 export function productionNav(env = process.env) {
@@ -67,5 +69,6 @@ function under(pathname, prefix) {
 export function isGatedPath(pathname) {
   if (pathname === "/api" || pathname.startsWith("/api/")) return false;
   if (GATED_FINANCE.some((prefix) => under(pathname, prefix))) return true;
+  if (LIVE_EXACT.has(pathname)) return false;
   return !LIVE_PREFIXES.some((prefix) => under(pathname, prefix));
 }

@@ -180,7 +180,9 @@ test("production hides gated nav and preview shows the full bar", { skip: chrome
       assert.equal(anon.status, 200);
     }
 
-    for (const path of ["/", "/jobs", "/journal", "/more", "/finance/goals", "/finance/debts", "/not-a-page"]) {
+    const settings = await fetch(`${server.base}/more/settings`, { redirect: "manual" });
+    assert.equal(settings.status, 200);
+    for (const path of ["/", "/jobs", "/journal", "/journal/compose", "/more", "/more/database", "/more/settings/extra", "/finance/goals", "/finance/debts", "/not-a-page"]) {
       const response = await fetch(`${server.base}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
       assert.equal(new URL(response.headers.get("location"), server.base).pathname, "/tasks", path);
