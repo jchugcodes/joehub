@@ -75,8 +75,10 @@ test("memory goals can start empty and a repeated create does not add a second r
 });
 
 test("production does not seed or write goals", async () => {
-  assert.equal(FINANCE_TABS.find((tab) => tab.href === "/finance/goals").live, false);
-  assert.equal(isGatedPath("/finance/goals"), true);
+  assert.equal(FINANCE_TABS.find((tab) => tab.href === "/finance/goals").live, true);
+  assert.equal(isGatedPath("/finance/goals"), false);
+  assert.equal(isGatedPath("/finance/goals/emergency-fund"), false);
+  assert.equal(isGatedPath("/finance/debts"), true);
   const fake = await startFakeUpstash();
   try {
     const store = createUpstashStore({ url: fake.url, token: fake.token, env: { VERCEL_ENV: "production" } });

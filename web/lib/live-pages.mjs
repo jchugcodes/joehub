@@ -24,7 +24,7 @@ export const LIVE_PRIMARY = [
 export const FINANCE_TABS = [
   { href: "/finance", label: "Overview", live: true, shipped: true },
   { href: "/finance/spending", label: "Spending", live: true, shipped: true },
-  { href: "/finance/goals", label: "Goals", live: false, shipped: true },
+  { href: "/finance/goals", label: "Goals", live: true, shipped: true },
   { href: "/finance/accounts", label: "Accounts", live: true, shipped: true },
   { href: "/finance/debts", label: "Debts", live: false, shipped: true },
   { href: "/finance/bills", label: "Bills", live: true, shipped: true },
@@ -32,7 +32,7 @@ export const FINANCE_TABS = [
 
 const LIVE_PREFIXES = ["/tasks", "/grocery", "/finance"];
 const LIVE_EXACT = new Set(["/more/settings"]);
-const GATED_FINANCE = ["/finance/goals", "/finance/debts"];
+const GATED_FINANCE = ["/finance/debts"];
 
 export function productionNav(env = process.env) {
   return env.VERCEL_ENV === "production" || env.NEXT_PUBLIC_VERCEL_ENV === "production";

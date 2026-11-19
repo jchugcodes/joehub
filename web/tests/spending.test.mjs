@@ -14,7 +14,7 @@ test("spending is live in production", () => {
   assert.equal(financeTabs({}).some((tab) => tab.href === "/finance/spending" && tab.shipped === true && tab.live === true), true);
   assert.deepEqual(
     financeTabs({ VERCEL_ENV: "production" }).map((tab) => tab.label),
-    ["Overview", "Spending", "Accounts", "Bills"],
+    ["Overview", "Spending", "Goals", "Accounts", "Bills"],
   );
   assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending" && tab.live === true), true);
   assert.equal(financeTabs({}).filter((tab) => tab.label === "Spending").length, 1);
