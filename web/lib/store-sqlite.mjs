@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client";
 import { syntheticSeedEnabled } from "./seed.mjs";
+import { validateListCreate, validateListPatch } from "./list-store.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { StoreError } from "./store-upstash.mjs";
 import {
@@ -20,6 +21,7 @@ const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 
 // Tasks tables come from web/migrations-libsql/003_tasks.sql.
 // createSqliteStore does not migrate.
+const LIST_ID = /^[A-Za-z0-9-]{1,80}$/;
 const TASK_METHODS = [
   "listUnfinishedTasks",
   "searchTasks",
@@ -29,6 +31,10 @@ const TASK_METHODS = [
   "completeTask",
   "reopenTask",
   "deleteTask",
+  "listLists",
+  "createList",
+  "patchList",
+  "deleteList",
 ];
 
 function notMigrated() {
@@ -229,6 +235,52 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
     return result.rows.map((row) => parse(row.body));
   }
 
+  function listFrom(row) {
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      color: String(row.color),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+    };
+  }
+
+  async function loadLists() {
+    const result = await run("SELECT id, name, color, created_at, updated_at FROM lists ORDER BY created_at, id");
+    return result.rows.map(listFrom);
+  }
+
+  async function projectCounts() {
+    const tally = new Map();
+    for (const task of await loadTasks()) {
+      if (!task || !task.project) continue;
+      tally.set(task.project, (tally.get(task.project) || 0) + 1);
+    }
+    return tally;
+  }
+
+  async function listsWithCounts() {
+    const tally = await projectCounts();
+    return (await loadLists()).map((list) => ({ ...list, count: tally.get(list.id) || 0 }));
+  }
+
+  async function clearProject(listId) {
+    const result = await run("SELECT body FROM tasks");
+    let moved = 0;
+    for (const row of result.rows) {
+      const task = parse(row.body);
+      if (!task || task.project !== listId) continue;
+      const createdAt = task.createdAt;
+      const updatedAt = task.updatedAt;
+      const next = { ...task, project: null };
+      next.createdAt = createdAt;
+      next.updatedAt = updatedAt;
+      await tasks.replaceTask(next);
+      moved += 1;
+    }
+    return moved;
+  }
+
   const api = {
     async listUnfinishedTasks(now) {
       await ensureSeeded(now);
@@ -273,6 +325,56 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
     async deleteTask(id) {
       await ensureSeeded();
       return performDelete(tasks, id);
+    },
+    async listLists() {
+      await ensureSeeded();
+      return listsWithCounts();
+    },
+    async createList(raw, now) {
+      const parsed = validateListCreate(raw);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail } };
+      await ensureSeeded();
+      const existing = await loadLists();
+      if (existing.some((list) => list.name.trim().toLowerCase() === parsed.name.toLowerCase())) {
+        return { status: 409, body: { detail: "That list already exists." } };
+      }
+      const id = globalThis.crypto.randomUUID();
+      const list = { id, name: parsed.name, color: parsed.color, createdAt: now, updatedAt: now };
+      await run("INSERT INTO lists (id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", [
+        list.id,
+        list.name,
+        list.color,
+        list.createdAt,
+        list.updatedAt,
+      ]);
+      return { status: 201, body: { ...list, count: 0 } };
+    },
+    async patchList(id, raw, now) {
+      if (!LIST_ID.test(String(id || ""))) return { status: 404, body: { detail: "That list is no longer here." } };
+      const rows = await loadLists();
+      const existing = rows.find((list) => list.id === id);
+      if (!existing) return { status: 404, body: { detail: "That list is no longer here." } };
+      const parsed = validateListPatch(raw);
+      if (!parsed.ok) return { status: 400, body: { detail: parsed.detail } };
+      if (parsed.patch.name) {
+        await ensureSeeded();
+        if (rows.some((list) => list.id !== id && list.name.trim().toLowerCase() === parsed.patch.name.toLowerCase())) {
+          return { status: 409, body: { detail: "That list already exists." } };
+        }
+      }
+      const next = { ...existing, ...parsed.patch, createdAt: existing.createdAt, updatedAt: now };
+      await ensureSeeded();
+      await run("UPDATE lists SET name = ?, color = ?, updated_at = ? WHERE id = ?", [next.name, next.color, next.updatedAt, id]);
+      const tally = (await listsWithCounts()).find((list) => list.id === id);
+      return { status: 200, body: { ...next, count: tally ? tally.count : 0 } };
+    },
+    async deleteList(id) {
+      if (!LIST_ID.test(String(id || ""))) return { status: 404, body: { detail: "That list is no longer here." } };
+      const existing = (await loadLists()).find((list) => list.id === id);
+      if (!existing) return { status: 404, body: { detail: "That list is no longer here." } };
+      const moved = await clearProject(id);
+      await run("DELETE FROM lists WHERE id = ?", [id]);
+      return { status: 200, body: { deleted: true, id, moved } };
     },
   };
 
