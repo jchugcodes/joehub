@@ -794,7 +794,7 @@ export function resolveCategory(value) {
 
 function capState(spent, cap) {
   if (!cap) {
-    return { state: "none", percent: null, fill: 0, tone: "muted", status: "No cap set" };
+    return { state: "none", percent: null, fill: 0, tone: "muted", status: "No estimate" };
   }
   const ratio = spent / cap;
   const percent = Math.round(ratio * 100);

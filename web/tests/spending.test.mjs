@@ -108,7 +108,7 @@ test("category bars fill against the estimate and share only when there is no ca
   const weekUtilities = week.categories.find((item) => item.slug === "utilities");
   const weekShare = categoryBar(weekUtilities, week.spentCents);
   assert.equal(weekUtilities.percent, null);
-  assert.equal(weekUtilities.status, "No cap set");
+  assert.equal(weekUtilities.status, "No estimate");
   assert.equal(weekShare.mode, "share");
   assert.equal(weekShare.over, false);
   assert.equal(weekShare.width, Math.min(100, Math.max(1, Math.round((weekUtilities.spentCents / week.spentCents) * 100))));

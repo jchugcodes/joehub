@@ -31,7 +31,7 @@ test("Detroit weeks, caps, month, and chart ranges come from the seed", () => {
   assert.equal(subs.state, "under");
   assert.equal(subs.tone, "category");
   assert.equal(utilities.state, "none");
-  assert.equal(utilities.status, "No cap set");
+  assert.equal(utilities.status, "No estimate");
   assert.equal(current.reduce((sum, cap) => sum + cap.spentCents, 0), 37603);
 
   const earlier = capsForWeek(SEED_TRANSACTIONS, "2026-11-02");
@@ -218,9 +218,9 @@ test("the month total sums every category cap, not only the first screen", () =>
   assert.ok(snapshot.budgetCents > partial);
   assert.equal(rows.filter((item) => Number.isInteger(item.capCents)).length, 8);
   assert.equal(rows.find((item) => item.slug === "utilities").capCents, null);
-  assert.equal(rows.find((item) => item.slug === "utilities").status, "No cap set");
+  assert.equal(rows.find((item) => item.slug === "utilities").status, "No estimate");
   assert.equal(rows.find((item) => item.slug === "school").capCents, null);
-  assert.equal(rows.find((item) => item.slug === "school").status, "No cap set");
+  assert.equal(rows.find((item) => item.slug === "school").status, "No estimate");
   for (const slug of ["health-fitness", "fun", "other"]) {
     const row = rows.find((item) => item.slug === slug);
     const stored = categories.find((item) => item.slug === slug);
