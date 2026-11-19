@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { appearanceIsDark, normalizeAppearance } from "../lib/appearance.mjs";
+import { settingsBack } from "../lib/settings-back.mjs";
 
 test("appearance defaults to system and resolves light, dark, and the OS scheme", () => {
   assert.equal(normalizeAppearance(null), "system");
@@ -11,6 +12,14 @@ test("appearance defaults to system and resolves light, dark, and the OS scheme"
   assert.equal(appearanceIsDark("system", true), true);
   assert.equal(appearanceIsDark("dark", false), true);
   assert.equal(appearanceIsDark("light", true), false);
+});
+
+test("settings back falls back to tasks on a direct load", () => {
+  const origin = "http://127.0.0.1:3000";
+  assert.equal(settingsBack("", 1, origin), "/tasks");
+  assert.equal(settingsBack("https://example.com/out", 4, origin), "/tasks");
+  assert.equal(settingsBack(`${origin}/tasks`, 2, origin), "back");
+  assert.equal(settingsBack("", 2, origin), "back");
 });
 
 test("dark tokens keep accent text and checkbox marks on the passing pairs", () => {

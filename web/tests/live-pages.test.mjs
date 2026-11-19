@@ -48,9 +48,10 @@ test("production middleware redirects gated pages and leaves auth and api alone"
     assert.equal(decision.location, "/tasks", path);
     assert.equal(isGatedPath(path), true);
   }
-  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/spending", "/finance/transactions", "/finance/caps"]) {
+  for (const path of ["/tasks", "/grocery", "/finance", "/finance/categories", "/finance/accounts", "/finance/bills", "/finance/spending", "/finance/transactions", "/finance/caps", "/more/settings"]) {
     const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
     assert.equal(decision.type, "next", path);
+    assert.equal(isGatedPath(path), false, path);
   }
   const health = await decide(new Request("http://127.0.0.1/api/health"), env, Date.now());
   assert.equal(health.type, "next");
@@ -67,4 +68,50 @@ test("production middleware redirects gated pages and leaves auth and api alone"
   assert.equal(preview.type, "next");
   const vercelPreview = await decide(new Request("http://127.0.0.1/journal"), { ...open, VERCEL_ENV: "preview" }, Date.now());
   assert.notEqual(vercelPreview.location, "/");
+});
+
+test("production gate list is the live pages plus appearance settings", async () => {
+  const env = { ...open, NEXT_PUBLIC_VERCEL_ENV: "production" };
+  const live = [
+    "/tasks",
+    "/tasks/one",
+    "/grocery",
+    "/grocery/one",
+    "/finance",
+    "/finance/spending",
+    "/finance/spending/more",
+    "/finance/accounts",
+    "/finance/bills",
+    "/finance/transactions",
+    "/finance/caps",
+    "/more/settings",
+  ];
+  const gated = [
+    "/",
+    "/jobs",
+    "/jobs/one",
+    "/journal",
+    "/journal/compose",
+    "/more",
+    "/more/database",
+    "/more/settings/extra",
+    "/finance/goals",
+    "/finance/goals/emergency-fund",
+    "/finance/debts",
+    "/finance/debts/one",
+    "/not-a-page",
+  ];
+  for (const path of live) {
+    assert.equal(isGatedPath(path), false, path);
+    const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
+    assert.equal(decision.type, "next", path);
+  }
+  for (const path of gated) {
+    assert.equal(isGatedPath(path), true, path);
+    const decision = await decide(new Request(`http://127.0.0.1${path}`), env, Date.now());
+    assert.equal(decision.type, "redirect", path);
+    assert.equal(decision.location, "/tasks", path);
+  }
+  const preview = await decide(new Request("http://127.0.0.1/more"), open, Date.now());
+  assert.equal(preview.type, "next");
 });

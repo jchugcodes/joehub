@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
+import { SettingsLink } from "../../components/SettingsLink";
 import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { ConfirmDialog, OverlayPanel } from "../../components/OverlayPanel";
 import { Sheet } from "../../components/Sheet";
@@ -791,9 +792,12 @@ export default function TasksPage() {
           <p className="text-meta text-muted">joehub</p>
           <h1 className="text-title font-medium">Tasks</h1>
         </div>
-        <button type="button" aria-label="Search tasks" className="grid h-11 w-11 place-items-center text-ink" onClick={() => document.getElementById("task-search")?.focus()}>
-          <Icon name="search" size={22} />
-        </button>
+        <div className="flex shrink-0 items-center">
+          <SettingsLink />
+          <button type="button" aria-label="Search tasks" className="grid h-11 w-11 place-items-center text-ink" onClick={() => document.getElementById("task-search")?.focus()}>
+            <Icon name="search" size={22} />
+          </button>
+        </div>
       </header>
       {link === "offline" && savedAt ? (
         <p role="status" data-offline="true" data-link="offline" className="mx-4 mt-3 rounded-2xl border border-line bg-surface px-3.5 py-3 text-meta font-medium text-ink">

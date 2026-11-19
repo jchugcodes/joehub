@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "../../components/Icon";
+import { SettingsLink } from "../../components/SettingsLink";
 import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "../../components/LivePages";
 import { ConfirmDialog, OverlayPanel } from "../../components/OverlayPanel";
 import { Sheet } from "../../components/Sheet";
@@ -525,10 +526,13 @@ export default function GroceryPage() {
   return (
     <div data-ready={mode === "loading" || (skeletonOn && phase === "skeleton" && hold !== "skel") ? undefined : "true"} data-layout={wide ? "panel" : "sheet"} className={`grocery-type ${wide ? "flex min-w-0 items-start gap-6 px-8 pt-4" : "min-w-0"}`}>
       <div className={`relative min-w-0 flex-1 ${wide ? (sheet ? "max-w-[520px] opacity-50" : "max-w-[640px]") : ""}`}>
-        <header className={`relative ${wide ? "" : "px-5 pt-2"}`}>
+        <header className={`relative flex items-start justify-between gap-3 ${wide ? "" : "px-5 pt-2"}`}>
           {skeletonOn && (reloading || refreshing) ? <RefreshBar /> : null}
-          <p className="text-meta text-muted">joehub</p>
-          <h1 className="text-title font-medium">Grocery</h1>
+          <div>
+            <p className="text-meta text-muted">joehub</p>
+            <h1 className="text-title font-medium">Grocery</h1>
+          </div>
+          <SettingsLink />
         </header>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20">{banners}</div>
         {checkedCount > 0 ? (

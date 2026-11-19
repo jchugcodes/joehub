@@ -12,6 +12,7 @@ import { CategoryMark } from "./CategoryMark";
 import { Icon } from "./Icon";
 import { useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
 import { LoadError, MonthSkeleton, OverviewSkeleton, RefreshBar } from "./Skeleton";
+import { SettingsLink } from "./SettingsLink";
 
 const RANGES = ["1W", "1M", "YTD", "1Y", "All"] as const;
 type Range = (typeof RANGES)[number];
@@ -625,6 +626,7 @@ export function FinanceOverview() {
       <div className="relative">
         <header className="flex items-center justify-between px-5 pb-1 pt-2">
           <p className="text-meta text-muted">joehub</p>
+          <SettingsLink />
         </header>
         {skeletonOn && refreshing && overview ? <RefreshBar /> : null}
       </div>
