@@ -1,7 +1,12 @@
-"use client";
+import { permanentRedirect } from "next/navigation";
+import { spendingPath } from "../../../lib/spending-href.mjs";
 
-import { FinanceCategory } from "../../../components/FinanceCategory";
+export const dynamic = "force-dynamic";
 
-export default function CategoriesPage() {
-  return <FinanceCategory />;
+export default async function CategoriesRedirect({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  permanentRedirect(spendingPath((await searchParams) || {}));
 }

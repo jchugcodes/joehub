@@ -115,6 +115,7 @@ function BreakdownBone() {
           <span className="skeleton-bone block h-[1.40625rem] w-[42%] rounded-md" />
           <span className="skeleton-bone block h-[1.40625rem] w-14 shrink-0 rounded-md" />
         </span>
+        <span className="skeleton-bone mt-1 block h-3 w-24 rounded-md" />
         <span className="mt-2 block h-1.5 overflow-hidden rounded-full">
           <span className="skeleton-bone block h-full w-full rounded-full" />
         </span>

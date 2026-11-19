@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { countsAsSpend, money, spendCents } from "../lib/finance.mjs";
 import { showMonthBudget } from "../lib/live-pages.mjs";
+import { categoryBar } from "../lib/spending-bars.mjs";
 import { readOverlayHold } from "../lib/overlay-motion.mjs";
 import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
 import { CategoryMark } from "./CategoryMark";
+import { Detail as CategoryDrill, type CategoryDetail } from "./FinanceCategory";
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
@@ -28,11 +30,17 @@ type CategoryRow = {
   name: string;
   color?: string;
   spentCents: number;
+  capCents?: number | null;
+  estimate?: boolean;
+  percent?: number | null;
+  status?: string;
 };
 
 type Snapshot = {
   label: string;
   spentCents: number;
+  weekStart?: string;
+  budgetLabel?: string;
   categories: CategoryRow[];
 };
 
@@ -68,6 +76,35 @@ function dayText(ymd: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/Detroit", weekday: "short", month: "short", day: "numeric" }).format(parsed);
 }
 
+function dollars(cents: number) {
+  return (cents / 100).toFixed(2).replace(/\.00$/, "");
+}
+
+function parseBudget(value: string) {
+  const text = value.trim();
+  if (text === "") return { ok: true as const, cents: null };
+  if (text.startsWith("-") || text.startsWith("−")) return { ok: false as const, cents: null, detail: "Can’t be negative." };
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return { ok: false as const, cents: null, detail: "Enter an amount." };
+  return { ok: true as const, cents: Math.round(Number(text) * 100) };
+}
+
+function budgetMeta(item: { spentCents: number; capCents?: number | null; estimate?: boolean }) {
+  const spent = money(item.spentCents);
+  if (!item.capCents) return spent;
+  return `${spent} of ${money(item.capCents)}${item.estimate ? " estimate" : ""}`;
+}
+
+function rowWhen(meta: string) {
+  return meta.split(" · ")[0]?.trim() || "";
+}
+
+function signed(cents: number) {
+  const text = money(Math.abs(cents), true);
+  if (cents > 0) return `+${text}`;
+  if (cents < 0) return `−${text}`;
+  return text;
+}
+
 function hrefFor(search: URLSearchParams, patch: (next: URLSearchParams) => void) {
   const next = new URLSearchParams(search.toString());
   patch(next);
@@ -81,6 +118,11 @@ export function FinanceSpending() {
   const asOf = search.get("asOf") || "";
   const selectedId = search.get("txn") || "";
   const requested = search.get("category") || "";
+  const cat = search.get("cat") || "";
+  const explicitPeriod = search.get("period");
+  const weekParam = search.get("week") || "";
+  const period = explicitPeriod === "week" || explicitPeriod === "month" ? explicitPeriod : cat && weekParam ? "week" : "month";
+  const fromOverview = Boolean(cat) && explicitPeriod == null && Boolean(weekParam);
   const production = useProductionNav();
   const skeletonOn = useSkeletons();
   const holdsOn = useSkeletonHolds();
@@ -99,6 +141,16 @@ export function FinanceSpending() {
   const [transfer, setTransfer] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [drill, setDrill] = useState<CategoryDetail | null>(null);
+  const [drillMessage, setDrillMessage] = useState("");
+  const [drillTick, setDrillTick] = useState(0);
+  const [budgetsOpen, setBudgetsOpen] = useState(false);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [budgetError, setBudgetError] = useState("");
+  const [budgetField, setBudgetField] = useState("");
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [panelTxn, setPanelTxn] = useState("");
+  const idempotency = useRef("");
   const pending = !snapshot && !failed && hold !== "refresh" && hold !== "empty" && hold !== "error" && hold !== "skel";
   const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, pending, Boolean(snapshot) || hold === "refresh" || hold === "empty");
   const bones = skeletonOn && (hold === "skel" || (phase === "skeleton" && !snapshot));
@@ -110,7 +162,7 @@ export function FinanceSpending() {
   const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (asOf) params.set("asOf", asOf);
-    params.set("period", "month");
+    params.set("period", period === "week" ? "week" : "month");
     const overview = new URLSearchParams();
     if (asOf) overview.set("asOf", asOf);
     const [categoriesResponse, overviewResponse] = await Promise.all([
@@ -144,7 +196,7 @@ export function FinanceSpending() {
     setMonth(monthBody);
     setTxns(collected);
     setFailed(false);
-  }, [asOf]);
+  }, [asOf, period]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1024px)");
@@ -167,6 +219,7 @@ export function FinanceSpending() {
   }, []);
 
   useEffect(() => {
+    if (fromOverview) return;
     if (skeletonOn && (hold === "skel" || hold === "error")) return;
     let gone = false;
     void load().catch(() => {
@@ -177,12 +230,54 @@ export function FinanceSpending() {
     return () => {
       gone = true;
     };
-  }, [load, revision, skeletonOn, hold]);
+  }, [load, revision, skeletonOn, hold, fromOverview]);
 
   function retry() {
     setFailed(false);
     setRevision((value) => value + 1);
   }
+
+  useEffect(() => {
+    setPanelTxn("");
+    setBudgetsOpen(false);
+    setBudgetError("");
+  }, [cat]);
+
+  useEffect(() => {
+    if (!cat) {
+      setDrill(null);
+      return;
+    }
+    const weekId = weekParam || snapshot?.weekStart || "";
+    if (!weekId) return;
+    const params = new URLSearchParams();
+    if (asOf) params.set("asOf", asOf);
+    params.set("period", fromOverview || period === "week" ? "week" : "month");
+    let gone = false;
+    void fetch(`/api/finance/weeks/${weekId}/categories/${encodeURIComponent(cat)}?${params.toString()}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("category");
+        const body = (await response.json()) as CategoryDetail;
+        if (!gone) {
+          setDrill(body);
+          setDrillMessage("");
+        }
+      })
+      .catch(() => {
+        if (!gone) setDrillMessage("Finance is unavailable.");
+      });
+    return () => {
+      gone = true;
+    };
+  }, [cat, period, fromOverview, asOf, weekParam, snapshot?.weekStart, drillTick]);
+
+  useEffect(() => {
+    if (!budgetsOpen || !overlayOn || !cat || period !== "month") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`budget-${cat}`)?.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [budgetsOpen, overlayOn, cat, period]);
 
   function go(patch: (next: URLSearchParams) => void) {
     router.push(hrefFor(search, patch), { scroll: false });
@@ -261,6 +356,180 @@ export function FinanceSpending() {
     if (!slug) return "Uncategorized";
     return snapshot?.categories.find((item) => item.slug === slug)?.name || slug;
   }
+
+  const budgetRows = (snapshot?.categories || []).filter((item) => item.slug !== "uncategorized");
+  const listedCat = snapshot?.categories.find((item) => item.slug === cat) || null;
+  const metaSource = drill
+    ? { spentCents: drill.spentCents, capCents: drill.capCents, estimate: drill.estimate ?? listedCat?.estimate }
+    : listedCat;
+  const openPanelTxn = drill?.rows.find((row) => row.id === panelTxn) || null;
+  const categoryTitle = drill?.name || listedCat?.name || "Category";
+
+  function openBudgets(defer = false) {
+    if (!snapshot || period !== "month" || panelOffline) return;
+    const next: Record<string, string> = {};
+    for (const item of snapshot.categories) {
+      if (item.slug === "uncategorized") continue;
+      next[item.slug] = item.capCents == null ? "" : dollars(item.capCents);
+    }
+    setFields(next);
+    setBudgetError("");
+    setBudgetField("");
+    setPanelTxn("");
+    if (selectedId) go((nextParams) => nextParams.delete("txn"));
+    if (defer) window.setTimeout(() => setBudgetsOpen(true), 0);
+    else setBudgetsOpen(true);
+  }
+
+  function closeBudgets() {
+    setBudgetsOpen(false);
+    setBudgetError("");
+    setBudgetField("");
+  }
+
+  async function saveBudgets(event: FormEvent) {
+    event.preventDefault();
+    if (budgetSaving) return;
+    const budgets: Record<string, number | null> = {};
+    for (const item of budgetRows) {
+      const parsed = parseBudget(fields[item.slug] ?? "");
+      if (!parsed.ok) {
+        setBudgetError(parsed.detail);
+        setBudgetField(item.slug);
+        document.getElementById(`budget-${item.slug}`)?.focus();
+        return;
+      }
+      budgets[item.slug] = parsed.cents;
+    }
+    setBudgetSaving(true);
+    setBudgetError("");
+    try {
+      const response = await fetch("/api/finance/budgets", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": idempotency.current || (idempotency.current = crypto.randomUUID()),
+        },
+        body: JSON.stringify({ budgets }),
+      });
+      const body = (await response.json()) as { detail?: string; field?: string };
+      if (!response.ok) {
+        setBudgetError(body.detail || "Couldn’t save.");
+        setBudgetField(body.field || "");
+        if (body.field) document.getElementById(`budget-${body.field}`)?.focus();
+        return;
+      }
+      idempotency.current = "";
+      setBudgetsOpen(false);
+      await load();
+      setDrillTick((value) => value + 1);
+    } catch {
+      setBudgetError("Couldn’t save.");
+    } finally {
+      setBudgetSaving(false);
+    }
+  }
+
+  const budgetForm = (
+    <form id="budget-form" onSubmit={saveBudgets}>
+      <p className="text-meta text-muted">Estimates come from the weekly cap. Saving them is the monthly plan.</p>
+      {budgetError ? <p className="mt-3 text-body text-finance-dining">{budgetError}</p> : null}
+      <div className="mt-4 space-y-3">
+        {budgetRows.map((item) => (
+          <label key={item.slug} className="block" htmlFor={`budget-${item.slug}`}>
+            <span className="text-meta text-muted">{item.name}{item.estimate ? " · estimate" : ""}</span>
+            <input
+              id={`budget-${item.slug}`}
+              inputMode="decimal"
+              enterKeyHint="done"
+              value={fields[item.slug] ?? ""}
+              aria-invalid={budgetField === item.slug}
+              data-autofocus={overlayOn && item.slug === cat ? "true" : undefined}
+              className="mt-1 h-11 w-full rounded-xl border border-line bg-page px-3 text-base outline-none focus:border-2 focus:border-ink"
+              onChange={(event) => {
+                setFields((current) => ({ ...current, [item.slug]: event.target.value }));
+                setBudgetField("");
+              }}
+            />
+          </label>
+        ))}
+      </div>
+    </form>
+  );
+
+  const categoryBody = budgetsOpen && period === "month" ? (
+    <div className="px-5 py-4">{budgetForm}</div>
+  ) : openPanelTxn && drill ? (
+    <div className="px-5 py-4" data-txn-detail="true">
+      <p className={`text-title font-medium tabular-nums ${openPanelTxn.amountCents > 0 ? "text-finance-primary" : ""}`}>{signed(openPanelTxn.amountCents)}</p>
+      <p className="mt-1 text-meta text-muted">{openPanelTxn.meta}</p>
+      <dl className="mt-4 rounded-[20px] border border-line px-4 py-2">
+        {[
+          ["Category", drill.name],
+          ["Date", rowWhen(openPanelTxn.meta)],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 py-3">
+            <dt className="text-body text-muted">{label}</dt>
+            <dd className="text-body font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  ) : cat ? (
+    <div className="px-5 py-4" data-category-detail="true">
+      {!metaSource ? <p className="text-body text-muted">{drillMessage || "Loading…"}</p> : <p data-item-meta="true" className="text-body">{budgetMeta(metaSource)}</p>}
+      {drill && drill.rows.length === 0 ? <p className="mt-4 text-body text-muted" data-state="empty">No transactions.</p> : null}
+      {drill && drill.rows.length > 0 ? (
+        <ul className="mt-4">
+          {drill.rows.map((row) => (
+            <li key={row.id}>
+              <button type="button" onClick={() => setPanelTxn(row.id)} className="flex min-h-11 w-full items-center gap-3 py-2.5 text-left">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium">{row.payee}</span>
+                  <span className="block text-meta text-muted">{rowWhen(row.meta)}</span>
+                </span>
+                <span className={`shrink-0 text-body font-medium ${row.amountCents > 0 ? "text-finance-primary" : ""}`}>{signed(row.amountCents)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {panelOffline ? (
+        <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+          You are offline.
+        </p>
+      ) : null}
+    </div>
+  ) : null;
+
+  const categoryPanel = (panelWide: boolean) => (
+    <OverlayPanel
+      wide={panelWide}
+      depth={openPanelTxn || budgetsOpen ? 1 : 0}
+      title={budgetsOpen ? "Monthly budgets" : openPanelTxn ? openPanelTxn.payee : categoryTitle}
+      onClose={() => {
+        setPanelTxn("");
+        closeBudgets();
+        if (cat) go((next) => next.delete("cat"));
+      }}
+      onBack={openPanelTxn ? () => setPanelTxn("") : budgetsOpen && cat ? closeBudgets : undefined}
+      form={budgetsOpen}
+      nested={Boolean(openPanelTxn)}
+      slim={budgetsOpen}
+      sheet={budgetsOpen}
+      action={budgetsOpen ? (
+        <button type="submit" form="budget-form" disabled={budgetSaving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+          <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{budgetSaving ? "Saving…" : "Save"}</span>
+        </button>
+      ) : period === "month" && cat && !openPanelTxn ? (
+        <button type="button" disabled={panelOffline} onClick={() => openBudgets(true)} className={`inline-flex h-11 items-center px-2 text-body font-medium ${panelOffline ? "text-muted opacity-50" : "text-ink"}`}>
+          Edit
+        </button>
+      ) : null}
+    >
+      {categoryBody}
+    </OverlayPanel>
+  );
 
   const detail = selected ? (
     <>
@@ -400,16 +669,54 @@ export function FinanceSpending() {
       </OverlayPanel>
     ) : null;
 
+  const capsQuery = new URLSearchParams();
+  if (asOf) capsQuery.set("asOf", asOf);
+  if (weekParam || snapshot?.weekStart) capsQuery.set("week", weekParam || snapshot?.weekStart || "");
+  const capsHref = `/finance/caps?${capsQuery.toString()}`;
+  const overviewBack = (() => {
+    const back = new URLSearchParams();
+    if (asOf) back.set("asOf", asOf);
+    if (weekParam) back.set("week", weekParam);
+    return `/finance?${back.toString()}`;
+  })();
+  const breakdown = period === "week" ? budgetRows : rows;
+
+  if (fromOverview) {
+    return (
+      <main className="finance-type min-w-0 text-ink" data-ready={drill ? "true" : undefined}>
+        <CategoryDrill category={drill} message={drillMessage} wide={false} backHref={overviewBack} backLabel="Back to overview" period="week" asOf={asOf} />
+      </main>
+    );
+  }
+
   return (
-    <main className="finance-type min-w-0 text-ink" data-ready={snapshot && !bones ? "true" : undefined} data-spending={rows.length ? "list" : snapshot ? "empty" : "loading"} data-plan={planOn ? (month?.saved ? "plan" : "estimate") : "none"} data-layout={wide ? "panel" : "sheet"}>
-      <header className="px-5 pt-2">
-        <p className="text-meta text-muted">joehub</p>
-        <h1 className="text-title font-medium">Finance</h1>
+    <main className="finance-type min-w-0 text-ink" data-ready={snapshot && !bones ? "true" : undefined} data-spending={rows.length ? "list" : snapshot ? "empty" : "loading"} data-plan={planOn ? (month?.saved ? "plan" : "estimate") : "none"} data-layout={wide ? "panel" : "sheet"} data-period={period}>
+      <header className="flex items-end justify-between gap-3 px-5 pt-2">
+        <div>
+          <p className="text-meta text-muted">joehub</p>
+          <h1 className="text-title font-medium">Finance</h1>
+        </div>
+        {period === "month" ? (
+          <button type="button" className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={() => openBudgets()}>
+            Edit budgets
+          </button>
+        ) : (
+          <Link href={capsHref} className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary">
+            Edit caps
+          </Link>
+        )}
       </header>
       <div className="mt-3">
         <FinanceTabs />
       </div>
-      <div className={wide && overlayOn && selectedId ? "flex min-w-0 items-start" : "min-w-0"}>
+      <div data-period-track="true" className="mx-4 mt-4 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
+        {(["week", "month"] as const).map((item) => (
+          <button key={item} type="button" data-period-option={item} aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-ink"}`} onClick={() => go((next) => next.set("period", item))}>
+            {item === "week" ? "Week" : "Month"}
+          </button>
+        ))}
+      </div>
+      <div className={wide && overlayOn && (selectedId || cat || budgetsOpen) ? "flex min-w-0 items-start" : "min-w-0"}>
         <div className="min-w-0 flex-1">
           {skeletonOn && refreshing && snapshot ? <RefreshBar /> : null}
           {offline ? (
@@ -422,35 +729,51 @@ export function FinanceSpending() {
           {showEmptyHold ? <p className="px-5 py-16 text-center text-body" data-state="empty">No spending this month.</p> : null}
           {showBody ? (
             <>
-              <section className="mx-5 mt-5 rounded-[22px] border border-line px-4 py-4" data-month-spent={spent}>
-                <div className="flex items-baseline justify-between gap-3 text-meta">
-                  <p className="font-medium text-ink">Spent this month</p>
-                  {month?.label ? <p className="text-muted">{month.label}</p> : null}
+              {period === "month" ? (
+                <section className="mx-5 mt-5 rounded-[22px] border border-line px-4 py-4" data-month-spent={spent}>
+                  <div className="flex items-baseline justify-between gap-3 text-meta">
+                    <p className="font-medium text-ink">Spent this month</p>
+                    {month?.label ? <p className="text-muted">{month.label}</p> : null}
+                  </div>
+                  <p className="mt-1 font-medium text-ink">
+                    <span className="text-title">{money(spent)}</span>
+                    {planOn && month?.planCents != null ? <span className="text-body font-normal text-muted"> of {money(month.planCents)} {month.saved ? "plan" : "estimate"}</span> : null}
+                  </p>
+                  {planOn && month?.percent != null ? <p className="mt-2 text-meta text-muted">{month.percent}% used</p> : null}
+                </section>
+              ) : (
+                <div className="mt-5 px-5">
+                  <h2 className="text-section font-medium">{snapshot?.label}</h2>
+                  <p className="text-title font-medium">
+                    {money(spent)} {snapshot?.budgetLabel ? <span className="text-body font-normal text-muted">{snapshot.budgetLabel}</span> : null}
+                  </p>
                 </div>
-                <p className="mt-1 font-medium text-ink">
-                  <span className="text-title">{money(spent)}</span>
-                  {planOn && month?.planCents != null ? <span className="text-body font-normal text-muted"> of {money(month.planCents)} {month.saved ? "plan" : "estimate"}</span> : null}
-                </p>
-                {planOn && month?.percent != null ? <p className="mt-2 text-meta text-muted">{month.percent}% used</p> : null}
-              </section>
-              {rows.length ? (
+              )}
+              {breakdown.length ? (
                 <ul className="mt-4 px-4">
-                  {rows.map((item) => {
-                    const share = spent > 0 ? Math.max(1, Math.round((item.spentCents / spent) * 100)) : 0;
-                    const params = new URLSearchParams();
-                    params.set("period", "month");
-                    if (asOf) params.set("asOf", asOf);
+                  {breakdown.map((item) => {
+                    const bar = categoryBar(item, spent);
                     return (
-                      <li key={item.slug}>
-                        <Link href={`/finance/categories/${item.slug}?${params.toString()}`} className="flex min-h-11 items-center gap-3 px-1 py-3">
+                      <li key={item.slug} data-selected={item.slug === cat ? "true" : undefined} className={item.slug === cat ? "row-selected rounded-2xl" : ""}>
+                        <Link href={hrefFor(search, (next) => { next.set("cat", item.slug); next.set("period", period); next.delete("txn"); })} className="flex min-h-11 items-center gap-3 px-1 py-3">
                           <CategoryMark category={item.slug} />
                           <span className="min-w-0 flex-1">
                             <span className="flex items-baseline justify-between gap-3">
                               <span className="min-w-0 truncate text-body font-medium">{item.name}</span>
-                              <span className="shrink-0 text-body font-medium">{money(item.spentCents)}</span>
+                              <span className="shrink-0 text-right text-body font-medium">
+                                {money(item.spentCents)}
+                                {item.capCents ? <span className="font-normal text-muted"> of {money(item.capCents)}{item.estimate ? " estimate" : ""}</span> : null}
+                              </span>
                             </span>
+                            {item.percent != null ? (
+                              <span className={`mt-0.5 block text-right text-meta ${bar.over ? "" : "text-muted"}`} data-row-meta={bar.over ? "over" : "under"} style={bar.over ? { color: "var(--chart-negative)" } : undefined}>
+                                {item.percent}% · {item.status}
+                              </span>
+                            ) : item.status ? (
+                              <span className="mt-0.5 block text-right text-meta text-muted">{item.status}</span>
+                            ) : null}
                             <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-line">
-                              <span className="block h-full rounded-full" style={{ width: `${share}%`, background: item.color || "var(--muted)" }} />
+                              <span data-bar={bar.mode} data-over={bar.over ? "true" : "false"} className="block h-full rounded-full" style={{ width: `${bar.width}%`, background: bar.color }} />
                             </span>
                           </span>
                           <Icon name="chevron" size={16} className="shrink-0 text-muted" />
@@ -462,7 +785,7 @@ export function FinanceSpending() {
               ) : (
                 <p className="px-5 py-16 text-center text-body" data-state="empty">No spending this month.</p>
               )}
-              {rows.length ? (
+              {period === "month" && rows.length ? (
                 <section className="mt-2" data-list-spent={listSpent} data-filter={active || "all"}>
                   <div className="finance-tab-row w-full min-w-0 overflow-x-auto" role="group" aria-label="Category">
                     <div className="flex w-max min-w-full gap-4 px-5">
@@ -517,8 +840,10 @@ export function FinanceSpending() {
           ) : null}
         </div>
         {overlayOn && wide && selectedId ? panel(true) : null}
+        {overlayOn && wide && !selectedId && (cat || budgetsOpen) ? categoryPanel(true) : null}
       </div>
       {overlayOn && !wide && selectedId ? panel(false) : null}
+      {overlayOn && !wide && !selectedId && (cat || budgetsOpen) ? categoryPanel(false) : null}
     </main>
   );
 }

@@ -45,7 +45,7 @@ type Row = {
   meta: string;
 };
 
-type Category = Item & {
+export type CategoryDetail = Item & {
   period: "month" | "week";
   weekStart: string;
   label: string;
@@ -104,7 +104,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
   const fromOverview = Boolean(slug) && explicit == null && Boolean(search.get("week"));
   const [wide, setWide] = useState(false);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [category, setCategory] = useState<Category | null>(null);
+  const [category, setCategory] = useState<CategoryDetail | null>(null);
   const [message, setMessage] = useState("");
   const [revision, setRevision] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -171,7 +171,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     void fetch(`/api/finance/weeks/${week}/categories/${slug}?${params.toString()}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("category");
-        const body = (await response.json()) as Category;
+        const body = (await response.json()) as CategoryDetail;
         if (!gone) setCategory(body);
       })
       .catch(() => {
@@ -193,8 +193,9 @@ export function FinanceCategory({ slug }: { slug?: string }) {
   function withPeriod(next: "month" | "week", nextSlug = slug) {
     const params = new URLSearchParams(search.toString());
     params.set("period", next);
-    const path = nextSlug ? `/finance/categories/${nextSlug}` : "/finance/categories";
-    router.replace(`${path}?${params.toString()}`);
+    if (nextSlug) params.set("cat", nextSlug);
+    else params.delete("cat");
+    router.replace(`/finance/spending?${params.toString()}`);
   }
 
   const query = new URLSearchParams();
@@ -214,7 +215,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     backParams.set("period", period);
     if (search.get("week")) backParams.set("week", search.get("week") || "");
   }
-  const backHref = fromOverview ? `/finance?${backParams.toString()}` : `/finance/categories?${backParams.toString()}`;
+  const backHref = fromOverview ? `/finance?${backParams.toString()}` : `/finance/spending?${backParams.toString()}`;
   const budgetRows = (snapshot?.categories || []).filter((item) => item.slug !== "uncategorized");
 
   async function saveBudgets(event: React.FormEvent) {
@@ -314,7 +315,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
     } catch {
       // The list still opens.
     }
-    router.push(`/finance/categories?${params.toString()}`);
+    router.push(`/finance/spending?${params.toString()}`);
   }
 
   const budgetForm = (
@@ -475,7 +476,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
                 {snapshot.categories.map((item) => {
                   const color = toneColor(item);
                   const itemQuery = new URLSearchParams(query);
-                  const href = `/finance/categories/${item.slug}?${itemQuery.toString()}`;
+                  const href = `/finance/spending?cat=${item.slug}&${itemQuery.toString()}`;
                   return (
                     <li key={item.slug} data-selected={item.slug === slug ? "true" : undefined} className={overlayOn && item.slug === slug ? "row-selected rounded-2xl" : item.slug === slug ? "rounded-2xl bg-surface" : ""}>
                       <Link href={href} aria-current={overlayOn && item.slug === slug ? "true" : undefined} onClick={() => remember(item.slug)} className="flex min-h-11 items-center gap-3 px-1 py-3">
@@ -542,7 +543,7 @@ export function FinanceCategory({ slug }: { slug?: string }) {
   );
 }
 
-function Detail({ category, message, wide, backHref, backLabel, period, asOf }: { category: Category | null; message: string; wide: boolean; backHref: string; backLabel: string; period: "month" | "week"; asOf: string }) {
+export function Detail({ category, message, wide, backHref, backLabel, period, asOf }: { category: CategoryDetail | null; message: string; wide: boolean; backHref: string; backLabel: string; period: "month" | "week"; asOf: string }) {
   const tone = category ? toneColor(category) : "#6B746E";
   const weekSummary =
     category && category.percent != null

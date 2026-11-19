@@ -10,13 +10,13 @@ export const NET_WORTH_CENTS = 1_847_236;
 export const YTD_DELTA_CENTS = 128_410;
 export const ACCOUNTS_UPDATED = "2026-11-10T14:58:00.000Z";
 
-function categoryRecord({ slug, name, weeklyCapCents, color, sort }) {
-  return { slug, name, weeklyCapCents, monthlyCapCents: null, sort, color, capCents: weeklyCapCents };
+function categoryRecord({ slug, name, weeklyCapCents, monthlyCapCents = null, color, sort }) {
+  return { slug, name, weeklyCapCents, monthlyCapCents, sort, color, capCents: weeklyCapCents };
 }
 
 // Preview and local seed. Existing slugs stay put. A null weekly cap is outside the envelope.
 export const SEED_CATEGORIES = [
-  categoryRecord({ slug: "groceries", name: "Groceries", weeklyCapCents: 12000, color: "#2E8B6A", sort: 1 }),
+  categoryRecord({ slug: "groceries", name: "Groceries", weeklyCapCents: 12000, monthlyCapCents: 26000, color: "#2E8B6A", sort: 1 }),
   categoryRecord({ slug: "dining-out", name: "Dining Out", weeklyCapCents: 8000, color: "#E07A5F", sort: 2 }),
   categoryRecord({ slug: "transport", name: "Gas & Transport", weeklyCapCents: 6000, color: "#5B6B8C", sort: 3 }),
   categoryRecord({ slug: "utilities", name: "Bills & Utilities", weeklyCapCents: 0, color: "#3A86C8", sort: 4 }),

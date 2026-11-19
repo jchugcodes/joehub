@@ -16,7 +16,7 @@ test("preview and dev keep the full nav", () => {
   );
   assert.deepEqual(
     financeTabs({}).map((tab) => tab.label),
-    ["Overview", "Categories", "Goals", "Accounts", "Debts", "Bills", "Spending"],
+    ["Overview", "Spending", "Goals", "Accounts", "Debts", "Bills"],
   );
 });
 
@@ -33,7 +33,7 @@ test("production keeps Tasks, Grocery, Finance and the live finance subtabs", ()
     );
     assert.deepEqual(
       financeTabs(env).map((tab) => tab.label),
-      ["Overview", "Categories", "Accounts", "Bills", "Spending"],
+      ["Overview", "Spending", "Accounts", "Bills"],
     );
   }
   assert.equal(isGatedPath("/finance/spending"), false);

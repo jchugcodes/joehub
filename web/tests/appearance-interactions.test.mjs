@@ -136,7 +136,7 @@ test("appearance light, dark, and system persist on the device", { skip }, async
     const change = await evalPage(send, "getComputedStyle(document.querySelector('[data-change]')).color");
     assert.equal(change, "rgb(78, 174, 134)");
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-    await send("Page.navigate", { url: `${base()}/finance/categories/groceries?period=month&asOf=2026-11-11T15:00:00-05:00` });
+    await send("Page.navigate", { url: `${base()}/finance/spending?cat=groceries&period=month&asOf=2026-11-11T15:00:00-05:00` });
     await waitFor(send, "document.documentElement.classList.contains('dark') && document.querySelector('[data-selected=\"true\"]') && document.querySelector('[data-period-option=\"month\"]')?.getAttribute('aria-pressed') === 'true' ? 'yes' : ''", "categories");
     const categories = JSON.parse(
       await evalPage(

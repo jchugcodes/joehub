@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { countsAsSpend, installMemoryFinance, spendCents } from "../lib/finance.mjs";
+import { SEED_CATEGORIES, categoriesSnapshot, countsAsSpend, installMemoryFinance, SEED_TRANSACTIONS, spendCents } from "../lib/finance.mjs";
 import { financeTabs, isGatedPath } from "../lib/live-pages.mjs";
+import { OVER_FILL, categoryBar } from "../lib/spending-bars.mjs";
+import { spendingPath } from "../lib/spending-href.mjs";
 
 const root = new URL("..", import.meta.url);
 
@@ -12,9 +14,12 @@ test("spending is live in production", () => {
   assert.equal(financeTabs({}).some((tab) => tab.href === "/finance/spending" && tab.shipped === true && tab.live === true), true);
   assert.deepEqual(
     financeTabs({ VERCEL_ENV: "production" }).map((tab) => tab.label),
-    ["Overview", "Categories", "Accounts", "Bills", "Spending"],
+    ["Overview", "Spending", "Accounts", "Bills"],
   );
   assert.equal(financeTabs({ NEXT_PUBLIC_VERCEL_ENV: "production" }).some((tab) => tab.href === "/finance/spending" && tab.live === true), true);
+  assert.equal(financeTabs({}).filter((tab) => tab.label === "Spending").length, 1);
+  assert.equal(financeTabs({}).some((tab) => tab.label === "Categories"), false);
+  assert.equal(financeTabs({}).findIndex((tab) => tab.label === "Spending"), 1);
 });
 
 test("the spending page reads this month from the finance APIs and edits through the existing patch", () => {
@@ -24,7 +29,7 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /showMonthBudget\(production, month\)/);
   assert.match(ui, /\/api\/finance\/categories/);
   assert.match(ui, /\/api\/finance\/overview/);
-  assert.match(ui, /period", "month"/);
+  assert.match(ui, /period === "week" \? "week" : "month"/);
   assert.match(ui, /spentCents > 0/);
   assert.match(ui, /SpendingSkeleton/);
   assert.match(ui, /data-state="empty"/);
@@ -46,9 +51,123 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /txnMoney\(selected\.amountCents\)/);
   assert.match(ui, /row\.uncategorized \? "uncategorized"/);
   assert.match(ui, /No spending this month\./);
+  assert.match(ui, /Monthly budgets/);
+  assert.match(ui, /id="budget-form"/);
+  assert.match(ui, /\/api\/finance\/budgets/);
+  assert.match(ui, /data-category-detail="true"/);
+  assert.match(ui, /data-period-track="true"/);
+  assert.match(ui, /Edit budgets/);
+  assert.match(ui, /set\("cat"/);
+  assert.match(ui, /categoryBar\(item, spent\)/);
+  assert.match(ui, /data-bar=\{bar\.mode\}/);
+  assert.match(ui, /data-over=\{bar\.over \? "true" : "false"\}/);
+  assert.match(readFileSync(new URL("lib/spending-bars.mjs", root), "utf8"), /var\(--chart-negative\)/);
+  assert.match(ui, /data-row-meta=\{bar\.over \? "over" : "under"\}/);
+  assert.match(ui, /style=\{bar\.over \? \{ color: "var\(--chart-negative\)" \} : undefined\}/);
+  assert.doesNotMatch(ui, /\/finance\/categories\/\$\{/);
   assert.doesNotMatch(ui, /#[0-9A-Fa-f]{3,8}/);
   assert.doesNotMatch(ui, /Previous month|Next month|aria-label="Previous|aria-label="Next/);
   assert.doesNotMatch(ui, /UPSTASH|overlay-flag|Ledger|reset-ledger/);
+});
+
+test("category bars fill against the estimate and share only when there is no cap", () => {
+  const now = Date.parse("2026-11-10T15:00:00-05:00");
+  const month = categoriesSnapshot(SEED_TRANSACTIONS, now, "month");
+  const groceries = month.categories.find((item) => item.slug === "groceries");
+  const dining = month.categories.find((item) => item.slug === "dining-out");
+  const utilities = month.categories.find((item) => item.slug === "utilities");
+  const uncategorized = month.categories.find((item) => item.slug === "uncategorized");
+  const over = categoryBar(groceries, month.spentCents);
+  assert.ok(groceries.percent > 100);
+  assert.equal(over.mode, "estimate");
+  assert.equal(over.over, true);
+  assert.equal(over.width, 100);
+  assert.equal(over.color, OVER_FILL);
+  const under = categoryBar(dining, month.spentCents);
+  assert.equal(dining.percent, 72);
+  assert.equal(under.mode, "estimate");
+  assert.equal(under.over, false);
+  assert.equal(under.width, dining.percent);
+  assert.notEqual(under.color, "var(--chart-negative)");
+  for (const row of [utilities, uncategorized]) {
+    const share = Math.min(100, Math.max(1, Math.round((row.spentCents / month.spentCents) * 100)));
+    const bar = categoryBar(row, month.spentCents);
+    assert.equal(row.capCents, null);
+    assert.equal(bar.mode, "share");
+    assert.equal(bar.over, false);
+    assert.equal(bar.width, share);
+    assert.notEqual(bar.color, "var(--chart-negative)");
+  }
+  const week = categoriesSnapshot(SEED_TRANSACTIONS, now, "week");
+  const weekDining = week.categories.find((item) => item.slug === "dining-out");
+  const weekOver = categoryBar(weekDining, week.spentCents);
+  assert.ok(weekDining.percent > 100);
+  assert.equal(weekOver.mode, "estimate");
+  assert.equal(weekOver.width, 100);
+  assert.equal(weekOver.over, true);
+  const weekUtilities = week.categories.find((item) => item.slug === "utilities");
+  const weekShare = categoryBar(weekUtilities, week.spentCents);
+  assert.equal(weekUtilities.percent, null);
+  assert.equal(weekUtilities.status, "No cap set");
+  assert.equal(weekShare.mode, "share");
+  assert.equal(weekShare.over, false);
+  assert.equal(weekShare.width, Math.min(100, Math.max(1, Math.round((weekUtilities.spentCents / week.spentCents) * 100))));
+  assert.notEqual(weekShare.color, "var(--chart-negative)");
+  assert.equal(weekOver.color, OVER_FILL);
+});
+
+test("an over row uses the negative token for its meta and a fill that is not a category color", () => {
+  const css = readFileSync(new URL("app/globals.css", root), "utf8");
+  const tokens = [...css.matchAll(/--cat-[a-z0-9-]+:\s*(#[0-9a-fA-F]{3,8})/g)].map((match) => match[1].toLowerCase());
+  const colors = new Set([...SEED_CATEGORIES.map((category) => String(category.color).toLowerCase()), ...tokens, "#e07a5f", "#6b746e"]);
+  const now = Date.parse("2026-11-10T15:00:00-05:00");
+  const month = categoriesSnapshot(SEED_TRANSACTIONS, now, "month");
+  const groceries = month.categories.find((item) => item.slug === "groceries");
+  const dining = month.categories.find((item) => item.slug === "dining-out");
+  const over = categoryBar(groceries, month.spentCents);
+  const under = categoryBar(dining, month.spentCents);
+  assert.equal(over.over, true);
+  assert.equal(under.over, false);
+  assert.equal(colors.has(over.color.toLowerCase()), false);
+  assert.match(over.color, /color-mix\(in srgb, var\(--chart-negative\) \d+%, black\)/);
+  for (const category of month.categories) {
+    if (!category.color) continue;
+    assert.notEqual(over.color.toLowerCase(), String(category.color).toLowerCase());
+  }
+  assert.equal(under.color.toLowerCase(), String(dining.color).toLowerCase());
+  const ui = readFileSync(new URL("components/FinanceSpending.tsx", root), "utf8");
+  assert.match(ui, /data-row-meta=\{bar\.over \? "over" : "under"\}/);
+  assert.match(ui, /style=\{bar\.over \? \{ color: "var\(--chart-negative\)" \} : undefined\}/);
+  assert.match(ui, /bar\.over \? "" : "text-muted"/);
+});
+
+test("category urls redirect onto spending and keep the query", () => {
+  const list = readFileSync(new URL("app/finance/categories/page.tsx", root), "utf8");
+  const slug = readFileSync(new URL("app/finance/categories/[slug]/page.tsx", root), "utf8");
+  const middleware = readFileSync(new URL("middleware.ts", root), "utf8");
+  const config = readFileSync(new URL("next.config.ts", root), "utf8");
+  assert.match(list, /permanentRedirect\(spendingPath/);
+  assert.match(slug, /permanentRedirect\(spendingPath/);
+  assert.match(config, /source: "\/finance\/categories"/);
+  assert.match(config, /source: "\/finance\/categories\/:slug"/);
+  assert.match(config, /destination: "\/finance\/spending\?cat=:slug"/);
+  assert.match(config, /permanent: true/);
+  assert.doesNotMatch(middleware, /x-forwarded-host|headers\.get\(["']host["']\)|headers\.get\(["']x-forwarded-host["']\)/);
+  const month = new URL(spendingPath({ period: "month", asOf: "2026-11-11T15:00:00-05:00", panel: "1" }), "http://local");
+  assert.equal(month.pathname, "/finance/spending");
+  assert.equal(month.searchParams.get("period"), "month");
+  assert.equal(month.searchParams.get("asOf"), "2026-11-11T15:00:00-05:00");
+  assert.equal(month.searchParams.get("panel"), "1");
+  assert.equal(month.searchParams.get("cat"), null);
+  const dining = new URL(spendingPath({ period: "month", xe: "offline", asOf: "2026-11-11T15:00:00-05:00" }, "dining-out"), "http://local");
+  assert.equal(dining.pathname, "/finance/spending");
+  assert.equal(dining.searchParams.get("cat"), "dining-out");
+  assert.equal(dining.searchParams.get("period"), "month");
+  assert.equal(dining.searchParams.get("xe"), "offline");
+  assert.equal(spendingPath({}), "/finance/spending");
+  const overview = readFileSync(new URL("components/FinanceOverview.tsx", root), "utf8");
+  assert.match(overview, /\/finance\/spending\?cat=/);
+  assert.doesNotMatch(overview, /\/finance\/categories/);
 });
 
 test("this month's spending rows reconcile with the month total", async () => {

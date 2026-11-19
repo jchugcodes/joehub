@@ -8,7 +8,7 @@ import { useProductionNav } from "./LivePages";
 
 function selected(pathname: string, href: string) {
   if (href === "/finance") return pathname === "/finance";
-  if (href === "/finance/categories") return pathname.startsWith("/finance/categories");
+  if (href === "/finance/spending") return pathname.startsWith("/finance/spending") || pathname.startsWith("/finance/categories");
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
