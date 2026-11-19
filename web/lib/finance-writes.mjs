@@ -2,6 +2,7 @@ import {
   applyMonthlyBudgets,
   categoriesFromCaps,
   createAccount,
+  createBucket,
   createGoal,
   createTransaction,
   defaultCaps,
@@ -11,11 +12,13 @@ import {
   parseCaps,
   parseMonthlyBudgets,
   patchAccount,
+  patchBucket,
   patchGoal,
   patchTransaction,
   presentTransaction,
   publicCategories,
   removeAccount,
+  removeBucket,
   resetLedger,
   simulateLedgerRefresh,
 } from "./finance.mjs";
@@ -116,6 +119,53 @@ export function createFinanceWrites(transact, { allowSeed = false, env = {} } = 
         await writeFinanceBundle(db, raw);
         await saveIdem(db, key, result, now);
         return result;
+      });
+    },
+    async financeCreateCategory(body, key = "") {
+      return inTx(async (db) => {
+        const now = Date.now();
+        const raw = await loadFinanceRaw(db, { allowSeed, env });
+        const idem = key ? `joehub:finance:category:idem:${key}` : "";
+        const prior = await readIdem(db, idem, now);
+        if (prior) return prior;
+        const view = viewOf(raw);
+        const result = createBucket(view.categories, body);
+        const stored = { status: result.status, body: result.body };
+        if (result.status === 201) {
+          raw.categories = publicCategories(result.categories);
+          raw.fullCategories = result.categories;
+          await writeFinanceBundle(db, raw);
+          if (key) await saveIdem(db, idem, stored, now);
+        }
+        return stored;
+      });
+    },
+    async financePatchCategory(slug, body) {
+      return inTx(async (db) => {
+        const raw = await loadFinanceRaw(db, { allowSeed, env });
+        const view = viewOf(raw);
+        const result = patchBucket(view.categories, slug, body);
+        if (result.status === 200) {
+          raw.categories = publicCategories(result.categories);
+          raw.fullCategories = result.categories;
+          await writeFinanceBundle(db, raw);
+        }
+        return { status: result.status, body: result.body };
+      });
+    },
+    async financeDeleteCategory(slug) {
+      return inTx(async (db) => {
+        const raw = await loadFinanceRaw(db, { allowSeed, env });
+        const view = viewOf(raw);
+        const result = removeBucket(view.categories, slug, raw.transactions, view.caps);
+        if (result.status === 200) {
+          raw.categories = publicCategories(result.categories);
+          raw.fullCategories = result.categories;
+          raw.transactions = result.transactions;
+          raw.caps = result.caps;
+          await writeFinanceBundle(db, raw);
+        }
+        return { status: result.status, body: result.body };
       });
     },
     async financeCreateAccount(body, now = Date.now(), key = "") {

@@ -42,10 +42,25 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const CATEGORY_PAGE_ORDER = ["dining-out", "groceries", "transport", "subscriptions", "shopping", "utilities"];
 
-/** Lead with the original screen order, then every other category. The month total uses this full list. */
-function pageCategories(categories = CATEGORIES) {
-  const source = Array.isArray(categories) ? categories : CATEGORIES;
-  const bySlug = new Map(source.filter((item) => item && item.slug && item.slug !== "uncategorized").map((item) => [item.slug, item]));
+function hiddenSlugSet(categories) {
+  const set = new Set();
+  for (const item of Array.isArray(categories) ? categories : []) {
+    if (item && item.hidden === true && item.removed !== true && item.slug) set.add(item.slug);
+  }
+  return set;
+}
+
+function countsInTotals(row, hidden) {
+  return !(row && row.category && hidden.has(row.category));
+}
+
+/** Lead with the original screen order, then every other category. Hidden and removed buckets stay out of totals. */
+function pageCategories(categories = CATEGORIES, options = {}) {
+  const includeHidden = options.includeHidden === true;
+  const source = (Array.isArray(categories) ? categories : CATEGORIES).filter(
+    (item) => item && item.slug && item.slug !== "uncategorized" && item.removed !== true && (includeHidden || item.hidden !== true),
+  );
+  const bySlug = new Map(source.map((item) => [item.slug, item]));
   const ordered = [];
   for (const slug of CATEGORY_PAGE_ORDER) {
     const item = bySlug.get(slug);
@@ -725,7 +740,8 @@ export function envelopeTotal(categories = CATEGORIES) {
 /** A monthly plan is the sum of per-category monthly budgets. The weekly envelope is not one. */
 export function monthlyPlanCents(planCents, categories) {
   if (Array.isArray(categories)) {
-    const sum = categories.reduce((total, item) => {
+    const visible = categories.filter((item) => item && item.removed !== true && item.hidden !== true);
+    const sum = visible.reduce((total, item) => {
       const cents = resolvedMonthlyCents(item).cents;
       return total + (Number.isInteger(cents) && cents > 0 ? cents : 0);
     }, 0);
@@ -767,6 +783,8 @@ function storedCategory(raw) {
     capCents: weeklyCapCents,
   };
   if (typeof raw.group === "string" && raw.group.trim()) category.group = raw.group.trim();
+  if (raw.hidden === true) category.hidden = true;
+  if (raw.removed === true) category.removed = true;
   return category;
 }
 
@@ -782,9 +800,179 @@ export function publicCategories(categories) {
       };
       if (category.group) row.group = category.group;
       if (category.color) row.color = category.color;
+      if (category.hidden === true) row.hidden = true;
+      if (category.removed === true) row.removed = true;
       return row;
     })
     .sort((left, right) => left.sort - right.sort || (left.slug < right.slug ? -1 : 1));
+}
+
+const BUCKET_COLORS = ["#2E8B6A", "#E07A5F", "#5B6B8C", "#3A86C8", "#8E7CC3", "#E9B949", "#2A9D8F", "#C2577A", "#3A6EA5", "#6B746E", "#C47B4A", "#4C6B5A"];
+
+function bucketName(value) {
+  const name = String(value || "").trim().replace(/\s+/g, " ");
+  return name.length >= 1 && name.length <= 80 ? name : "";
+}
+
+function presentBucket(category) {
+  return {
+    slug: category.slug,
+    name: category.name,
+    color: category.color || "#6B746E",
+    hidden: category.hidden === true,
+  };
+}
+
+function bucketBase(name) {
+  const base = String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  return !base || base === "uncategorized" ? "bucket" : base;
+}
+
+function bucketSlug(name, categories) {
+  const base = bucketBase(name);
+  const live = new Set((categories || []).filter((item) => item && item.removed !== true).map((item) => item.slug));
+  if (!live.has(base)) return base;
+  let n = 2;
+  let slug = `${base.slice(0, 56)}-${n}`;
+  while (live.has(slug) || slug === "uncategorized") {
+    n += 1;
+    slug = `${base.slice(0, 56)}-${n}`;
+  }
+  return slug;
+}
+
+function nextBucketColor(categories) {
+  const used = new Set((categories || []).filter((item) => item && item.removed !== true).map((item) => String(item.color || "").toLowerCase()));
+  return BUCKET_COLORS.find((color) => !used.has(color.toLowerCase())) || BUCKET_COLORS[0];
+}
+
+export function hiddenBucketsLabel(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n < 1) return "";
+  return n === 1 ? "1 bucket hidden" : `${n} buckets hidden`;
+}
+
+export function removeBucketDetail(name, spentCents) {
+  const label = String(name || "").trim() || "This bucket";
+  const cents = Number(spentCents);
+  if (Number.isInteger(cents) && cents > 0) return `${money(cents)} in ${label} moves to Uncategorized.`;
+  return `${label} moves to Uncategorized.`;
+}
+
+export function bucketsSnapshot(categories = CATEGORIES, txns, now = Date.now()) {
+  const spent = new Map();
+  if (Array.isArray(txns)) {
+    for (const row of rowsInMonth(txns, detroitYmd(now))) {
+      if (!row.category) continue;
+      const cents = spendCents(row);
+      if (!cents) continue;
+      spent.set(row.category, (spent.get(row.category) || 0) + cents);
+    }
+  }
+  return {
+    buckets: pageCategories(categories, { includeHidden: true }).map((item) => ({
+      ...presentBucket(item),
+      spentCents: spent.get(item.slug) || 0,
+    })),
+  };
+}
+
+export function createBucket(categories, body) {
+  const rows = Array.isArray(categories) ? categories.map((item) => ({ ...item })) : [];
+  const name = bucketName(body && body.name);
+  if (!name) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+  if (rows.some((item) => item.removed !== true && String(item.name || "").toLowerCase() === name.toLowerCase())) {
+    return { status: 409, body: { detail: "That name is already a bucket.", field: "name" } };
+  }
+  const slug = bucketSlug(name, rows);
+  const sort = rows.reduce((max, item) => (Number.isInteger(item.sort) ? Math.max(max, item.sort) : max), 0) + 1;
+  const created = {
+    slug,
+    name,
+    weeklyCapCents: null,
+    monthlyCapCents: null,
+    sort,
+    color: nextBucketColor(rows),
+    capCents: null,
+  };
+  const tomb = rows.findIndex((item) => item.slug === slug && item.removed === true);
+  if (tomb >= 0) rows[tomb] = created;
+  else rows.push(created);
+  return { status: 201, body: { bucket: presentBucket(created) }, categories: rows };
+}
+
+export function patchBucket(categories, slug, body) {
+  const rows = Array.isArray(categories) ? categories.map((item) => ({ ...item })) : [];
+  const index = rows.findIndex((item) => item && item.slug === slug && item.removed !== true);
+  if (index < 0 || slug === "uncategorized") return { status: 404, body: { detail: "That bucket is not here." } };
+  const source = body && typeof body === "object" ? body : {};
+  const hasName = Object.prototype.hasOwnProperty.call(source, "name");
+  const hasHidden = Object.prototype.hasOwnProperty.call(source, "hidden");
+  if (!hasName && !hasHidden) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+  const next = { ...rows[index] };
+  if (hasHidden) {
+    if (typeof source.hidden !== "boolean") return { status: 400, body: { detail: "Choose a value.", field: "hidden" } };
+    if (source.hidden) next.hidden = true;
+    else delete next.hidden;
+  }
+  if (hasName) {
+    const name = bucketName(source.name);
+    if (!name) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+    if (rows.some((item) => item.removed !== true && item.slug !== slug && String(item.name || "").toLowerCase() === name.toLowerCase())) {
+      return { status: 409, body: { detail: "That name is already a bucket.", field: "name" } };
+    }
+    next.name = name;
+  }
+  rows[index] = next;
+  return { status: 200, body: { bucket: presentBucket(next) }, categories: rows };
+}
+
+function clearBucketCategory(row, slug) {
+  const copy = { ...row };
+  let changed = false;
+  if (copy.category === slug) {
+    delete copy.category;
+    changed = true;
+  }
+  if (copy.correction && copy.correction.category === slug) {
+    const correction = { ...copy.correction };
+    delete correction.category;
+    copy.correction = correction;
+    changed = true;
+  }
+  if (copy.ledger && copy.ledger.latest && copy.ledger.latest.category === slug) {
+    const latest = { ...copy.ledger.latest };
+    delete latest.category;
+    copy.ledger = { ...copy.ledger, latest };
+    changed = true;
+  }
+  return changed ? copy : row;
+}
+
+export function removeBucket(categories, slug, transactions, caps) {
+  const rows = Array.isArray(categories) ? categories.map((item) => ({ ...item })) : [];
+  const index = rows.findIndex((item) => item && item.slug === slug && item.removed !== true);
+  if (index < 0 || slug === "uncategorized") return { status: 404, body: { detail: "That bucket is not here." } };
+  const current = rows[index];
+  rows[index] = {
+    slug: current.slug,
+    name: current.name,
+    weeklyCapCents: null,
+    monthlyCapCents: null,
+    sort: current.sort,
+    color: current.color,
+    capCents: null,
+    removed: true,
+  };
+  const nextCaps = { ...(caps && typeof caps === "object" && !Array.isArray(caps) ? caps : {}) };
+  delete nextCaps[slug];
+  const nextTxns = (Array.isArray(transactions) ? transactions : []).map((row) => clearBucketCategory(row, slug));
+  return { status: 200, body: { removed: true }, categories: rows, transactions: nextTxns, caps: nextCaps };
 }
 
 export function resolveCategory(value) {
@@ -914,7 +1102,8 @@ export function parseCaps(input, current = defaultCaps(), categories = CATEGORIE
 
 export function capsForWeek(txns, start, caps = defaultCaps(), categories = CATEGORIES) {
   const rows = rowsInWeek(txns, start);
-  return [...categories]
+  const visible = [...categories].filter((item) => item && item.removed !== true && item.hidden !== true);
+  return visible
     .sort((left, right) => left.sort - right.sort)
     .map((category) => {
       const hasCap = Object.prototype.hasOwnProperty.call(caps, category.slug);
@@ -991,9 +1180,10 @@ export function hasNetWorthHistory(points) {
   return !Object.values(series).some((seed) => sameShape(values, seed));
 }
 
-function weeklySeries(txns, from, to) {
+function weeklySeries(txns, from, to, hidden = new Set()) {
   const weeks = new Map();
   for (const row of txns.map(effective)) {
+    if (!countsInTotals(row, hidden)) continue;
     const start = weekStart(row.date);
     if (from && start < from) continue;
     if (to && start > to) continue;
@@ -1018,7 +1208,7 @@ function presentChart(chart, netWorthCents) {
   return next;
 }
 
-export function chartFor(txns, today, range, snapshot) {
+export function chartFor(txns, today, range, snapshot, categories) {
   const current = weekStart(today);
   const seeded = snapshot || seedSnapshots();
   const series = seeded.series && Array.isArray(seeded.series[range]) ? seeded.series[range] : null;
@@ -1033,15 +1223,16 @@ export function chartFor(txns, today, range, snapshot) {
   if (range === "1W") from = current;
   if (range === "1M") from = weekStart(monthBounds(today).start);
   if (range === "1Y") from = weekStart(addDays(today, -365));
-  const points = weeklySeries(txns, from, current);
+  const points = weeklySeries(txns, from, current, hiddenSlugSet(categories));
   return { range, kind: "weekly", caption: "", points: points.map((point) => point.cents) };
 }
 
 export function monthProgress(txns, today, planCents = PLAN_CENTS, categories, env = process.env, saved = false) {
   const month = monthBounds(today);
+  const hidden = hiddenSlugSet(categories);
   const spent = txns
     .map(effective)
-    .filter((row) => row.date >= month.start && row.date <= today)
+    .filter((row) => row.date >= month.start && row.date <= today && countsInTotals(row, hidden))
     .reduce((sum, row) => sum + spendCents(row), 0);
   const confirmed = saved === true;
   const budget = productionNav(env) && !confirmed ? null : monthlyPlanCents(planCents, categories);
@@ -1060,12 +1251,19 @@ function dateLabel(ymd) {
   return `${WEEKDAYS[weekdayIndex(ymd)]} ${formatDay(ymd)}`;
 }
 
-function recentMeta(row) {
+function namedCategory(slug, categories) {
+  if (!slug) return "";
+  const live = (Array.isArray(categories) ? categories : CATEGORIES).find((item) => item && item.slug === slug && item.removed !== true);
+  if (live && live.name) return live.name;
+  return categoryBySlug(slug)?.name || slug;
+}
+
+function recentMeta(row, categories = CATEGORIES) {
   if (row.type === "income") return `${dateLabel(row.date)} · Income`;
   if (row.type === "transfer") return `${dateLabel(row.date)} · Transfer`;
-  if (row.type === "refund") return `${dateLabel(row.date)} · ${categoryBySlug(row.category)?.name || "Refund"}`;
+  if (row.type === "refund") return `${dateLabel(row.date)} · ${namedCategory(row.category, categories) || "Refund"}`;
   if (!row.category) return `${dateLabel(row.date)} · Uncategorized`;
-  return `${dateLabel(row.date)} · ${categoryBySlug(row.category)?.name || row.category}`;
+  return `${dateLabel(row.date)} · ${namedCategory(row.category, categories)}`;
 }
 
 function flowRow(key, label, title, incomeCents, spentCents, current) {
@@ -1196,32 +1394,81 @@ function yearWindows(today, count = 6) {
   return rows;
 }
 
-function flowSums(txns, start, end) {
+function flowSums(txns, start, end, hidden = new Set()) {
   let incomeCents = 0;
   let spentCents = 0;
   for (const row of (txns || []).map(effective)) {
     if (!row.date || row.date < start || row.date > end) continue;
+    if (!countsInTotals(row, hidden) && row.type !== "income") continue;
     if (row.type === "income") incomeCents += Math.abs(row.amountCents || 0);
     else spentCents += spendCents(row);
   }
   return { incomeCents, spentCents };
 }
 
-function presentFlow(windows, txns) {
+function presentFlow(windows, txns, hidden = new Set()) {
   return windows.map((window) => {
-    const sums = flowSums(txns, window.start, window.end);
+    const sums = flowSums(txns, window.start, window.end, hidden);
     return flowRow(window.key, window.label, window.title, sums.incomeCents, sums.spentCents, window.current);
   });
 }
 
-export function incomeSpent(txns, today, seeded) {
-  if (seeded) return { Week: SEED_FLOW_WEEK, Month: SEED_FLOW_MONTH, Quarter: SEED_FLOW_QUARTER, Year: SEED_FLOW_YEAR };
+function hiddenSpendBetween(txns, hidden, start, end) {
+  if (!hidden.size) return 0;
+  let drop = 0;
+  for (const row of (txns || []).map(effective)) {
+    if (countsInTotals(row, hidden)) continue;
+    if (!row.date || row.date < start || row.date > end) continue;
+    drop += spendCents(row);
+  }
+  return drop;
+}
+
+function adjustSeedFlow(rows, txns, hidden, bounds) {
+  if (!hidden.size) return rows;
+  return rows.map((row) => {
+    if (!row.current) return row;
+    const window = bounds(row);
+    const spentCents = Math.max(0, row.spentCents - hiddenSpendBetween(txns, hidden, window.start, window.end));
+    return { ...row, spentCents, over: spentCents > row.incomeCents };
+  });
+}
+
+function monthKeyEnd(key) {
+  const [year, month] = key.split("-").map(Number);
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${key}-${String(last).padStart(2, "0")}`;
+}
+
+function quarterBounds(key) {
+  const match = /^(\d{4})-Q([1-4])$/.exec(key || "");
+  if (!match) return { start: "1970-01-01", end: "1970-01-01" };
+  const year = Number(match[1]);
+  const startMonth = (Number(match[2]) - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const last = new Date(Date.UTC(year, endMonth, 0)).getUTCDate();
+  return {
+    start: `${year}-${String(startMonth).padStart(2, "0")}-01`,
+    end: `${year}-${String(endMonth).padStart(2, "0")}-${String(last).padStart(2, "0")}`,
+  };
+}
+
+export function incomeSpent(txns, today, seeded, categories) {
+  const hidden = hiddenSlugSet(categories);
+  if (seeded) {
+    return {
+      Week: adjustSeedFlow(SEED_FLOW_WEEK, txns, hidden, (row) => ({ start: row.key, end: addDays(row.key, 6) })),
+      Month: adjustSeedFlow(SEED_FLOW_MONTH, txns, hidden, (row) => ({ start: `${row.key}-01`, end: monthKeyEnd(row.key) })),
+      Quarter: adjustSeedFlow(SEED_FLOW_QUARTER, txns, hidden, (row) => quarterBounds(row.key)),
+      Year: adjustSeedFlow(SEED_FLOW_YEAR, txns, hidden, (row) => ({ start: `${row.key}-01-01`, end: `${row.key}-12-31` })),
+    };
+  }
   const rows = Array.isArray(txns) ? txns : [];
   return {
-    Week: presentFlow(weekWindows(today), rows),
-    Month: presentFlow(monthWindows(today), rows),
-    Quarter: presentFlow(quarterWindows(today), rows),
-    Year: presentFlow(yearWindows(today), rows),
+    Week: presentFlow(weekWindows(today), rows, hidden),
+    Month: presentFlow(monthWindows(today), rows, hidden),
+    Quarter: presentFlow(quarterWindows(today), rows, hidden),
+    Year: presentFlow(yearWindows(today), rows, hidden),
   };
 }
 
@@ -1252,9 +1499,9 @@ export function overview(txns, now, week, range, caps = defaultCaps(), context =
       previousWeek: addDays(start, -7),
       nextWeek: start === weekStart(today) ? null : addDays(start, 7),
       netWorthCents,
-      chart: presentChart(chartFor(txns, today, chosen, snapshot), netWorthCents),
+      chart: presentChart(chartFor(txns, today, chosen, snapshot, categories), netWorthCents),
       month: monthProgress(txns, today, planCents, categories, env, context.budgetsSaved === true),
-      flow: incomeSpent(txns, today, syntheticSeedEnabled(env)),
+      flow: incomeSpent(txns, today, syntheticSeedEnabled(env), categories),
       caps: capsForWeek(txns, start, caps, categories),
       recent: recent.map((row) => ({
         id: row.id,
@@ -1386,7 +1633,10 @@ export function categoriesSnapshot(txns, now, period = "month", caps = defaultCa
     });
   }
   const budgetCents = items.reduce((sum, item) => sum + (Number.isInteger(item.capCents) ? item.capCents : 0), 0);
-  const spentCents = monthMode ? pool.reduce((sum, row) => sum + spendCents(row), 0) : items.reduce((sum, item) => sum + item.spentCents, 0);
+  const hidden = hiddenSlugSet(categories);
+  const spentCents = monthMode
+    ? pool.filter((row) => countsInTotals(row, hidden)).reduce((sum, row) => sum + spendCents(row), 0)
+    : items.reduce((sum, item) => sum + item.spentCents, 0);
   const estimates = monthMode && saved !== true && items.some((item) => item.estimate);
   return {
     period: monthMode ? "month" : "week",
@@ -1420,7 +1670,7 @@ function signedAmount(type, cents) {
   return type === "income" || type === "refund" ? Math.abs(cents) : -Math.abs(cents);
 }
 
-export function presentTransaction(row) {
+export function presentTransaction(row, categories = CATEGORIES) {
   const shown = effective(row);
   return {
     id: shown.id,
@@ -1430,7 +1680,7 @@ export function presentTransaction(row) {
     category: shown.category,
     type: shown.type,
     source: row.source || "manual",
-    meta: recentMeta(shown),
+    meta: recentMeta(shown, categories),
     corrected: shown.corrected,
     accountId: shown.accountId || null,
     uncategorized: shown.type === "expense" && !shown.category,
@@ -1443,7 +1693,7 @@ export function presentTransaction(row) {
   };
 }
 
-export function transactionsForWeek(rows, now = Date.now(), week = "", accountId = "") {
+export function transactionsForWeek(rows, now = Date.now(), week = "", accountId = "", categories = CATEGORIES) {
   const today = detroitYmd(now);
   const start = week && week.length === 10 ? weekStart(week) : weekStart(today);
   if (start > weekStart(today)) return { status: 400, body: { detail: "That week has not started.", field: "week" } };
@@ -1462,7 +1712,7 @@ export function transactionsForWeek(rows, now = Date.now(), week = "", accountId
       previousWeek: addDays(start, -7),
       nextWeek: addDays(start, 7) <= weekStart(today) ? addDays(start, 7) : null,
       accountId: accountId || null,
-      rows: linked.map((row) => presentTransaction(rows.find((item) => item.id === row.id) || row)),
+      rows: linked.map((row) => presentTransaction(rows.find((item) => item.id === row.id) || row, categories)),
     },
   };
 }
@@ -1483,13 +1733,13 @@ export function collectMonthTransactions(pages) {
   return collected;
 }
 
-export function monthTransactionPages(txns, now = Date.now()) {
+export function monthTransactionPages(txns, now = Date.now(), categories = CATEGORIES) {
   const today = detroitYmd(now);
   const monthStart = `${today.slice(0, 7)}-01`;
   const pages = [];
   let week = "";
   for (let step = 0; step < 8; step += 1) {
-    const page = transactionsForWeek(txns, now, week, "");
+    const page = transactionsForWeek(txns, now, week, "", categories);
     if (page.status !== 200) break;
     pages.push(page.body);
     if (!page.body.previousWeek || page.body.weekStart <= monthStart) break;
@@ -1506,12 +1756,13 @@ export function spendingMonth(txns, now = Date.now(), caps = defaultCaps(), cate
   const listed = categories || CATEGORIES;
   const snapshot = categoriesSnapshot(txns, now, "month", caps, listed, saved);
   const card = monthProgress(txns, today, planCents ?? PLAN_CENTS, listed, env, saved === true);
+  const hidden = hiddenSlugSet(listed);
   return {
     status: 200,
     body: {
       month: card,
       ...snapshot,
-      transactions: collectMonthTransactions(monthTransactionPages(txns, now)),
+      transactions: collectMonthTransactions(monthTransactionPages(txns, now, listed)).filter((row) => countsInTotals(row, hidden)),
     },
   };
 }
@@ -1853,6 +2104,29 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     if (key) idem.set(`budgets:${key}`, result);
     return result;
   };
+  store.financeBuckets = async (now = Date.now()) => bucketsSnapshot(categoryRows, rows, now);
+  store.financeCreateCategory = async (body, key = "") => {
+    if (key && idem.has(`category:${key}`)) return idem.get(`category:${key}`);
+    const result = createBucket(categoryRows, body);
+    if (result.status === 201) categoryRows = result.categories;
+    const stored = { status: result.status, body: result.body };
+    if (key && result.status === 201) idem.set(`category:${key}`, stored);
+    return stored;
+  };
+  store.financePatchCategory = async (slug, body) => {
+    const result = patchBucket(categoryRows, slug, body);
+    if (result.status === 200) categoryRows = result.categories;
+    return { status: result.status, body: result.body };
+  };
+  store.financeDeleteCategory = async (slug) => {
+    const result = removeBucket(categoryRows, slug, rows, caps);
+    if (result.status === 200) {
+      categoryRows = result.categories;
+      rows = result.transactions;
+      caps = result.caps;
+    }
+    return { status: result.status, body: result.body };
+  };
   store.financeAccounts = async (now = Date.now(), options = {}) => accountsSnapshot(manualAccounts, legacyAccounts, now, options);
   store.financeAccount = async (id, now = Date.now()) => {
     const account = manualAccounts.find((item) => item.id === id);
@@ -1940,11 +2214,11 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   };
   store.financeTransactions = async (now = Date.now(), week = "", accountId = "") => {
     if (accountId && !knownIds().has(accountId)) return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
-    return transactionsForWeek(rows, now, week, accountId);
+    return transactionsForWeek(rows, now, week, accountId, categoryRows);
   };
   store.financeTransaction = async (id) => {
     const row = rows.find((item) => item.id === id);
-    return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+    return row ? { status: 200, body: presentTransaction(row, categoryRows) } : { status: 404, body: { detail: "That transaction is not here." } };
   };
   store.financeCreateTransaction = async (body, now = Date.now(), key = "") => {
     if (key && idem.has(`create:${key}`)) return idem.get(`create:${key}`);
