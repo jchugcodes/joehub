@@ -24,6 +24,17 @@ const TASK_METHODS = [
   "deleteList",
 ];
 
+const GROCERY_METHODS = [
+  "listGrocery",
+  "createGrocery",
+  "getGrocery",
+  "patchGrocery",
+  "deleteGrocery",
+  "checkGrocery",
+  "uncheckGrocery",
+  "clearGrocery",
+];
+
 function unavailableStore() {
   const fail = async () => {
     throw new StoreError();
@@ -55,16 +66,23 @@ function unavailableStore() {
     listGrocery: fail,
     createGrocery: fail,
     getGrocery: fail,
+    patchGrocery: fail,
+    deleteGrocery: fail,
+    checkGrocery: fail,
+    uncheckGrocery: fail,
+    clearGrocery: fail,
   };
 }
 
 // Dev and unit tests keep one in-memory store for this process. Production and
 // preview set the Upstash REST URL so every instance, including middleware,
 // reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves Tasks
-// and the task lists that read or write those tasks onto libSQL. The libSQL
-// URL and token are JOEHUB_LIBSQL_URL and JOEHUB_LIBSQL_AUTH_TOKEN, then
-// TURSO_DATABASE_URL and TURSO_AUTH_TOKEN. The Turso names do not select a
-// backend. Sessions, devices, grocery, and finance stay on this store.
+// and the task lists that read or write those tasks onto libSQL.
+// JOEHUB_BACKEND_GROCERY=sqlite moves Grocery onto libSQL. One flag does not
+// move the other area. The libSQL URL and token are JOEHUB_LIBSQL_URL and
+// JOEHUB_LIBSQL_AUTH_TOKEN, then TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.
+// The Turso names do not select a backend. Sessions, devices, and finance
+// stay on this store.
 // An invalid JOEHUB_KEY_PREFIX never falls open onto the production key namespace.
 function buildBase(env) {
   const prefix = readKeyPrefix(env);
@@ -98,9 +116,9 @@ function buildBase(env) {
   };
 }
 
-function useSqliteTasks(store, sqlite) {
+function useSqliteMethods(store, sqlite, methods) {
   const next = { ...store };
-  for (const name of TASK_METHODS) {
+  for (const name of methods) {
     const method = sqlite[name];
     next[name] = (...args) => method(...args);
   }
@@ -110,11 +128,18 @@ function useSqliteTasks(store, sqlite) {
 export function createRuntime(env = process.env, options = {}) {
   const areas = readAreaBackends(env);
   const runtime = buildBase(env);
-  if (areas.tasks !== "sqlite" || !readKeyPrefix(env).ok) return runtime;
-  const sqlite = options.tasksClient
-    ? createSqliteStore({ client: options.tasksClient, env })
+  if (!readKeyPrefix(env).ok) return runtime;
+  const tasksOn = areas.tasks === "sqlite";
+  const groceryOn = areas.grocery === "sqlite";
+  if (!tasksOn && !groceryOn) return runtime;
+  const client = options.sqliteClient || options.tasksClient || options.groceryClient;
+  const sqlite = client
+    ? createSqliteStore({ client, env })
     : createSqliteStore({ ...readLibsqlConfig(env), env });
-  return { ...runtime, store: useSqliteTasks(runtime.store, sqlite) };
+  let store = runtime.store;
+  if (tasksOn) store = useSqliteMethods(store, sqlite, TASK_METHODS);
+  if (groceryOn) store = useSqliteMethods(store, sqlite, GROCERY_METHODS);
+  return { ...runtime, store };
 }
 
 const globalKey = Symbol.for("joehub.web.memory");

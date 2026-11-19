@@ -168,10 +168,10 @@ async function listScenario(store, now) {
 }
 
 test("tasks flag defaults to upstash and rejects an unknown value", () => {
-  assert.deepEqual(readAreaBackends({}), { tasks: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "  " }), { tasks: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "upstash" }), { tasks: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "sqlite" }), { tasks: "sqlite" });
+  assert.deepEqual(readAreaBackends({}), { tasks: "upstash", grocery: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "  " }), { tasks: "upstash", grocery: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "upstash" }), { tasks: "upstash", grocery: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_TASKS: "sqlite" }), { tasks: "sqlite", grocery: "upstash" });
   assert.throws(() => readAreaBackends({ JOEHUB_BACKEND_TASKS: "postgres" }), /unknown JOEHUB_BACKEND_TASKS/);
   assert.throws(() => readAreaBackends({ JOEHUB_BACKEND_TASKS: "SQLite" }), /unknown JOEHUB_BACKEND_TASKS/);
 });
@@ -286,7 +286,7 @@ test("startup allows a remote libSQL URL only when an area is sqlite", () => {
   );
 });
 
-test("sqlite tasks match upstash and other areas stay unmigrated", async () => {
+test("sqlite tasks match upstash and finance stays unmigrated", async () => {
   const quiet = { VERCEL_ENV: "production" };
   const fake = await startFakeUpstash();
   const seedFake = await startFakeUpstash();
@@ -302,7 +302,7 @@ test("sqlite tasks match upstash and other areas stay unmigrated", async () => {
     const sqliteSeed = createSqliteStore({ client: seeded, env: {} });
     assert.deepEqual(await sqliteSeed.listUnfinishedTasks(NOW), await upstashSeed.listUnfinishedTasks(NOW));
 
-    assert.throws(() => sqlite.listGrocery(), /not migrated/);
+    assert.deepEqual(await sqlite.listGrocery(), []);
     assert.deepEqual(await sqlite.listLists(), []);
     assert.throws(() => sqlite.financeGoals(), /not migrated/);
     assert.throws(() => sqlite.getSession("session", NOW), /not migrated/);

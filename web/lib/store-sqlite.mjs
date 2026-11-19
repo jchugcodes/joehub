@@ -1,5 +1,14 @@
 import { createClient } from "@libsql/client";
 import { syntheticSeedEnabled } from "./seed.mjs";
+import {
+  isItemId,
+  performCheck as performGroceryCheck,
+  performClear as performGroceryClear,
+  performCreate as performGroceryCreate,
+  performDelete as performGroceryDelete,
+  performPatch as performGroceryPatch,
+  SAMPLE_GROCERY,
+} from "./grocery.mjs";
 import { validateListCreate, validateListPatch } from "./list-store.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { StoreError } from "./store-upstash.mjs";
@@ -20,6 +29,7 @@ const CLAIM_MS = 30 * 1000;
 const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 
 // Tasks tables come from web/migrations-libsql/003_tasks.sql.
+// Grocery documents come from 004_grocery_and_lists.sql plus 006_grocery_documents.sql.
 // createSqliteStore does not migrate.
 const LIST_ID = /^[A-Za-z0-9-]{1,80}$/;
 const TASK_METHODS = [
@@ -281,6 +291,152 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
     return moved;
   }
 
+  function groceryValues(item) {
+    return [
+      item.name,
+      item.quantity || null,
+      item.notes || null,
+      item.section || null,
+      item.checked ? 1 : 0,
+      item.createdAt,
+      item.updatedAt,
+      item.sourceId || null,
+      typeof item.checkedAt === "number" ? item.checkedAt : null,
+      JSON.stringify(item),
+    ];
+  }
+
+  const GROCERY_WRITE = `name = ?, quantity = ?, notes = ?, section = ?, checked = ?, created_at = ?, updated_at = ?, source_id = ?, checked_at = ?, body = ?`;
+
+  async function claimGrocerySource(item) {
+    if (!item.sourceId) return;
+    await run("UPDATE grocery_items SET source_id = NULL WHERE source_id = ? AND id != ?", [item.sourceId, item.id]);
+  }
+
+  function itemScore(item) {
+    if (item.checked) return typeof item.checkedAt === "number" ? item.checkedAt : item.updatedAt;
+    return item.createdAt;
+  }
+
+  function byGroceryIndex(left, right) {
+    return left.score - right.score || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  }
+
+  const grocery = {
+    async putItem(item) {
+      const inserted = await run(
+        `INSERT INTO grocery_items (
+           id, name, quantity, notes, section, checked, created_at, updated_at, source_id, checked_at, body
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+        [item.id, ...groceryValues(item)],
+      );
+      if (Number(inserted.rowsAffected) !== 1) return false;
+      await claimGrocerySource(item);
+      return true;
+    },
+    async replaceItem(item) {
+      const updated = await run(`UPDATE grocery_items SET ${GROCERY_WRITE} WHERE id = ?`, [...groceryValues(item), item.id]);
+      if (Number(updated.rowsAffected) !== 1) return false;
+      await claimGrocerySource(item);
+      return true;
+    },
+    async moveItem(item) {
+      return this.replaceItem(item);
+    },
+    async deleteItem(id) {
+      if (!isItemId(id)) return false;
+      const removed = await run("DELETE FROM grocery_items WHERE id = ?", [id]);
+      return Number(removed.rowsAffected) === 1;
+    },
+    async getItem(id) {
+      if (!isItemId(id)) return null;
+      const row = await one("SELECT body FROM grocery_items WHERE id = ?", [id]);
+      if (!row) return null;
+      if (row.body == null || row.body === "") throw new StoreError();
+      return parse(row.body);
+    },
+    async list() {
+      const result = await run("SELECT id, body FROM grocery_items");
+      const rows = result.rows.map((row) => {
+        if (row.body == null || row.body === "") throw new StoreError();
+        const item = parse(row.body);
+        return { id: String(row.id), item, score: itemScore(item), checked: Boolean(item.checked) };
+      });
+      const unchecked = rows.filter((row) => !row.checked).sort(byGroceryIndex);
+      const checked = rows.filter((row) => row.checked).sort(byGroceryIndex);
+      return [...unchecked, ...checked].map((row) => row.item);
+    },
+    async readIdem(key, now = Date.now()) {
+      const row = await one("SELECT body, expires_at FROM grocery_idempotency WHERE key = ?", [key]);
+      if (!row) return null;
+      if (Number(row.expires_at) <= now) {
+        await run("DELETE FROM grocery_idempotency WHERE key = ?", [key]);
+        return null;
+      }
+      const parsed = parse(row.body);
+      if (parsed.status && parsed.body) return { status: parsed.status, body: parsed.body };
+      if (parsed.pending && parsed.itemId) {
+        const item = await this.getItem(parsed.itemId);
+        if (item) return { status: 201, body: item };
+      }
+      if (parsed.pending) return null;
+      throw new StoreError();
+    },
+    async writeIdem(key, response, now = Date.now()) {
+      await run(
+        `INSERT INTO grocery_idempotency (key, body, expires_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET body = excluded.body, expires_at = excluded.expires_at`,
+        [key, JSON.stringify(response), now + IDEM_TTL_MS],
+      );
+    },
+    async noteCreated(key, response, now = Date.now()) {
+      const itemId = response && response.body ? response.body.id : "";
+      await run(
+        `INSERT INTO grocery_idempotency (key, body, expires_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET body = excluded.body, expires_at = excluded.expires_at`,
+        [key, JSON.stringify({ pending: true, itemId }), now + IDEM_TTL_MS],
+      );
+    },
+    async claimIdem(key, now = Date.now()) {
+      await run("DELETE FROM grocery_idempotency WHERE key = ? AND expires_at <= ?", [key, now]);
+      const inserted = await run(
+        `INSERT INTO grocery_idempotency (key, body, expires_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO NOTHING`,
+        [key, JSON.stringify({ pending: true }), now + CLAIM_MS],
+      );
+      return Number(inserted.rowsAffected) === 1;
+    },
+    async releasePending(key) {
+      const row = await one("SELECT body FROM grocery_idempotency WHERE key = ?", [key]);
+      if (!row) return;
+      const parsed = parse(row.body);
+      if (parsed && parsed.pending && !parsed.itemId) await run("DELETE FROM grocery_idempotency WHERE key = ?", [key]);
+    },
+  };
+
+  async function groceryIdForSource(sourceId) {
+    if (!sourceId) return "";
+    const row = await one("SELECT id FROM grocery_items WHERE source_id = ? LIMIT 1", [sourceId]);
+    return row ? String(row.id) : "";
+  }
+
+  async function ensureGrocerySeeded() {
+    if (!allowSeed) return;
+    const existing = await one("SELECT value FROM grocery_flags WHERE key = ?", ["seeded"]);
+    if (existing) return;
+    for (const sample of SAMPLE_GROCERY) {
+      await run(
+        `INSERT INTO grocery_items (
+           id, name, quantity, notes, section, checked, created_at, updated_at, source_id, checked_at, body
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+        [sample.id, ...groceryValues(sample)],
+      );
+    }
+    await run("INSERT INTO grocery_flags (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO NOTHING");
+  }
+
   const api = {
     async listUnfinishedTasks(now) {
       await ensureSeeded(now);
@@ -375,6 +531,46 @@ export function createSqliteStore({ client, url, authToken, env = process.env } 
       const moved = await clearProject(id);
       await run("DELETE FROM lists WHERE id = ?", [id]);
       return { status: 200, body: { deleted: true, id, moved } };
+    },
+    async listGrocery() {
+      await ensureGrocerySeeded();
+      return grocery.list();
+    },
+    async createGrocery(raw, idemKey, now, scope) {
+      await ensureGrocerySeeded();
+      const source = readOptionalSourceId(raw || {});
+      if (source.ok && source.sourceId) {
+        const existingId = await groceryIdForSource(source.sourceId);
+        if (existingId) {
+          const existing = await grocery.getItem(existingId);
+          if (existing) return performGroceryPatch(grocery, existingId, raw, now);
+        }
+      }
+      return performGroceryCreate(grocery, raw, idemKey, now, undefined, scope || "");
+    },
+    async getGrocery(id) {
+      await ensureGrocerySeeded();
+      return grocery.getItem(id);
+    },
+    async patchGrocery(id, raw, now) {
+      await ensureGrocerySeeded();
+      return performGroceryPatch(grocery, id, raw, now);
+    },
+    async deleteGrocery(id) {
+      await ensureGrocerySeeded();
+      return performGroceryDelete(grocery, id);
+    },
+    async checkGrocery(id, now) {
+      await ensureGrocerySeeded();
+      return performGroceryCheck(grocery, id, now, true);
+    },
+    async uncheckGrocery(id, now) {
+      await ensureGrocerySeeded();
+      return performGroceryCheck(grocery, id, now, false);
+    },
+    async clearGrocery() {
+      await ensureGrocerySeeded();
+      return performGroceryClear(grocery);
     },
   };
 
