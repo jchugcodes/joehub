@@ -328,6 +328,32 @@ export function GrocerySkeleton() {
   );
 }
 
+export function GoalsSkeleton({ wide = false }: { wide?: boolean }) {
+  const inset = wide ? "" : "px-5";
+  return (
+    <div data-skeleton="goals" aria-busy="true">
+      <div className={inset}>
+        <TextLine height={13} width={72} />
+      </div>
+      <div className={`mt-2.5 space-y-2.5 ${inset}`}>
+        {[0, 1, 2, 3].map((index) => (
+          <Card key={index} className="flex min-h-11 items-center gap-4 p-4">
+            <Circle size={72} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <TextLine height={17} width={140} />
+              <TextLine height={13} width={108} className="mt-2" />
+              <TextLine height={13} width={168} className="mt-2" />
+            </span>
+          </Card>
+        ))}
+      </div>
+      <div className={`mt-3 ${inset}`}>
+        <TextLine height={13} width={96} />
+      </div>
+    </div>
+  );
+}
+
 export function AccountsSkeleton({ wide = false }: { wide?: boolean }) {
   const inset = wide ? "" : "mx-4";
   return (

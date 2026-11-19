@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createGoal, deleteGoal, patchGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
@@ -957,6 +957,20 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const stored = { status: result.status, body: result.body };
       if (key && result.status === 201) await command(["SET", k(`joehub:finance:goal:idem:${key}`), JSON.stringify(stored), "EX", "86400"]);
       return stored;
+    },
+    async financePatchGoal(slug, body) {
+      await ensureFinance();
+      const existing = (await this.financeBundle()).goals;
+      const result = patchGoal(existing, slug, body);
+      if (result.status === 200) await command(["SET", k("joehub:finance:goals"), JSON.stringify(result.goals)]);
+      return { status: result.status, body: result.body };
+    },
+    async financeDeleteGoal(slug) {
+      await ensureFinance();
+      const existing = (await this.financeBundle()).goals;
+      const result = deleteGoal(existing, slug);
+      if (result.status === 200) await command(["SET", k("joehub:finance:goals"), JSON.stringify(result.goals)]);
+      return { status: result.status, body: result.body };
     },
     async financeTransactions(now = Date.now(), week = "", accountId = "") {
       await ensureFinance();

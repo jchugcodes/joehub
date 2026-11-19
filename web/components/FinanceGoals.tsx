@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
-import { useOverlayHolds, useOverlays } from "./LivePages";
+import { readSkeletonHold } from "../lib/skeleton-gate.mjs";
+import { useOverlayHolds, useOverlays, useSkeletonHolds, useSkeletons } from "./LivePages";
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { OverlayPanel } from "./OverlayPanel";
 import { Sheet } from "./Sheet";
-import { goalMonthlyCents, money } from "../lib/finance.mjs";
+import { GoalsSkeleton } from "./Skeleton";
+import { goalIsHidden, goalMonthlyCents, goalStatus, money } from "../lib/finance.mjs";
 
 type Goal = {
   slug: string;
@@ -24,6 +26,19 @@ type Goal = {
   kind?: string;
   account?: string;
   color?: string;
+  status?: string;
+  period?: string;
+  targetDate?: string;
+};
+
+type EditDraft = {
+  name: string;
+  saved: string;
+  target: string;
+  status: string;
+  period: string;
+  targetDate: string;
+  monthly: string;
 };
 
 const FALLBACK = ["#2E8B6A", "#3A86C8", "#E9B949", "#8E7CC3"];
@@ -57,7 +72,38 @@ function centsFromInput(value: string) {
   return Number(whole) * 100 + Number(frac.padEnd(2, "0"));
 }
 
-function Detail({ goal, boxed, titled, panel, showPercent, showTarget }: { goal: Goal; boxed?: boolean; titled?: boolean; panel?: boolean; showPercent?: boolean; showTarget?: boolean }) {
+function dollars(cents: number) {
+  const whole = Math.floor(Math.abs(cents) / 100);
+  const frac = Math.abs(cents) % 100;
+  return frac === 0 ? String(whole) : `${whole}.${String(frac).padStart(2, "0")}`;
+}
+
+function statusLabel(status: string) {
+  if (status === "not_started") return "Not started";
+  if (status === "paused") return "Paused";
+  if (status === "inactive") return "Inactive";
+  return "Active";
+}
+
+function formatDate(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function editFrom(goal: Goal): EditDraft {
+  return {
+    name: goal.name,
+    saved: Number.isInteger(goal.savedCents) ? dollars(goal.savedCents as number) : "",
+    target: Number.isInteger(goal.targetCents) ? dollars(goal.targetCents as number) : "",
+    status: goalStatus(goal),
+    period: goal.period === "yearly" ? "yearly" : "none",
+    targetDate: goal.targetDate || "",
+    monthly: Number.isInteger(goal.monthlyCents) ? dollars(goal.monthlyCents as number) : "",
+  };
+}
+
+function Detail({ goal, boxed, titled, panel, showPercent, showTarget, onEdit }: { goal: Goal; boxed?: boolean; titled?: boolean; panel?: boolean; showPercent?: boolean; showTarget?: boolean; onEdit?: () => void }) {
   const color = goal.color || FALLBACK[0];
   const shown = Number.isFinite(goal.value) ? Math.max(0, Math.min(100, Math.round(goal.value))) : 0;
   const percent = showPercent ?? !titled;
@@ -65,6 +111,8 @@ function Detail({ goal, boxed, titled, panel, showPercent, showTarget }: { goal:
   const rows = [
     goal.kind ? ["Type", goal.kind] : null,
     target ? ["Target", goal.target] : null,
+    goal.targetDate ? ["Target date", formatDate(goal.targetDate)] : null,
+    goal.status ? ["Status", statusLabel(goal.status)] : null,
     goal.account ? ["In account", goal.account] : null,
     Number.isInteger(goal.monthlyCents) ? ["Monthly", money(goal.monthlyCents as number)] : null,
   ].filter((row): row is string[] => Array.isArray(row));
@@ -74,7 +122,10 @@ function Detail({ goal, boxed, titled, panel, showPercent, showTarget }: { goal:
         <Ring value={shown} color={color} size={140} stroke={12} label={`${goal.name} ${shown} percent`} />
         {titled ? <h2 className="mt-4 text-section font-medium text-ink">{goal.name}</h2> : null}
         <p className={`${titled ? "mt-2" : "mt-4"} text-title font-medium tabular-nums text-ink`}>{goal.amount}</p>
-        <p className="mt-1 text-body text-muted">of {goal.target}</p>
+        <p className="mt-1 text-body text-muted">
+          of {goal.target}
+          {goal.period === "yearly" ? <> <span className="text-meta" data-yearly="true">yearly</span></> : null}
+        </p>
         {percent ? (
           <p className="mt-2 text-body font-medium" style={{ color }}>
             {shown}%
@@ -89,6 +140,11 @@ function Detail({ goal, boxed, titled, panel, showPercent, showTarget }: { goal:
           </div>
         ))}
       </dl>
+      {onEdit ? (
+        <button type="button" data-goal-action="edit" className="mt-4 flex min-h-11 items-center px-1 text-body font-medium text-ink" onClick={onEdit}>
+          Edit
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -98,15 +154,23 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
   const search = useSearchParams();
   const overlayOn = useOverlays();
   const overlayHold = readOverlayHold(search, useOverlayHolds());
+  const skeletonOn = useSkeletons();
+  const holdsOn = useSkeletonHolds();
+  const hold = readSkeletonHold(search, holdsOn);
   const [wide, setWide] = useState(false);
   const [tone, setTone] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [field, setField] = useState("");
   const formKey = useId();
   const [draft, setDraft] = useState({ name: "", kind: "Savings", saved: "", target: "", note: "", account: "", monthly: "" });
+  const [edit, setEdit] = useState<EditDraft | null>(null);
   const panelOffline = overlayHold === "offline" || tone === "offline";
+  const bones = skeletonOn && hold === "skel";
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1024px)");
@@ -139,8 +203,16 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
     sessionStorage.removeItem("joehub.goals.return");
   }, [overlayOn, slug]);
 
+  useEffect(() => {
+    setEditing(false);
+    setConfirming(false);
+    setEdit(null);
+  }, [slug]);
+
   const rows = Array.isArray(goals) ? goals : [];
   const selected = rows.find((goal) => goal.slug === slug) || null;
+  const hidden = rows.filter((goal) => goalIsHidden(goal));
+  const shown = showHidden ? rows : rows.filter((goal) => !goalIsHidden(goal));
   const monthly = goalMonthlyCents(rows);
   const detailOnly = !overlayOn && !wide && Boolean(slug);
   const empty = !failed && rows.length === 0;
@@ -151,6 +223,8 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
   }
 
   function openAdd() {
+    setEditing(false);
+    setConfirming(false);
     setError("");
     setField("");
     setDraft({ name: "", kind: "Savings", saved: "", target: "", note: "", account: "", monthly: "" });
@@ -159,6 +233,28 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
 
   function editDraft(partial: Partial<typeof draft>) {
     setDraft({ ...draft, ...partial });
+    setError("");
+    setField("");
+  }
+
+  function openEdit() {
+    if (!selected || panelOffline) return;
+    setError("");
+    setField("");
+    setConfirming(false);
+    setEdit(editFrom(selected));
+    setEditing(true);
+  }
+
+  function closeEdit() {
+    setEditing(false);
+    setConfirming(false);
+    setError("");
+    setField("");
+  }
+
+  function changeEdit(partial: Partial<EditDraft>) {
+    setEdit((current) => (current ? { ...current, ...partial } : current));
     setError("");
     setField("");
   }
@@ -210,7 +306,65 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
     router.refresh();
   }
 
+  async function saveEdit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selected || !edit || saving || panelOffline) return;
+    const savedCents = centsFromInput(edit.saved);
+    const targetCents = centsFromInput(edit.target);
+    const monthlyCents = edit.monthly.trim() === "" ? null : centsFromInput(edit.monthly);
+    if (savedCents == null || targetCents == null || targetCents <= 0) return;
+    if (edit.monthly.trim() !== "" && monthlyCents == null) {
+      setField("monthly");
+      setError("Enter a monthly amount.");
+      return;
+    }
+    const payload: Record<string, unknown> = {};
+    if (edit.name.trim() !== selected.name) payload.name = edit.name.trim();
+    if (savedCents !== selected.savedCents) payload.savedCents = savedCents;
+    if (targetCents !== selected.targetCents) payload.targetCents = targetCents;
+    if (edit.status !== goalStatus(selected)) payload.status = edit.status;
+    if ((edit.period === "yearly" ? "yearly" : "none") !== (selected.period === "yearly" ? "yearly" : "none")) payload.period = edit.period;
+    if (edit.targetDate !== (selected.targetDate || "")) payload.targetDate = edit.targetDate;
+    const originalMonthly = Number.isInteger(selected.monthlyCents) ? selected.monthlyCents : null;
+    if (monthlyCents !== originalMonthly) payload.monthlyCents = monthlyCents;
+    if (!Object.keys(payload).length) return;
+    setSaving(true);
+    setError("");
+    const response = await fetch(`/api/finance/goals/${selected.slug}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setField(String(body.field || ""));
+      setError(String(body.detail || "Could not save."));
+      return;
+    }
+    closeEdit();
+    router.refresh();
+  }
+
+  async function remove(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (!selected || saving || panelOffline) return;
+    setSaving(true);
+    setError("");
+    const response = await fetch(`/api/finance/goals/${selected.slug}`, { method: "DELETE" });
+    setSaving(false);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setError(String(body.detail || "Could not delete."));
+      return;
+    }
+    closeEdit();
+    router.push("/finance/goals");
+    router.refresh();
+  }
+
   const fieldClass = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-base outline-none focus:border-2 focus:border-ink";
+  const moneyClass = "min-h-11 w-full min-w-0 rounded-xl border border-line bg-surface py-3 pl-7 pr-3 text-base outline-none focus:border-2 focus:border-ink";
 
   const goalForm = (
     <form id="goal-add" key={formKey} onSubmit={save} className="space-y-4">
@@ -255,6 +409,81 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
     </form>
   );
 
+  const editSaved = edit ? centsFromInput(edit.saved) : null;
+  const editTarget = edit ? centsFromInput(edit.target) : null;
+  const editMonthly = edit && edit.monthly.trim() !== "" ? centsFromInput(edit.monthly) : null;
+  const editDirty = Boolean(
+    selected &&
+      edit &&
+      (edit.name.trim() !== selected.name ||
+        editSaved !== (selected.savedCents ?? null) ||
+        editTarget !== (selected.targetCents ?? null) ||
+        edit.status !== goalStatus(selected) ||
+        (edit.period === "yearly" ? "yearly" : "none") !== (selected.period === "yearly" ? "yearly" : "none") ||
+        edit.targetDate !== (selected.targetDate || "") ||
+        editMonthly !== (Number.isInteger(selected.monthlyCents) ? selected.monthlyCents : null)),
+  );
+  const editValid = Boolean(edit && edit.name.trim() && editSaved != null && editTarget != null && editTarget > 0 && (edit.monthly.trim() === "" || editMonthly != null));
+  const canSaveEdit = editDirty && editValid;
+
+  const editForm = edit ? (
+    <form id="goal-edit" onSubmit={saveEdit} className="space-y-4">
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-name">Name</label>
+        <input id="goal-edit-name" value={edit.name} onChange={(event) => changeEdit({ name: event.target.value })} enterKeyHint="next" autoComplete="off" className={fieldClass} />
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-target">Target</label>
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-target" inputMode="decimal" enterKeyHint="next" value={edit.target} onChange={(event) => changeEdit({ target: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-saved">Saved</label>
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-saved" inputMode="decimal" enterKeyHint="next" value={edit.saved} onChange={(event) => changeEdit({ saved: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-status">Status</label>
+        <select id="goal-edit-status" value={edit.status} onChange={(event) => changeEdit({ status: event.target.value })} className={fieldClass}>
+          <option value="active">Active</option>
+          <option value="not_started">Not started</option>
+          <option value="paused">Paused</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-period">Period</label>
+        <select id="goal-edit-period" value={edit.period} onChange={(event) => changeEdit({ period: event.target.value })} className={fieldClass}>
+          <option value="none">None</option>
+          <option value="yearly">Yearly</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-date">Target date</label>
+        <input id="goal-edit-date" type="date" enterKeyHint="next" value={edit.targetDate} onChange={(event) => changeEdit({ targetDate: event.target.value })} className={fieldClass} />
+      </div>
+      <div>
+        <label className="block text-meta font-medium" htmlFor="goal-edit-monthly">Monthly</label>
+        <div className="relative mt-1">
+          <span aria-hidden="true" data-prefix="$" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted">$</span>
+          <input id="goal-edit-monthly" inputMode="decimal" enterKeyHint="done" value={edit.monthly} onChange={(event) => changeEdit({ monthly: event.target.value })} autoComplete="off" className={moneyClass} />
+        </div>
+      </div>
+      {error ? (
+        <p role="alert" className="text-meta font-medium text-warn" data-field={field}>
+          {error}
+        </p>
+      ) : null}
+      <button type="button" className="flex min-h-11 items-center text-body font-medium text-warn" onClick={() => setConfirming(true)}>
+        Delete
+      </button>
+    </form>
+  ) : null;
+
   const offlineBanner = (placed: "list" | "panel") =>
     overlayOn && panelOffline ? (
       <p role="status" data-state="offline" className={`${placed === "list" ? `mb-3 ${wide ? "" : "mx-5"}` : "mt-4"} rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10`}>
@@ -262,7 +491,9 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       </p>
     ) : null;
 
-  const list = failed ? (
+  const list = bones ? (
+    <GoalsSkeleton wide={wide} />
+  ) : failed ? (
     <p className="px-5 pt-16 text-center text-body">Goals didn’t load.</p>
   ) : empty ? (
     <div>
@@ -279,7 +510,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       {offlineBanner("list")}
       {monthly != null ? <p className={wide ? "text-meta text-muted" : "px-5 text-meta text-muted"}>{money(monthly)} / mo</p> : null}
       <ul className={`space-y-2.5 ${wide ? "mt-2" : "mt-2.5 px-5"}`}>
-        {rows.map((goal, index) => {
+        {shown.map((goal, index) => {
           const current = goal.slug === slug;
           return (
             <li key={goal.slug}>
@@ -293,8 +524,10 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
                 <span className="min-w-0 flex-1">
                   <span className="block text-section font-medium text-ink">{goal.name}</span>
                   {goal.note ? <span className="mt-0.5 block text-meta text-muted">{goal.note}</span> : null}
+                  {goal.targetDate ? <span className="mt-0.5 block text-meta text-muted">{formatDate(goal.targetDate)}</span> : null}
                   <span className="mt-1 block text-body font-medium tabular-nums text-ink">
                     {goal.amount} <span className="font-normal text-muted">of {goal.target}</span>
+                    {goal.period === "yearly" ? <> <span className="text-meta font-normal text-muted" data-yearly="true">yearly</span></> : null}
                   </span>
                 </span>
                 <Icon name="chevron" size={18} className="shrink-0 text-inactive" />
@@ -303,6 +536,17 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
           );
         })}
       </ul>
+      {hidden.length ? (
+        <button
+          type="button"
+          data-hidden-toggle="true"
+          aria-pressed={showHidden}
+          className={`mt-1 inline-flex min-h-11 min-w-11 items-center text-meta text-muted ${wide ? "px-1" : "px-5"}`}
+          onClick={() => setShowHidden((value) => !value)}
+        >
+          {showHidden ? "Hide" : `Show ${hidden.length} hidden`}
+        </button>
+      ) : null}
     </div>
   );
 
@@ -311,7 +555,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
 
   const detailBody = selected ? (
     <div className="px-5 py-4" data-goal-detail="true">
-      <Detail goal={selected} panel showPercent={!wide} showTarget={!wide} />
+      <Detail goal={selected} panel showPercent={!wide} showTarget={!wide} onEdit={panelOffline ? undefined : openEdit} />
       {offlineBanner("panel")}
     </div>
   ) : (
@@ -324,6 +568,40 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
         {detailBody}
       </OverlayPanel>
     ) : null;
+
+  const saveAction = (
+    <button type="submit" form="goal-edit" disabled={!canSaveEdit || saving || panelOffline} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+      <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{saving ? "Saving…" : "Save"}</span>
+    </button>
+  );
+
+  const deleteAction = (
+    <button type="button" disabled={saving || panelOffline} onClick={() => void remove()} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+      <span className="inline-flex h-8 items-center justify-center rounded-xl bg-warn px-3.5 text-body font-medium text-on-warn">{saving ? "Deleting…" : "Delete"}</span>
+    </button>
+  );
+
+  const editPanel = (panelWide: boolean) => (
+    <OverlayPanel
+      wide={panelWide}
+      title={confirming ? "Delete" : "Edit"}
+      onClose={closeEdit}
+      onBack={confirming ? () => setConfirming(false) : undefined}
+      form
+      confirming={confirming}
+      slim
+      sheet
+      action={confirming ? deleteAction : saveAction}
+    >
+      <div className="px-5 py-4">
+        {confirming ? (
+          <p data-delete-confirm="true" className="text-body text-ink">Delete goal?</p>
+        ) : (
+          editForm
+        )}
+      </div>
+    </OverlayPanel>
+  );
 
   const addPanel = (panelWide: boolean) => (
     <OverlayPanel
@@ -344,7 +622,7 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
   );
 
   return (
-    <div className="finance-type min-w-0 text-ink" data-ready={failed ? "error" : "true"} data-goals={failed ? "error" : empty ? "empty" : "list"} data-layout={wide ? "panel" : "sheet"}>
+    <div className="finance-type min-w-0 text-ink" data-ready={failed ? "error" : "true"} data-goals={failed ? "error" : bones ? "skeleton" : empty ? "empty" : "list"} data-layout={wide ? "panel" : "sheet"}>
       {detailOnly ? (
         <header className="flex items-center gap-1 px-2 pt-2">
           <Link href="/finance/goals" aria-label="Back" className="inline-flex h-11 w-11 shrink-0 items-center justify-center">
@@ -366,25 +644,41 @@ export function FinanceGoals({ goals, slug, failed }: { goals: Goal[] | null; sl
       <div className={wide ? "mt-4 flex min-w-0 items-start gap-6 px-5" : "mt-4"}>
         {wide || !detailOnly ? <div className="min-w-0 flex-1">{list}</div> : null}
         {overlayOn && adding ? addPanel(wide) : null}
-        {overlayOn && !adding && wide && slug ? detailPanel(true) : null}
-        {overlayOn && !adding && wide && !slug ? (
+        {overlayOn && editing ? editPanel(wide) : null}
+        {overlayOn && !adding && !editing && wide && slug ? detailPanel(true) : null}
+        {!overlayOn && wide && !adding && !editing && selected ? (
           <aside className="card w-[420px] shrink-0 p-5">
-            <p className="py-16 text-center text-body text-muted">Select a goal</p>
-          </aside>
-        ) : null}
-        {!overlayOn && wide && !adding ? (
-          <aside className="card w-[420px] shrink-0 p-5">
-            {selected ? <Detail goal={selected} titled /> : <p className="py-16 text-center text-body text-muted">Select a goal</p>}
+            <Detail goal={selected} titled onEdit={panelOffline ? undefined : openEdit} />
           </aside>
         ) : null}
         {!overlayOn && !wide && detailOnly ? (
-          selected ? <Detail goal={selected} boxed /> : <p className="px-5 pt-16 text-center text-body">That goal is not here.</p>
+          selected ? <Detail goal={selected} boxed onEdit={panelOffline ? undefined : openEdit} /> : <p className="px-5 pt-16 text-center text-body">That goal is not here.</p>
         ) : null}
       </div>
-      {overlayOn && !wide && !adding && slug ? detailPanel(false) : null}
+      {overlayOn && !wide && !adding && !editing && slug ? detailPanel(false) : null}
       {!overlayOn && adding ? (
         <Sheet title="Add a goal" onClose={() => setAdding(false)} formId="goal-add" header="slim" dock={wide ? "panel" : "sheet"} saveDisabled={saving}>
           {goalForm}
+        </Sheet>
+      ) : null}
+      {!overlayOn && editing ? (
+        <Sheet
+          title={confirming ? "Delete" : "Edit"}
+          onClose={confirming ? () => setConfirming(false) : closeEdit}
+          formId={confirming ? "goal-delete" : "goal-edit"}
+          header="slim"
+          dock={wide ? "panel" : "sheet"}
+          saveLabel={confirming ? "Delete" : saving ? "Saving…" : "Save"}
+          saveTone={confirming ? "warn" : "ink"}
+          saveDisabled={confirming ? saving || panelOffline : !canSaveEdit || saving || panelOffline}
+        >
+          {confirming ? (
+            <form id="goal-delete" onSubmit={remove}>
+              <p data-delete-confirm="true" className="text-body text-ink">Delete goal?</p>
+            </form>
+          ) : (
+            editForm
+          )}
         </Sheet>
       ) : null}
     </div>

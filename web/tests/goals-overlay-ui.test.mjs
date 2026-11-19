@@ -177,10 +177,10 @@ test("goals overlay is a read-only detail and an empty-state add", { timeout: 18
     assert.equal(detail.pad, "20px");
     assert.equal(detail.padY, "16px");
     assert.deepEqual(detail.rows, ["Type Savings", "Target $12,600", "In account Emergency savings", "Monthly $220"]);
-    assert.deepEqual(detail.controls, ["Close"]);
+    assert.deepEqual(detail.controls, ["Close", "Edit"]);
     assert.match(detail.text, /\$8,400/);
     assert.match(detail.text, /of \$12,600/);
-    assert.doesNotMatch(detail.text, /Edit|Delete|Transfer|Mark complete|4,204/);
+    assert.doesNotMatch(detail.text, /Delete|Transfer|Mark complete|4,204/);
     assert.equal(detail.focusRing, "no");
     assert.equal(detail.row, "yes");
     assert.ok(detail.rowH >= 44);
@@ -329,6 +329,109 @@ test("add goal save stays disabled until the name and target are valid", { timeo
     assert.equal(ready.disabled, false);
     assert.equal(ready.opacity, "1");
     assert.equal(ready.pillH, 32);
+  } finally {
+    if (page) await page.close();
+    await stopProcess(chrome);
+    await stopProcess(child);
+    await release();
+  }
+});
+
+test("editing a goal keeps save disabled until a change, then delete asks inside the sheet", { timeout: 180000, skip }, async () => {
+  let page = null;
+  try {
+    const cookie = await boot();
+    page = await openPage(cookie);
+    const { send } = page;
+    await size(send, 390, 844);
+    await send("Page.navigate", { url: `${base()}/finance/goals` });
+    await waitFor(send, "document.body.innerText.includes('Show 1 hidden') && !document.body.innerText.includes('Travel — Japan') && document.querySelector(\"[data-goal='lake-cabin'] [data-yearly]\")?.textContent === 'yearly' ? 'yes' : ''", "hidden trip");
+    await evalPage(send, "document.querySelector(\"[data-goal='emergency-fund']\")?.click()");
+    await waitFor(send, `${settled} && document.querySelector("[data-goal-action='edit']") ? "yes" : ""`, "detail edit");
+    await evalPage(send, "document.querySelector(\"[data-goal-action='edit']\").click()");
+    await waitFor(send, `${settled} && document.getElementById("goal-edit-name") ? "yes" : ""`, "edit sheet");
+    const saveState = `(() => {
+      const panel = document.querySelector("[data-overlay='panel']");
+      const save = [...panel.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Save");
+      const name = document.getElementById("goal-edit-name");
+      const target = document.getElementById("goal-edit-target");
+      const saved = document.getElementById("goal-edit-saved");
+      const monthly = document.getElementById("goal-edit-monthly");
+      const prefix = (input) => input?.parentElement?.querySelector("[data-prefix]")?.textContent || "";
+      return JSON.stringify({
+        disabled: Boolean(save?.disabled),
+        height: save ? Math.round(save.getBoundingClientRect().height) : 0,
+        nameSize: name ? parseFloat(getComputedStyle(name).fontSize) : 0,
+        targetSize: target ? parseFloat(getComputedStyle(target).fontSize) : 0,
+        targetMode: target ? target.getAttribute("inputmode") : "",
+        savedMode: saved ? saved.getAttribute("inputmode") : "",
+        monthlyMode: monthly ? monthly.getAttribute("inputmode") : "",
+        targetHint: target ? target.getAttribute("enterkeyhint") : "",
+        savedHint: saved ? saved.getAttribute("enterkeyhint") : "",
+        monthlyHint: monthly ? monthly.getAttribute("enterkeyhint") : "",
+        prefixes: [prefix(target), prefix(saved), prefix(monthly)],
+        labels: [...panel.querySelectorAll("button")].map((el) => (el.innerText || "").replace(/\\s+/g, " ").trim()).filter(Boolean),
+      });
+    })()`;
+    const untouched = JSON.parse(await evalPage(send, saveState));
+    assert.equal(untouched.disabled, true);
+    assert.equal(untouched.height, 44);
+    assert.ok(untouched.nameSize >= 16);
+    assert.ok(untouched.targetSize >= 16);
+    assert.equal(untouched.targetMode, "decimal");
+    assert.equal(untouched.savedMode, "decimal");
+    assert.equal(untouched.monthlyMode, "decimal");
+    assert.equal(untouched.targetHint, "next");
+    assert.equal(untouched.savedHint, "next");
+    assert.equal(untouched.monthlyHint, "done");
+    assert.deepEqual(untouched.prefixes, ["$", "$", "$"]);
+    assert.deepEqual(untouched.labels, ["Cancel", "Save", "Delete"]);
+    await evalPage(send, `(() => {
+      const input = document.getElementById("goal-edit-target");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      proto.call(input, "0");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return "yes";
+    })()`);
+    const zeroed = JSON.parse(await evalPage(send, saveState));
+    assert.equal(zeroed.disabled, true);
+    await evalPage(send, `(() => {
+      const input = document.getElementById("goal-edit-target");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      proto.call(input, "12600");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return "yes";
+    })()`);
+    await evalPage(send, `(() => {
+      const period = document.getElementById("goal-edit-period");
+      period.value = "yearly";
+      period.dispatchEvent(new Event("change", { bubbles: true }));
+      return "yes";
+    })()`);
+    assert.equal(JSON.parse(await evalPage(send, saveState)).disabled, false);
+    await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Save')?.click()");
+    await waitFor(send, "document.querySelector(\"[data-goal='emergency-fund'] [data-yearly]\")?.textContent === 'yearly' && document.querySelector(\"[data-goal-detail]\") ? 'yes' : ''", "yearly label");
+    await evalPage(send, "document.querySelector(\"[data-goal='emergency-fund']\")?.click()");
+    await waitFor(send, `${settled} && document.querySelector("[data-goal-action='edit']") ? "yes" : ""`, "detail again");
+    await evalPage(send, "document.querySelector(\"[data-goal-action='edit']\").click()");
+    await waitFor(send, `${settled} && document.getElementById("goal-edit-name") ? "yes" : ""`, "edit again");
+    await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Delete')?.click()");
+    await waitFor(send, `${settled} && document.querySelector("[data-delete-confirm]") ? "yes" : ""`, "delete confirm");
+    const confirm = JSON.parse(await evalPage(send, `(() => {
+      const panel = document.querySelector("[data-overlay='panel']");
+      const danger = [...panel.querySelectorAll("button")].find((el) => (el.innerText || "").trim() === "Delete");
+      const chip = danger?.querySelector("span");
+      return JSON.stringify({
+        text: document.querySelector("[data-delete-confirm]")?.textContent || "",
+        labels: [...panel.querySelectorAll("button")].map((el) => (el.innerText || "").replace(/\\s+/g, " ").trim()).filter(Boolean),
+        bg: chip ? getComputedStyle(chip).backgroundColor : "",
+      });
+    })()`));
+    assert.equal(confirm.text, "Delete goal?");
+    assert.deepEqual(confirm.labels, ["Cancel", "Delete"]);
+    assert.notEqual(confirm.bg, "rgb(31, 42, 36)");
+    await evalPage(send, "[...document.querySelectorAll('button')].find((el) => (el.innerText || '').trim() === 'Delete')?.click()");
+    await waitFor(send, "!document.body.innerText.includes('Emergency fund') && !document.querySelector(\"[data-overlay='panel']\") ? 'yes' : ''", "deleted");
   } finally {
     if (page) await page.close();
     await stopProcess(chrome);

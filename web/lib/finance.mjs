@@ -374,16 +374,41 @@ export const GOAL_COLORS = ["#2E8B6A", "#3A86C8", "#E9B949", "#8E7CC3"];
 // Monthly cents are seed bookkeeping so the list heading sums to $740.
 // The frame draws $220 only on the emergency fund. Loan payoff keeps the
 // earlier synthetic $400 auto-pay. The paused trip contributes $0, and the
-// NYC move holds the remaining $120.
+// NYC move holds the remaining $120. Lake cabin is a made-up yearly goal
+// with no monthly amount, so it does not change that sum.
 export const GOALS = [
   { slug: "student-loan-payoff", name: "Loan payoff", value: 62, amount: "$12,400", target: "$20,000", note: "Extra payments", savedCents: 1_240_000, targetCents: 2_000_000, monthlyCents: 40_000, kind: "Debt", account: "", color: "#2E8B6A" },
   { slug: "emergency-fund", name: "Emergency fund", value: 67, amount: "$8,400", target: "$12,600", note: "3 months of expenses", savedCents: 840_000, targetCents: 1_260_000, monthlyCents: 22_000, kind: "Savings", account: "Emergency savings", color: "#3A86C8" },
   { slug: "nyc-move-fund", name: "NYC move", value: 28, amount: "$2,240", target: "$8,000", note: "Aug 2027", savedCents: 224_000, targetCents: 800_000, monthlyCents: 12_000, kind: "Savings", account: "", color: "#E9B949" },
+  { slug: "lake-cabin", name: "Lake cabin", value: 20, amount: "$1,200", target: "$6,000", note: "", savedCents: 120_000, targetCents: 600_000, kind: "Savings", account: "", color: "#5B6B8C", period: "yearly" },
   { slug: "travel-japan", name: "Travel — Japan", value: 15, amount: "$450", target: "$3,000", note: "Paused", savedCents: 45_000, targetCents: 300_000, monthlyCents: 0, kind: "Savings", account: "", color: "#8E7CC3" },
 ];
 
+const GOAL_STATUSES = new Set(["active", "not_started", "paused", "inactive"]);
+
+function statusFromNote(note) {
+  const head = String(note || "").split("·")[0].trim().toLowerCase();
+  if (head === "not started" || head.startsWith("not started ")) return "not_started";
+  if (head === "active" || head.startsWith("active ")) return "active";
+  if (head === "paused" || head.startsWith("paused ")) return "paused";
+  if (head === "inactive" || head.startsWith("inactive ")) return "inactive";
+  if (head === "superseded" || head.startsWith("superseded ")) return "inactive";
+  return "active";
+}
+
+export function goalStatus(goal) {
+  const explicit = goal && typeof goal.status === "string" ? goal.status : "";
+  if (GOAL_STATUSES.has(explicit)) return explicit;
+  return statusFromNote(goal && goal.note);
+}
+
+export function goalIsHidden(goal) {
+  const status = goalStatus(goal);
+  return status === "paused" || status === "inactive";
+}
+
 export function goalMonthlyCents(goals) {
-  const rows = Array.isArray(goals) ? goals : [];
+  const rows = (Array.isArray(goals) ? goals : []).filter((goal) => !goalIsHidden(goal));
   if (!rows.some((goal) => Number.isInteger(goal && goal.monthlyCents))) return null;
   return rows.reduce((sum, goal) => sum + (Number.isInteger(goal.monthlyCents) ? goal.monthlyCents : 0), 0);
 }
@@ -454,6 +479,87 @@ export function createGoal(goals, body) {
     color: nextGoalColor(rows),
   };
   return { status: 201, body: goal, goals: [...rows, goal] };
+}
+
+function goalCents(value, field, minimum) {
+  if (!Number.isInteger(value) || value < minimum || value > 100_000_000_00) {
+    return { status: 400, body: { detail: field === "target" ? "Enter a target." : field === "monthly" ? "Enter a monthly amount." : "Enter an amount.", field } };
+  }
+  return null;
+}
+
+function goalDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return value;
+}
+
+export function patchGoal(goals, slug, body) {
+  const rows = Array.isArray(goals) ? goals : [];
+  const index = rows.findIndex((goal) => goal && goal.slug === slug);
+  if (index < 0) return { status: 404, body: { detail: "That goal is not here." } };
+  const source = body && typeof body === "object" ? body : {};
+  const next = { ...rows[index] };
+  if (Object.prototype.hasOwnProperty.call(source, "name")) {
+    const name = String(source.name || "").trim().replace(/\s+/g, " ");
+    if (name.length < 1 || name.length > 80) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+    if (rows.some((goal) => goal.slug !== slug && String(goal.name || "").trim().toLowerCase() === name.toLowerCase())) {
+      return { status: 409, body: { detail: "That name is already a goal.", field: "name" } };
+    }
+    next.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "savedCents")) {
+    const invalid = goalCents(source.savedCents, "saved", 0);
+    if (invalid) return invalid;
+    next.savedCents = source.savedCents;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "targetCents")) {
+    const invalid = goalCents(source.targetCents, "target", 1);
+    if (invalid) return invalid;
+    next.targetCents = source.targetCents;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "savedCents") || Object.prototype.hasOwnProperty.call(source, "targetCents")) {
+    next.value = goalPercent(next.savedCents, next.targetCents);
+    next.amount = money(next.savedCents);
+    next.target = money(next.targetCents);
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "monthlyCents")) {
+    if (source.monthlyCents == null || source.monthlyCents === "") delete next.monthlyCents;
+    else {
+      const invalid = goalCents(source.monthlyCents, "monthly", 0);
+      if (invalid) return invalid;
+      next.monthlyCents = source.monthlyCents;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "status")) {
+    if (source.status == null || source.status === "") delete next.status;
+    else if (!GOAL_STATUSES.has(source.status)) return { status: 400, body: { detail: "Choose a status.", field: "status" } };
+    else next.status = source.status;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "period")) {
+    if (source.period == null || source.period === "" || source.period === "none") delete next.period;
+    else if (source.period !== "yearly") return { status: 400, body: { detail: "Choose a period.", field: "period" } };
+    else next.period = "yearly";
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "targetDate")) {
+    if (source.targetDate == null || source.targetDate === "") delete next.targetDate;
+    else {
+      const date = goalDate(source.targetDate);
+      if (!date) return { status: 400, body: { detail: "Enter a date.", field: "targetDate" } };
+      next.targetDate = date;
+    }
+  }
+  const goalsOut = rows.slice();
+  goalsOut[index] = next;
+  return { status: 200, body: next, goals: goalsOut };
+}
+
+export function deleteGoal(goals, slug) {
+  const rows = Array.isArray(goals) ? goals : [];
+  if (!rows.some((goal) => goal && goal.slug === slug)) return { status: 404, body: { detail: "That goal is not here." } };
+  return { status: 200, body: { deleted: true, slug }, goals: rows.filter((goal) => goal.slug !== slug) };
 }
 
 export function detroitYmd(ms) {
@@ -1771,6 +1877,16 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
     const stored = { status: result.status, body: result.body };
     if (key && result.status === 201) idem.set(`goal:${key}`, stored);
     return stored;
+  };
+  store.financePatchGoal = async (slug, body) => {
+    const result = patchGoal(goals, slug, body);
+    if (result.status === 200) goals = result.goals;
+    return { status: result.status, body: result.body };
+  };
+  store.financeDeleteGoal = async (slug) => {
+    const result = deleteGoal(goals, slug);
+    if (result.status === 200) goals = result.goals;
+    return { status: result.status, body: result.body };
   };
   store.financeTransactions = async (now = Date.now(), week = "", accountId = "") => {
     if (accountId && !knownIds().has(accountId)) return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
