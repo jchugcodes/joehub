@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // libSQL ships a native binding. Keep it out of the webpack server bundle.
+  serverExternalPackages: ["@libsql/client", "libsql"],
   async redirects() {
     return [
       { source: "/finance/categories", destination: "/finance/spending", permanent: true },

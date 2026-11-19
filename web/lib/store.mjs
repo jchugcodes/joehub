@@ -4,7 +4,20 @@ import { readKeyPrefix } from "./keys.mjs";
 import { installMemoryFinance } from "./finance.mjs";
 import { installMemoryGrocery } from "./grocery.mjs";
 import { installMemoryTasks } from "./tasks.mjs";
+import { readAreaBackends } from "./backend.mjs";
+import { createSqliteStore } from "./store-sqlite.mjs";
 import { createUpstashLimiter, createUpstashStore, StoreError } from "./store-upstash.mjs";
+
+const TASK_METHODS = [
+  "listUnfinishedTasks",
+  "searchTasks",
+  "createTask",
+  "getTask",
+  "patchTask",
+  "completeTask",
+  "reopenTask",
+  "deleteTask",
+];
 
 function unavailableStore() {
   const fail = async () => {
@@ -42,9 +55,10 @@ function unavailableStore() {
 
 // Dev and unit tests keep one in-memory store for this process. Production and
 // preview set the Upstash REST URL so every instance, including middleware,
-// reads the same sessions and limits. An invalid JOEHUB_KEY_PREFIX never falls
-// open onto the production key namespace.
-function build(env) {
+// reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves only
+// the Tasks methods onto libSQL. Every other area stays on this store.
+// An invalid JOEHUB_KEY_PREFIX never falls open onto the production key namespace.
+function buildBase(env) {
   const prefix = readKeyPrefix(env);
   if (!prefix.ok) {
     const fail = async () => {
@@ -76,8 +90,31 @@ function build(env) {
   };
 }
 
+function useSqliteTasks(store, sqlite) {
+  const next = { ...store };
+  for (const name of TASK_METHODS) {
+    const method = sqlite[name];
+    next[name] = (...args) => method(...args);
+  }
+  return next;
+}
+
+export function createRuntime(env = process.env, options = {}) {
+  const areas = readAreaBackends(env);
+  const runtime = buildBase(env);
+  if (areas.tasks !== "sqlite" || !readKeyPrefix(env).ok) return runtime;
+  const sqlite = options.tasksClient
+    ? createSqliteStore({ client: options.tasksClient, env })
+    : createSqliteStore({
+        url: env.JOEHUB_LIBSQL_URL,
+        authToken: env.JOEHUB_LIBSQL_AUTH_TOKEN,
+        env,
+      });
+  return { ...runtime, store: useSqliteTasks(runtime.store, sqlite) };
+}
+
 const globalKey = Symbol.for("joehub.web.memory");
-const memory = globalThis[globalKey] || build(process.env);
+const memory = globalThis[globalKey] || createRuntime(process.env);
 globalThis[globalKey] = memory;
 
 export const store = memory.store;
