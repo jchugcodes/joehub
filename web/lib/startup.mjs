@@ -1,5 +1,6 @@
 import { isBuild, productionLike, readAuthConfig } from "./auth-config.mjs";
 import { anyAreaSqlite, readAreaBackends } from "./backend.mjs";
+import { readLibsqlConfig, remoteLibsqlUrl } from "./libsql-config.mjs";
 
 const FORBIDDEN = [
   "JOEHUB_DB_PATH",
@@ -25,22 +26,9 @@ export function assertSafeToStart(env) {
 }
 
 function assertRemoteLibsql(env) {
-  const url = String(env.JOEHUB_LIBSQL_URL || "").trim();
-  const token = String(env.JOEHUB_LIBSQL_AUTH_TOKEN || "").trim();
+  const { url, authToken } = readLibsqlConfig(env);
   if (!remoteLibsqlUrl(url)) {
     throw new Error("refusing to start: libSQL URL must be a remote libsql:// or https:// database");
   }
-  if (!token) throw new Error("refusing to start: libSQL auth token is missing");
-}
-
-function remoteLibsqlUrl(value) {
-  if (!value || value === ":memory:" || value.startsWith("file:")) return false;
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== "libsql:" && url.protocol !== "https:") return false;
-  return url.hostname.length > 0;
+  if (!authToken) throw new Error("refusing to start: libSQL auth token is missing");
 }
