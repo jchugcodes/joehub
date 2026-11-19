@@ -513,6 +513,64 @@ export async function handleFinanceSpendingMonth(headers, env, store, limiter, n
   }
 }
 
+export async function handleFinanceBuckets(headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeBuckets !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return { status: 200, body: await store.financeBuckets() };
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceCreateCategory(headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const idem = idempotencyKey(headers);
+  if (!idem.ok) return { status: 400, body: { detail: "Invalid Idempotency-Key" } };
+  const body = await readAccountBody(request);
+  if (!body) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+  try {
+    if (!store || typeof store.financeCreateCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeCreateCategory(body, idem.key);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinancePatchCategory(slug, headers, env, store, limiter, now, ip, request) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  const body = await readAccountBody(request);
+  if (!body) return { status: 400, body: { detail: "Enter a name.", field: "name" } };
+  try {
+    if (!store || typeof store.financePatchCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financePatchCategory(slug, body);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
+export async function handleFinanceDeleteCategory(slug, headers, env, store, limiter, now, ip) {
+  const gate = await requireTasks(headers, env, store, limiter, now, ip);
+  if (gate.blocked) return gate.blocked;
+  if (gate.result) return gate.result;
+  try {
+    if (!store || typeof store.financeDeleteCategory !== "function") return { status: 503, body: { detail: "unavailable" } };
+    return await store.financeDeleteCategory(slug);
+  } catch (error) {
+    if (error instanceof StoreError || error) return { status: 503, body: { detail: "unavailable" } };
+    return { status: 503, body: { detail: "unavailable" } };
+  }
+}
+
 export async function handleFinanceCategories(headers, env, store, limiter, now, ip, url = "") {
   const gate = await requireTasks(headers, env, store, limiter, now, ip);
   if (gate.blocked) return gate.blocked;

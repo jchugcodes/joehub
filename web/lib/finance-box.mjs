@@ -23,6 +23,7 @@ import {
   spendingMonth,
   transactionsForWeek,
   accountsSnapshot,
+  bucketsSnapshot,
   categoriesSnapshot,
 } from "./finance.mjs";
 import { StoreError } from "./store-upstash.mjs";
@@ -119,8 +120,10 @@ async function clearFinance(db) {
 }
 
 function categoryRows(bundle) {
-  if (Array.isArray(bundle.fullCategories) && bundle.fullCategories.length) return bundle.fullCategories;
-  return normalizeCategories(bundle.categories, bundle.categories ? null : bundle.caps);
+  const rows = Array.isArray(bundle.fullCategories) && bundle.fullCategories.length
+    ? bundle.fullCategories
+    : normalizeCategories(bundle.categories, bundle.categories ? null : bundle.caps);
+  return rows.filter((row) => row && row.removed !== true);
 }
 
 export async function writeFinanceBundle(db, bundle) {
@@ -408,6 +411,10 @@ export function createFinanceReads(db, { allowSeed = false, env = {}, transact =
       const current = await state();
       return spendingMonth(current.transactions, now, current.caps, current.categories, current.budgetsSaved, current.planCents, month);
     },
+    async financeBuckets() {
+      const current = await state();
+      return bucketsSnapshot(current.categories);
+    },
     async financeAccounts(now = Date.now(), options = {}) {
       const current = await state();
       return accountsSnapshot(current.manualAccounts, current.legacyAccounts, now, options);
@@ -443,14 +450,14 @@ export function createFinanceReads(db, { allowSeed = false, env = {}, transact =
       if (accountId && !current.manualAccounts.some((account) => account.id === accountId)) {
         return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
       }
-      return transactionsForWeek(current.transactions, now, week, accountId);
+      return transactionsForWeek(current.transactions, now, week, accountId, current.categories);
     },
     async financeTransaction(id) {
-      await state();
+      const current = await state();
       if (!TXN_ID.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
       const rows = await readDocs(db, "transaction", "DESC");
       const row = rows.find((item) => item.id === id);
-      return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+      return row ? { status: 200, body: presentTransaction(row, current.categories) } : { status: 404, body: { detail: "That transaction is not here." } };
     },
     async financeRows() {
       return (await state()).transactions;
