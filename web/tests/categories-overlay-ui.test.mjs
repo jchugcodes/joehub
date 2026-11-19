@@ -379,6 +379,27 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
     await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=dining-out&period=month&xe=offline&asOf=${encodeURIComponent(AS_OF)}` });
     await waitFor(page.send, `${settled} && document.querySelector("[data-state='offline']")?.textContent.includes("You are offline.") ? 'yes' : ''`, "offline");
     assert.equal(await evalPage(page.send, "[...document.querySelectorAll('[data-overlay=panel] button')].some((button) => (button.innerText || '').trim() === 'Edit' && button.disabled) ? 'yes' : 'no'"), "yes");
+
+    await page.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: `(() => {
+        window.__stalls = 0;
+        const real = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = String(input && input.url ? input.url : input);
+          if (url.includes("/weeks/") && url.includes("/categories/")) {
+            window.__stalls += 1;
+            return new Promise(() => {});
+          }
+          return real(input, init);
+        };
+      })();`,
+    });
+    await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=groceries&period=month&asOf=${encodeURIComponent(AS_OF)}` });
+    const loading = await waitFor(page.send, "document.querySelector('[data-ready]') ? JSON.stringify({ stalls: window.__stalls || 0, title: document.querySelector('[role=dialog] h2')?.textContent || '' }) : ''", "category state");
+    assert.equal(JSON.parse(String(loading)).stalls >= 1, true, loading);
+    assert.equal(JSON.parse(String(loading)).title, "Groceries");
+    await evalPage(page.send, "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); 'yes'");
+    await waitFor(page.send, "!document.querySelector('[role=dialog]') && !location.search.includes('cat=') ? 'closed' : ''", "escape while loading");
   } finally {
     if (page) await page.close();
     await stopProcess(chrome);

@@ -134,7 +134,7 @@ test("spending empty, error, offline, context line, and uncategorized clock mark
 
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await send("Page.navigate", { url: `${base()}/finance/spending?txn=fin-pizza` });
-    await waitFor(send, "document.body.innerText.includes(\"Joe's Pizza\") && [...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : ''", "pizza");
+    await waitFor(send, "document.querySelector('[data-overlay=panel][data-state=open]') && ![...document.querySelectorAll('[data-overlay=panel]')].some((panel) => panel.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running')) && document.body.innerText.includes(\"Joe's Pizza\") && [...document.querySelectorAll('button')].some((el) => (el.innerText || '').trim() === 'Edit') ? 'yes' : ''", "pizza");
     assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
     await waitFor(send, "document.querySelector('[data-edit-context]') ? 'yes' : ''", "context");
     const context = await evalPage(send, "document.querySelector('[data-edit-context]')?.innerText || ''");

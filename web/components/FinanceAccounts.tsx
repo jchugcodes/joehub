@@ -9,6 +9,7 @@ import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSk
 import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { AccountsSkeleton, LoadError, TextLine } from "./Skeleton";
 import { Sheet } from "./Sheet";
+import { accountUrls, clearAccountWarm, prefetchAccount, warmGet } from "../lib/account-warm.mjs";
 import { FINANCE_TABS } from "../lib/live-pages.mjs";
 import { focusReturnSelector, readOverlayHold } from "../lib/overlay-motion.mjs";
 import { createSkeletonGate, readSkeletonHold } from "../lib/skeleton-gate.mjs";
@@ -185,18 +186,11 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
   const listHref = `/finance/accounts${suffix}`;
 
   const load = useCallback(async () => {
-    const accountQuery = new URLSearchParams();
-    if (asOf) accountQuery.set("asOf", asOf);
-    const listed = await fetch(`/api/finance/accounts${accountQuery.size ? `?${accountQuery}` : ""}`, { cache: "no-store" });
-    if (!listed.ok) throw new Error("accounts");
-    const body = (await listed.json()) as Snapshot;
-    let nextRows: Txn[] = [];
-    if (selectedId) {
-      const txnQuery = new URLSearchParams({ accountId: selectedId });
-      if (asOf) txnQuery.set("asOf", asOf);
-      const txns = await fetch(`/api/finance/transactions?${txnQuery}`, { cache: "no-store" });
-      nextRows = txns.ok ? ((await txns.json()).rows as Txn[]) : [];
-    }
+    const urls = accountUrls(selectedId, asOf);
+    const accountsPromise = warmGet(urls.accounts);
+    const transactionsPromise = selectedId ? warmGet(urls.transactions).catch(() => ({ rows: [] as Txn[] })) : null;
+    const body = (await accountsPromise) as Snapshot;
+    const nextRows = transactionsPromise ? (((await transactionsPromise) as { rows?: Txn[] }).rows || []) : [];
     const gate = gateRef.current;
     const painting = Boolean(skeletonOn && gate && (gate.phase() === "pending" || gate.phase() === "skeleton"));
     if (!painting && hold !== "skel") {
@@ -246,6 +240,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       });
       if (hold === "skel") gate.force("skeleton");
       else if (hold === "empty") gate.force("ready");
+      else if (selectedId) gate.force("skeleton");
       else gate.start();
     }
     if (hold !== "skel") {
@@ -258,13 +253,26 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       unsub();
       gateRef.current?.stop();
     };
-  }, [load, skeletonOn, hold]);
+  }, [load, skeletonOn, hold, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || snapshot || hold === "empty" || hold === "error") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      router.push(listHref);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [selectedId, snapshot, hold, router, listHref]);
 
   useEffect(() => {
     const refresh = async () => {
       setNotice("");
       setTone("reconnecting");
       try {
+        clearAccountWarm();
         await load();
         setNotice("");
         setTone("back");
@@ -333,6 +341,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
 
   const accounts = snapshot?.accounts ?? [];
   const selected = accounts.find((account) => account.id === selectedId) || null;
+  const opening = Boolean(selectedId) && !snapshot && hold !== "empty" && hold !== "error";
   const empty = previewEmpty || Boolean(snapshot && (snapshot.empty || accounts.length === 0));
   const shownTone = previewLink || tone;
   const balanceOk = centsFromInput(balance) != null;
@@ -415,6 +424,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
       setNotice("Couldn’t update that account.");
       return;
     }
+    clearAccountWarm();
     await load();
   }
 
@@ -454,6 +464,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     const saved = (await response.json()) as Account;
     closeForm();
     if (!editing) router.push(`/finance/accounts/${saved.id}${suffix}`);
+    clearAccountWarm();
     await load();
   }
 
@@ -468,6 +479,7 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     setConfirming(false);
     closeForm();
     router.push(listHref);
+    clearAccountWarm();
     await load();
   }
 
@@ -599,8 +611,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
     </p>
   ) : null;
   const overlayBody = panelHold === "error" ? (
-    <LoadError onRetry={() => void load()} />
-  ) : panelHold === "skel" ? (
+    <LoadError onRetry={() => { clearAccountWarm(); void load(); }} />
+  ) : panelHold === "skel" || opening ? (
     <div data-skeleton="account" aria-busy="true" className="px-5 py-4">
       <TextLine height={12} width={120} />
       <TextLine height={24} width={160} className="mt-3" />
@@ -841,6 +853,8 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
                             {index > 0 || linkStudents ? <span aria-hidden="true" className="mx-4 block h-px bg-tab-line" /> : null}
                             <Link
                               href={`/finance/accounts/${account.id}${suffix}`}
+                              onPointerDown={() => prefetchAccount(account.id, asOf)}
+                              onMouseEnter={() => prefetchAccount(account.id, asOf)}
                               onClick={() => rememberAccount(account.id)}
                               aria-current={current ? "true" : undefined}
                               className={`flex min-h-14 items-center gap-3 px-4 py-2.5 text-ink hover:text-ink focus:text-ink ${current ? "row-selected" : ""}`}
@@ -892,12 +906,12 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
           </div>
         )}
 
-        {wide && overlayOn && (selected || mode) ? (
+        {wide && overlayOn && (selected || mode || opening) ? (
           <OverlayPanel
             wide
             depth={openTxn || mode ? 1 : 0}
             title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
-            onClose={selected ? closeOverlay : closeForm}
+            onClose={selected || opening ? closeOverlay : closeForm}
             onBack={openTxn ? () => setTxnId("") : mode && selected ? closeForm : undefined}
             form={Boolean(mode)}
             nested={Boolean(openTxn)}
@@ -965,12 +979,12 @@ export function FinanceAccounts({ selectedId = "" }: { selectedId?: string }) {
         ) : null}
       </div>
 
-      {overlayOn && !wide && (selected || mode) ? (
+      {overlayOn && !wide && (selected || mode || opening) ? (
         <OverlayPanel
           wide={false}
           depth={openTxn || mode ? 1 : 0}
           title={mode ? (mode === "edit" ? "Edit account" : "Add account") : openTxn ? openTxn.payee : selected?.name || "Account"}
-          onClose={selected ? closeOverlay : closeForm}
+          onClose={selected || opening ? closeOverlay : closeForm}
           onBack={openTxn ? () => setTxnId("") : mode && selected ? closeForm : undefined}
           form={Boolean(mode)}
           nested={Boolean(openTxn)}

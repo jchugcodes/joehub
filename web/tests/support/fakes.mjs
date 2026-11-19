@@ -31,6 +31,7 @@ export async function startFakeUpstash() {
     commands.push(args.slice());
     const [op, key] = args;
     if (op === "GET") return live(key) ? values.get(key) : null;
+    if (op === "MGET") return args.slice(1).map((item) => (live(item) ? values.get(item) : null));
     if (op === "SET") {
       if (args.includes("NX") && live(key) && values.has(key)) return null;
       counts.set += 1;
