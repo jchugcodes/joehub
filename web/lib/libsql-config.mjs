@@ -1,7 +1,7 @@
 // JOEHUB_LIBSQL_URL and JOEHUB_LIBSQL_AUTH_TOKEN win. The Vercel Marketplace
 // Turso integration sets TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, which are
-// the fallback. Neither pair selects a backend. JOEHUB_BACKEND_TASKS and
-// JOEHUB_BACKEND_GROCERY do that, one area at a time.
+// the fallback. Neither pair selects a backend. JOEHUB_BACKEND_TASKS,
+// JOEHUB_BACKEND_GROCERY, and JOEHUB_BACKEND_FINANCE do that, one area at a time.
 
 function first(primary, fallback) {
   const chosen = String(primary ?? "").trim();

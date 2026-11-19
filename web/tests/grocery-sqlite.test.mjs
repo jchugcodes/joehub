@@ -127,12 +127,13 @@ async function scenario(store, now) {
 }
 
 test("grocery flag defaults to upstash and uses the same remote libSQL check", () => {
-  assert.deepEqual(readAreaBackends({}), { tasks: "upstash", grocery: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_GROCERY: "  " }), { tasks: "upstash", grocery: "upstash" });
-  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_GROCERY: "sqlite" }), { tasks: "upstash", grocery: "sqlite" });
+  assert.deepEqual(readAreaBackends({}), { tasks: "upstash", grocery: "upstash", finance: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_GROCERY: "  " }), { tasks: "upstash", grocery: "upstash", finance: "upstash" });
+  assert.deepEqual(readAreaBackends({ JOEHUB_BACKEND_GROCERY: "sqlite" }), { tasks: "upstash", grocery: "sqlite", finance: "upstash" });
   assert.deepEqual(readAreaBackends({ TURSO_DATABASE_URL: "libsql://turso.example", TURSO_AUTH_TOKEN: "turso-token" }), {
     tasks: "upstash",
     grocery: "upstash",
+    finance: "upstash",
   });
   assert.throws(() => readAreaBackends({ JOEHUB_BACKEND_GROCERY: "postgres" }), /unknown JOEHUB_BACKEND_GROCERY/);
   assert.doesNotThrow(() =>

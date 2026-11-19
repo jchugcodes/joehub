@@ -4,6 +4,7 @@
 const AREAS = [
   { area: "tasks", name: "JOEHUB_BACKEND_TASKS" },
   { area: "grocery", name: "JOEHUB_BACKEND_GROCERY" },
+  { area: "finance", name: "JOEHUB_BACKEND_FINANCE" },
 ];
 const ALLOWED = new Set(["upstash", "sqlite"]);
 

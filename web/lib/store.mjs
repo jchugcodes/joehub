@@ -35,6 +35,22 @@ const GROCERY_METHODS = [
   "clearGrocery",
 ];
 
+const FINANCE_READS = [
+  "financeOverview",
+  "financeCategory",
+  "financeCategories",
+  "financeSpendingMonth",
+  "financeAccounts",
+  "financeAccount",
+  "financeDebts",
+  "financeDebt",
+  "financeBills",
+  "financeBill",
+  "financeGoals",
+  "financeTransactions",
+  "financeTransaction",
+];
+
 function unavailableStore() {
   const fail = async () => {
     throw new StoreError();
@@ -78,11 +94,12 @@ function unavailableStore() {
 // preview set the Upstash REST URL so every instance, including middleware,
 // reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves Tasks
 // and the task lists that read or write those tasks onto libSQL.
-// JOEHUB_BACKEND_GROCERY=sqlite moves Grocery onto libSQL. One flag does not
-// move the other area. The libSQL URL and token are JOEHUB_LIBSQL_URL and
-// JOEHUB_LIBSQL_AUTH_TOKEN, then TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.
-// The Turso names do not select a backend. Sessions, devices, and finance
-// stay on this store.
+// JOEHUB_BACKEND_GROCERY=sqlite moves Grocery onto libSQL.
+// JOEHUB_BACKEND_FINANCE=sqlite moves Finance reads onto libSQL. Finance
+// writes stay on this store. One flag does not move another area. The libSQL
+// URL and token are JOEHUB_LIBSQL_URL and JOEHUB_LIBSQL_AUTH_TOKEN, then
+// TURSO_DATABASE_URL and TURSO_AUTH_TOKEN. The Turso names do not select a
+// backend. Sessions and devices stay on this store.
 // An invalid JOEHUB_KEY_PREFIX never falls open onto the production key namespace.
 function buildBase(env) {
   const prefix = readKeyPrefix(env);
@@ -131,14 +148,16 @@ export function createRuntime(env = process.env, options = {}) {
   if (!readKeyPrefix(env).ok) return runtime;
   const tasksOn = areas.tasks === "sqlite";
   const groceryOn = areas.grocery === "sqlite";
-  if (!tasksOn && !groceryOn) return runtime;
-  const client = options.sqliteClient || options.tasksClient || options.groceryClient;
+  const financeOn = areas.finance === "sqlite";
+  if (!tasksOn && !groceryOn && !financeOn) return runtime;
+  const client = options.sqliteClient || options.tasksClient || options.groceryClient || options.financeClient;
   const sqlite = client
     ? createSqliteStore({ client, env })
     : createSqliteStore({ ...readLibsqlConfig(env), env });
   let store = runtime.store;
   if (tasksOn) store = useSqliteMethods(store, sqlite, TASK_METHODS);
   if (groceryOn) store = useSqliteMethods(store, sqlite, GROCERY_METHODS);
+  if (financeOn) store = useSqliteMethods(store, sqlite, FINANCE_READS);
   return { ...runtime, store };
 }
 
