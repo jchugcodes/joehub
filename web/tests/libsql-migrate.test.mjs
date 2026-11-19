@@ -209,6 +209,7 @@ test("migrations match Python sqlite3 for the 22 box tables and record each file
       "002_writers_and_registry.sql",
       "003_tasks.sql",
       "004_grocery_and_lists.sql",
+      "005_ingest.sql",
     ]);
     const second = await migrateLibsql({ client, url: ":memory:", test: true });
     assert.deepEqual(second, []);
@@ -218,7 +219,7 @@ test("migrations match Python sqlite3 for the 22 box tables and record each file
     );
     assert.deepEqual(
       recorded.rows.map((row) => String(row.version)),
-      ["001_initial.sql", "002_writers_and_registry.sql", "003_tasks.sql", "004_grocery_and_lists.sql"],
+      ["001_initial.sql", "002_writers_and_registry.sql", "003_tasks.sql", "004_grocery_and_lists.sql", "005_ingest.sql"],
     );
     for (const row of recorded.rows) {
       assert.equal(Number(row.id_len), 36);
@@ -240,7 +241,7 @@ test("migrations match Python sqlite3 for the 22 box tables and record each file
     );
     assert.deepEqual(
       names.rows.map((row) => String(row.name)),
-      [...BOX, "grocery_items", "lists", "task_flags", "task_idempotency", "tasks"].sort(),
+      [...BOX, "grocery_items", "ingest_idempotency", "ingest_rate", "lists", "task_flags", "task_idempotency", "tasks"].sort(),
     );
     const tasks = await client.execute("PRAGMA table_info(tasks)");
     assert.deepEqual(

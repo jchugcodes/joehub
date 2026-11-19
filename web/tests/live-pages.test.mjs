@@ -63,6 +63,11 @@ test("production middleware redirects gated pages and leaves auth and api alone"
   assert.equal(api.type, "json");
   assert.equal(api.status, 401);
   assert.equal(api.location, undefined);
+  const ingest = await decide(new Request("http://127.0.0.1/api/ingest/tasks"), env, Date.now());
+  assert.equal(ingest.type, "next");
+  const ingestSibling = await decide(new Request("http://127.0.0.1/api/ingests"), env, Date.now());
+  assert.equal(ingestSibling.type, "json");
+  assert.equal(ingestSibling.status, 401);
 
   const preview = await decide(new Request("http://127.0.0.1/jobs"), open, Date.now());
   assert.equal(preview.type, "next");
