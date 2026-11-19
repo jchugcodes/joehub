@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createClient } from "@libsql/client";
 import { readAreaBackends } from "./backend.mjs";
+import { readLibsqlConfig } from "./libsql-config.mjs";
 import { isCalendarDate } from "./tasks.mjs";
 import { readSourceId } from "./source-id.mjs";
 import { createSqliteStore } from "./store-sqlite.mjs";
@@ -107,9 +108,8 @@ function retryAfterSeconds(now, windowMs) {
 }
 
 async function openClient(env) {
-  const url = String(env.JOEHUB_LIBSQL_URL || "").trim();
+  const { url, authToken } = readLibsqlConfig(env);
   if (!url) return null;
-  const authToken = String(env.JOEHUB_LIBSQL_AUTH_TOKEN || "").trim();
   try {
     return createClient({ url, ...(authToken ? { authToken } : {}) });
   } catch {

@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createClient } from "@libsql/client";
 import { pathToFileURL } from "node:url";
 import { tokenDigest } from "../lib/ingest.mjs";
+import { readLibsqlConfig } from "../lib/libsql-config.mjs";
 import { isFileOrMemoryUrl, migrateLibsql, utcStamp } from "./libsql-migrate.mjs";
 
 const NAMES = { ledger: "Ledger", scout: "Scout", cato: "Cato" };
@@ -69,7 +70,7 @@ export async function mintIngestToken(client, principal, now = new Date()) {
 }
 
 function readArgs(argv) {
-  let url = process.env.JOEHUB_LIBSQL_URL || "";
+  let url = readLibsqlConfig(process.env).url;
   let principal = "";
   let test = false;
   for (let i = 0; i < argv.length; i += 1) {
@@ -92,7 +93,7 @@ async function main() {
   const { url, principal, test } = readArgs(process.argv.slice(2));
   principalName(principal);
   assertIngestUrl(url, { test });
-  const authToken = String(process.env.JOEHUB_LIBSQL_AUTH_TOKEN || "").trim();
+  const authToken = readLibsqlConfig(process.env).authToken;
   if (!test && !authToken) throw new Error("refusing to mint: libSQL auth token is missing");
   const client = createClient({ url, ...(authToken ? { authToken } : {}) });
   try {

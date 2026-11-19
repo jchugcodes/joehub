@@ -1,4 +1,5 @@
 import { createClient } from "@libsql/client";
+import { readLibsqlConfig } from "../lib/libsql-config.mjs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -206,7 +207,7 @@ export async function migrateLibsql({ client, url, test = false, dir = MIGRATION
   let opened = null;
   if (!client) {
     assertMigratableUrl(target, { test });
-    const secret = String(authToken ?? process.env.JOEHUB_LIBSQL_AUTH_TOKEN ?? "").trim();
+    const secret = String(authToken ?? readLibsqlConfig(process.env).authToken).trim();
     if (!isFileOrMemoryUrl(target) && !secret) {
       throw new Error("refusing to migrate: libSQL auth token is missing");
     }
@@ -233,7 +234,7 @@ export async function migrateLibsql({ client, url, test = false, dir = MIGRATION
 }
 
 function readArgs(argv) {
-  let url = process.env.JOEHUB_LIBSQL_URL || "";
+  let url = readLibsqlConfig(process.env).url;
   let test = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];

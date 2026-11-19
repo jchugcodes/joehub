@@ -1,6 +1,15 @@
 import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import { createServer } from "node:http";
 
+function glob(pattern, key) {
+  if (pattern === "*") return true;
+  const star = pattern.indexOf("*");
+  if (star === -1) return pattern === key;
+  const head = pattern.slice(0, star);
+  const tail = pattern.slice(star + 1);
+  return key.startsWith(head) && key.endsWith(tail) && key.length >= head.length + tail.length;
+}
+
 function listen(server) {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve(server.address().port));
@@ -60,6 +69,25 @@ export async function startFakeUpstash() {
         .filter(([, score]) => score >= min && score <= max)
         .sort((left, right) => left[1] - right[1])
         .map(([member]) => member);
+    }
+    if (op === "SCAN") {
+      let match = "*";
+      let count = 100;
+      for (let index = 2; index < args.length; index += 1) {
+        const flag = String(args[index] || "").toUpperCase();
+        if (flag === "MATCH") {
+          match = String(args[index + 1] || "*");
+          index += 1;
+        } else if (flag === "COUNT") {
+          count = Number(args[index + 1]);
+          index += 1;
+        }
+      }
+      const all = [...new Set([...values.keys(), ...sets.keys(), ...zsets.keys()])].filter((key) => glob(match, key)).sort();
+      const cursor = Number(args[1] || 0);
+      const slice = all.slice(cursor, cursor + (Number.isFinite(count) && count > 0 ? count : 100));
+      const next = cursor + slice.length >= all.length ? "0" : String(cursor + slice.length);
+      return [next, slice];
     }
     if (op === "ZRANGE") {
       const zset = zsets.get(key) || new Map();
