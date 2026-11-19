@@ -395,7 +395,11 @@ test("categories overlay shows the budget, a transaction, and the monthly form",
       })();`,
     });
     await page.send("Page.navigate", { url: `${base()}/finance/spending?cat=groceries&period=month&asOf=${encodeURIComponent(AS_OF)}` });
-    const loading = await waitFor(page.send, "document.querySelector('[data-ready]') ? JSON.stringify({ stalls: window.__stalls || 0, title: document.querySelector('[role=dialog] h2')?.textContent || '' }) : ''", "category state");
+    const loading = await waitFor(
+      page.send,
+      "(window.__stalls || 0) >= 1 && document.querySelector('[role=dialog] h2')?.textContent === 'Groceries' ? JSON.stringify({ stalls: window.__stalls || 0, title: document.querySelector('[role=dialog] h2')?.textContent || '' }) : ''",
+      "category state",
+    );
     assert.equal(JSON.parse(String(loading)).stalls >= 1, true, loading);
     assert.equal(JSON.parse(String(loading)).title, "Groceries");
     await evalPage(page.send, "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); 'yes'");
