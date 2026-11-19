@@ -17,6 +17,10 @@ const TASK_METHODS = [
   "completeTask",
   "reopenTask",
   "deleteTask",
+  "listLists",
+  "createList",
+  "patchList",
+  "deleteList",
 ];
 
 function unavailableStore() {
@@ -55,8 +59,9 @@ function unavailableStore() {
 
 // Dev and unit tests keep one in-memory store for this process. Production and
 // preview set the Upstash REST URL so every instance, including middleware,
-// reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves only
-// the Tasks methods onto libSQL. Every other area stays on this store.
+// reads the same sessions and limits. JOEHUB_BACKEND_TASKS=sqlite moves Tasks
+// and the task lists that read or write those tasks onto libSQL. Sessions,
+// devices, grocery, and finance stay on this store.
 // An invalid JOEHUB_KEY_PREFIX never falls open onto the production key namespace.
 function buildBase(env) {
   const prefix = readKeyPrefix(env);

@@ -39,6 +39,8 @@ async function taskCount(client) {
 }
 
 async function scenario(store, now) {
+  const day = 24 * 60 * 60 * 1000;
+  const empty = await store.listUnfinishedTasks(now);
   const blank = await store.createTask({ title: "   " }, "blank", now);
   const created = await store.createTask(
     {
@@ -79,7 +81,22 @@ async function scenario(store, now) {
     now + 80,
   );
   const importedGet = await store.getTask(imported.body.id);
+  const older = await store.createTask({ title: "Older order" }, "order-old", now + 90, "tasks");
+  const newer = await store.createTask({ title: "Newer order" }, "order-new", now + 100, "tasks");
+  const ordered = (await store.listUnfinishedTasks(now + 100))
+    .filter((task) => task.id === older.body.id || task.id === newer.body.id)
+    .map((task) => task.id);
+  const doneOnce = await store.completeTask(newer.body.id, now + 110);
+  const doneTwice = await store.completeTask(newer.body.id, now + 120);
+  const reopenOnce = await store.reopenTask(newer.body.id, now + 130);
+  const reopenTwice = await store.reopenTask(newer.body.id, now + 140);
+  const removedNewer = await store.deleteTask(newer.body.id);
+  const gone = await store.getTask(newer.body.id);
+  const finishedOlder = await store.completeTask(older.body.id, now + 150);
+  const hidden = (await store.listUnfinishedTasks(now + 150 + 8 * day)).some((task) => task.id === older.body.id);
+  const stillFound = await store.searchTasks("Older order", now + 150 + 8 * day);
   return {
+    empty,
     blank,
     created,
     replay,
@@ -100,6 +117,53 @@ async function scenario(store, now) {
     imported,
     importedAgain,
     importedGet,
+    ordered,
+    doneOnce,
+    doneTwice,
+    reopenOnce,
+    reopenTwice,
+    removedNewer,
+    gone,
+    finishedOlder,
+    hidden,
+    stillFound,
+  };
+}
+
+function listShape(result) {
+  const body = result.body || {};
+  return {
+    status: result.status,
+    name: body.name,
+    color: body.color,
+    count: body.count,
+    deleted: body.deleted,
+    moved: body.moved,
+    detail: body.detail,
+  };
+}
+
+async function listScenario(store, now) {
+  const missing = await store.deleteList("missing-list");
+  const created = await store.createList({ name: " Home ", color: "#227777" }, now);
+  const duplicate = await store.createList({ name: "home", color: "#5B45B5" }, now + 1);
+  const bad = await store.createList({ name: "" }, now + 2);
+  const task = await store.createTask({ title: "On the list", project: created.body.id }, "on-list", now + 3, "tasks");
+  const counted = await store.listLists();
+  const renamed = await store.patchList(created.body.id, { name: "House" }, now + 4);
+  const removed = await store.deleteList(created.body.id);
+  const after = await store.getTask(task.body.id);
+  const again = await store.deleteList(created.body.id);
+  return {
+    missing: listShape(missing),
+    created: listShape(created),
+    duplicate: listShape(duplicate),
+    bad: listShape(bad),
+    counted: counted.map((list) => ({ name: list.name, color: list.color, count: list.count })),
+    renamed: listShape(renamed),
+    removed: listShape(removed),
+    project: after.project,
+    again: listShape(again),
   };
 }
 
@@ -232,13 +296,14 @@ test("sqlite tasks match upstash and other areas stay unmigrated", async () => {
     const upstash = createUpstashStore({ url: fake.url, token: fake.token, env: quiet });
     const sqlite = createSqliteStore({ client, env: quiet });
     assert.deepEqual(await scenario(sqlite, NOW), await scenario(upstash, NOW));
+    assert.deepEqual(await listScenario(sqlite, NOW + 1000), await listScenario(upstash, NOW + 1000));
 
     const upstashSeed = createUpstashStore({ url: seedFake.url, token: seedFake.token, env: {} });
     const sqliteSeed = createSqliteStore({ client: seeded, env: {} });
     assert.deepEqual(await sqliteSeed.listUnfinishedTasks(NOW), await upstashSeed.listUnfinishedTasks(NOW));
 
     assert.throws(() => sqlite.listGrocery(), /not migrated/);
-    assert.throws(() => sqlite.listLists(), /not migrated/);
+    assert.deepEqual(await sqlite.listLists(), []);
     assert.throws(() => sqlite.financeGoals(), /not migrated/);
     assert.throws(() => sqlite.getSession("session", NOW), /not migrated/);
 
@@ -271,9 +336,25 @@ test("the tasks flag selects sqlite for tasks and leaves the rest on the current
     assert.equal(created.status, 201);
     assert.equal(fake.commands.length, before);
     assert.equal(await taskCount(client), 1);
+    const listed = await selected.store.createList({ name: "Home", color: "#227777" }, NOW);
+    await selected.store.listLists();
+    await selected.store.patchList(listed.body.id, { name: "House" }, NOW + 1);
+    await selected.store.deleteList(listed.body.id);
+    await selected.store.searchTasks("sqlite", NOW);
+    await selected.store.completeTask(created.body.id, NOW + 2);
+    await selected.store.reopenTask(created.body.id, NOW + 3);
+    await selected.store.deleteTask(created.body.id);
+    assert.equal(
+      fake.commands.slice(before).some((args) => args.some((part) => typeof part === "string" && /joehub:tasks?(?::|$)/.test(part))),
+      false,
+    );
     assert.equal(await selected.store.getSession("not-a-session", NOW), null);
     assert.ok(fake.commands.length > before);
-    assert.equal(await taskCount(client), 1);
+    assert.equal(
+      fake.commands.some((args) => args.some((part) => typeof part === "string" && part.includes("joehub:sess:"))),
+      true,
+    );
+    assert.equal(await taskCount(client), 0);
 
     const memory = createRuntime({ NODE_ENV: "development" }, { tasksClient: ignored });
     await memory.store.createTask({ title: "Stays in memory" }, "mem-1", NOW);

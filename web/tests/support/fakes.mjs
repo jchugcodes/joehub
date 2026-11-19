@@ -61,6 +61,14 @@ export async function startFakeUpstash() {
         .sort((left, right) => left[1] - right[1])
         .map(([member]) => member);
     }
+    if (op === "ZRANGE") {
+      const zset = zsets.get(key) || new Map();
+      const rows = [...zset.entries()].sort((left, right) => left[1] - right[1] || (left[0] < right[0] ? -1 : 1));
+      const start = Number(args[2]);
+      let stop = Number(args[3]);
+      if (stop < 0) stop = rows.length + stop;
+      return rows.slice(start, stop + 1).map(([member]) => member);
+    }
     if (op === "ZREVRANGE") {
       const zset = zsets.get(key) || new Map();
       const rows = [...zset.entries()].sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1));
