@@ -67,7 +67,7 @@ export async function startFakeUpstash() {
       const max = Number(args[3]);
       return [...zset.entries()]
         .filter(([, score]) => score >= min && score <= max)
-        .sort((left, right) => left[1] - right[1])
+        .sort((left, right) => left[1] - right[1] || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
         .map(([member]) => member);
     }
     if (op === "SCAN") {

@@ -1,7 +1,10 @@
 // Per-area store selection. Unset means Upstash, which is the production default.
-// S1 only has Tasks. Later slices add a flag here without changing this parser.
+// Each area has its own flag. Setting one does not move the others.
 
-const AREAS = [{ area: "tasks", name: "JOEHUB_BACKEND_TASKS" }];
+const AREAS = [
+  { area: "tasks", name: "JOEHUB_BACKEND_TASKS" },
+  { area: "grocery", name: "JOEHUB_BACKEND_GROCERY" },
+];
 const ALLOWED = new Set(["upstash", "sqlite"]);
 
 export function readAreaBackends(env = process.env) {
