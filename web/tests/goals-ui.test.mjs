@@ -154,7 +154,11 @@ test("goals list, detail, add, and the desktop split match the frames", { skip }
   try {
     const { send, ws } = await attach(cookie);
     await open(send, "/finance/goals", 390, 900);
-    await waitFor(send, "document.body.innerText.includes('$740 / mo') && document.body.innerText.includes('Loan payoff') && document.body.innerText.includes('$12,400') && document.body.innerText.includes('Extra payments') && document.body.innerText.includes('$8,400') && document.body.innerText.includes('3 months of expenses') && document.body.innerText.includes('NYC move') && document.body.innerText.includes('Aug 2027') && document.body.innerText.includes('Travel — Japan') && document.body.innerText.includes('Paused') ? 'yes' : ''", "list");
+    await waitFor(send, "document.body.innerText.includes('$740 / mo') && document.body.innerText.includes('Loan payoff') && document.body.innerText.includes('$12,400') && document.body.innerText.includes('Extra payments') && document.body.innerText.includes('$8,400') && document.body.innerText.includes('3 months of expenses') && document.body.innerText.includes('NYC move') && document.body.innerText.includes('Aug 2027') && document.body.innerText.includes('Show 1 hidden') && !document.body.innerText.includes('Travel — Japan') ? 'yes' : ''", "list");
+    await evalPage(send, "document.querySelector('[data-hidden-toggle]')?.click()");
+    await waitFor(send, "document.body.innerText.includes('Travel — Japan') && document.body.innerText.includes('Paused') && document.body.innerText.includes('Hide') ? 'yes' : ''", "hidden goals");
+    await evalPage(send, "document.querySelector('[data-hidden-toggle]')?.click()");
+    await waitFor(send, "document.body.innerText.includes('Show 1 hidden') && !document.body.innerText.includes('Travel — Japan') ? 'yes' : ''", "hidden again");
     assert.equal(await evalPage(send, "document.querySelector('[data-goals]')?.getAttribute('data-goals')"), "list");
     assert.equal(await evalPage(send, "[...document.querySelectorAll('nav[aria-label=\"Finance sections\"] a')].map((el) => el.textContent.trim()).join(',')"), "Overview,Spending,Goals,Accounts,Debts,Bills");
     assert.equal(await evalPage(send, `(() => {
