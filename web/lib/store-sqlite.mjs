@@ -18,29 +18,8 @@ const IDEM_TTL_MS = 24 * 60 * 60 * 1000;
 const CLAIM_MS = 30 * 1000;
 const TASK_ID = /^[A-Za-z0-9-]{1,80}$/;
 
-// S2 applies the real migration. Tests create these tables on in-memory libSQL.
-// createSqliteStore does not.
-export const TASKS_DDL = [
-  `CREATE TABLE tasks (
-    id TEXT PRIMARY KEY,
-    body TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    completed_at INTEGER,
-    source_id TEXT
-  )`,
-  "CREATE INDEX tasks_source ON tasks(source_id)",
-  `CREATE TABLE task_idempotency (
-    key TEXT PRIMARY KEY,
-    body TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
-  )`,
-  `CREATE TABLE task_flags (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )`,
-];
-
+// Tasks tables come from web/migrations-libsql/003_tasks.sql.
+// createSqliteStore does not migrate.
 const TASK_METHODS = [
   "listUnfinishedTasks",
   "searchTasks",
