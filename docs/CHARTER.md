@@ -143,7 +143,7 @@ Lanes for the remaining bots. Posty's daily cleanup routine is included.
 
 - Live in production on Vercel with real data: Tasks, Grocery, and Finance (Overview, Accounts, Bills, Goals, Spending). Dark mode, loading skeletons, and side panels are live.
 - Built but hidden: Debts (needs refreshed figures and Joe's OK), and Jobs and Journal (demo data only; the Journal composer does not save).
-- Development paused Nov 24 at 7:30 p.m. The resume point is reviewing FN-7 Buckets, PR #82 (open, CI green, the entry-point fix may be missing). Then FN-8 transaction edits, history by name, AE account groups, and FM overview metric.
+- Development paused Nov 24 at 7:30 p.m. and resumed Nov 25. FN-7 Buckets (PR #82) merged Nov 25. Next: FN-8 transaction edits, history by name, AE account groups, and FM overview metric.
 - Blocked on Joe: creating the Turso account and approving each cutover. Brand v10 also waits on his approval.
 - Bots do not write live data to the hub yet. Live bot updates (GF) and Ledger filling Finance from his account connections are planned but not built. An ingest API with per-bot duplicate protection exists.
 - The app's ownership rules know only Ledger, Scout, and Cato. The other bots have no tables yet.

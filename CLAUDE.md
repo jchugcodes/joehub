@@ -13,7 +13,7 @@ joehub is Joe's personal hub: tasks, grocery lists, and finance today, with jobs
 - **Live in production with real data:** Tasks, Grocery, and Finance (Overview, Accounts, Bills, Goals, Spending).
 - **Built but hidden:** Debts, Jobs, and Journal. Jobs and Journal still run on demo data, and the Journal composer doesn't save.
 - **Storage:** production runs on Upstash. Turso was chosen on Nov 18 as the source of truth, and the code for it is merged behind the `JOEHUB_BACKEND_*` flags, but the Turso database doesn't exist yet. Joe has to create it before any cutover.
-- **Resume point:** review PR #82 (FN-7 Buckets) against the FN story. Cato asked for three fixes, and the entry-point fix may be missing. Next come FN-8 transaction edits, history by name, AE account groups, and FM overview metric, unless Joe picks a different order.
+- **Resume point:** FN-7 Buckets merged Nov 25 (PR #82). Next come FN-8 transaction edits, history by name, AE account groups, and FM overview metric, unless Joe picks a different order. Open follow-up from FN-7: the Bills category picker and its server check still use a fixed category list.
 
 ## Process
 
