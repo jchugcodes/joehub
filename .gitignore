@@ -21,3 +21,4 @@ web/.next/
 .streamlit/secrets.toml
 .coverage
 htmlcov/
+*.tsbuildinfo
