@@ -234,8 +234,8 @@ export async function writeFinanceBundle(db, bundle) {
       `INSERT INTO transactions (
          id, notion_id, migrated_on, last_modified_by, last_modified_at, account_id, category_id, goal_id,
          amount_cents, date, payee, memo
-       ) VALUES (?, NULL, NULL, ?, ?, ?, ?, NULL, CAST(? AS INTEGER), ?, ?, NULL)`,
-      [boxId, WRITER, stamp(row.updatedAt || row.createdAt), accountId, categoryId, row.amountCents, row.date, row.payee || null],
+       ) VALUES (?, NULL, NULL, ?, ?, ?, ?, NULL, CAST(? AS INTEGER), ?, ?, ?)`,
+      [boxId, WRITER, stamp(row.updatedAt || row.createdAt), accountId, categoryId, row.amountCents, row.date, row.payee || null, typeof row.note === "string" && row.note ? row.note : null],
     );
     await exec(db, "INSERT INTO finance_ids (entity, web_id, box_id) VALUES ('transaction', ?, ?)", [row.id, boxId]);
     await exec(db, "INSERT INTO finance_docs (entity, web_id, body, sort_key) VALUES ('transaction', ?, ?, ?)", [
