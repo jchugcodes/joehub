@@ -7,7 +7,7 @@ import {
   handleFinanceDeleteCategory,
   handleFinancePatchCategory,
 } from "../lib/api.mjs";
-import { chartFor, hiddenBucketsLabel, installMemoryFinance, removeBucketDetail, SEED_CATEGORIES, SEED_TRANSACTIONS } from "../lib/finance.mjs";
+import { bucketsSnapshot, chartFor, createTransaction, hiddenBucketsLabel, installMemoryFinance, removeBucketDetail, SEED_CATEGORIES, SEED_TRANSACTIONS } from "../lib/finance.mjs";
 import { createLimiter } from "../lib/ratelimit.mjs";
 import { seal } from "../lib/sessions.mjs";
 import { createRuntime } from "../lib/store.mjs";
@@ -22,7 +22,7 @@ test("a hidden bucket is named on the spent card, and a clear month is not", () 
   assert.equal(hiddenBucketsLabel(2), "2 buckets hidden");
 });
 
-test("remove copy names this month's spend, and skips the amount when there is none", () => {
+test("remove copy names the amount that moves, and skips it when there is none", () => {
   assert.equal(removeBucketDetail("Fun", 3240), "$32.40 in Fun moves to Uncategorized.");
   assert.equal(removeBucketDetail("Fun", 0), "Fun moves to Uncategorized.");
   assert.equal(removeBucketDetail("Fun"), "Fun moves to Uncategorized.");
@@ -130,6 +130,64 @@ test("rename keeps the slug, add is idempotent, and remove moves spend to Uncate
   const revived = await store.financeCategories(NOW, "month");
   assert.equal(spent(revived, "dining-out"), 0);
   assert.equal(spent(revived, "uncategorized"), spent(before.body, "uncategorized") + dining);
+});
+
+test("a transaction can use an added bucket and cannot use a removed one", async () => {
+  const store = installMemoryFinance({});
+  const added = await store.financeCreateCategory({ name: "Sample pets" }, "pets");
+  assert.equal(added.status, 201);
+  const draft = { type: "expense", payee: "Sample pet shop", date: "2026-11-10", amountCents: 1250 };
+  const saved = await store.financeCreateTransaction({ ...draft, category: added.body.bucket.slug }, NOW, "txn-pets");
+  assert.equal(saved.status, 201);
+  const month = await store.financeSpendingMonth(NOW);
+  assert.equal(spent(month.body, added.body.bucket.slug), 1250);
+  assert.equal((await store.financeDeleteCategory("fun")).status, 200);
+  const rejected = await store.financeCreateTransaction({ ...draft, category: "fun" }, NOW, "txn-fun");
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.body.field, "category");
+  const byName = await store.financeCreateTransaction({ ...draft, category: "Fun" }, NOW, "txn-fun-name");
+  assert.equal(byName.status, 400);
+});
+
+test("the seed list cannot bring back a removed bucket through a transaction", () => {
+  const removed = SEED_CATEGORIES.map((category) => (category.slug === "groceries" ? { ...category, removed: true } : category));
+  const draft = { type: "expense", payee: "Sample market", date: "2026-11-10", amountCents: 900, category: "groceries" };
+  const result = createTransaction([], draft, NOW, 1, removed);
+  assert.equal(result.status, 400);
+  assert.equal(result.body.field, "category");
+});
+
+test("remove copy counts every transaction that moves, not just this month", () => {
+  const rows = [
+    { id: "a", type: "expense", payee: "Sample cafe", date: "2026-11-05", amountCents: -1000, category: "dining-out" },
+    { id: "b", type: "expense", payee: "Sample cafe", date: "2026-09-14", amountCents: -2500, category: "dining-out" },
+  ];
+  const dining = bucketsSnapshot(SEED_CATEGORIES, rows, NOW).buckets.find((item) => item.slug === "dining-out");
+  assert.equal(dining.spentCents, 1000);
+  assert.equal(dining.movedCents, 3500);
+});
+
+test("an upstash remove that fails partway leaves the bucket live, and a retry finishes it", async () => {
+  const fake = await startFakeUpstash();
+  const { store } = createRuntime({ NODE_ENV: "production", UPSTASH_REDIS_REST_URL: fake.url, UPSTASH_REDIS_REST_TOKEN: fake.token });
+  try {
+    const before = await store.financeSpendingMonth(NOW);
+    const dining = spent(before.body, "dining-out");
+    assert.ok(before.body.transactions.filter((row) => row.category === "dining-out").length >= 2);
+    fake.failSetsAt(fake.counts.set + 1);
+    await assert.rejects(store.financeDeleteCategory("dining-out"));
+    fake.failSetsAt(null);
+    const mid = await store.financeBuckets(NOW);
+    assert.equal(mid.buckets.some((item) => item.slug === "dining-out"), true);
+    const retry = await store.financeDeleteCategory("dining-out");
+    assert.equal(retry.status, 200);
+    const after = await store.financeSpendingMonth(NOW);
+    assert.equal(after.body.transactions.some((row) => row.category === "dining-out"), false);
+    assert.equal(spent(after.body, "uncategorized"), spent(before.body, "uncategorized") + dining);
+    assert.equal(after.body.spentCents, before.body.spentCents);
+  } finally {
+    fake.stop();
+  }
 });
 
 test("a weekly spend chart leaves out a hidden bucket", () => {

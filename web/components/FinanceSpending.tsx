@@ -50,6 +50,7 @@ type Bucket = {
   color?: string;
   hidden: boolean;
   spentCents?: number;
+  movedCents?: number;
 };
 
 type Txn = {
@@ -1138,7 +1139,7 @@ export function FinanceSpending() {
         <div ref={confirmRef} data-remove-dialog="true">
           <ConfirmDialog
             title="Remove"
-            detail={removeBucketDetail(removeTarget?.name || "This bucket", removeTarget?.spentCents || 0)}
+            detail={removeBucketDetail(removeTarget?.name || "This bucket", removeTarget?.movedCents || 0)}
             error={bucketError}
             confirmLabel={bucketSaving ? "Removing…" : "Remove"}
             confirmDisabled={bucketSaving || panelOffline}

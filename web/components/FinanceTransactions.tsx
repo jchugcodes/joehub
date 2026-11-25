@@ -34,7 +34,8 @@ type Week = {
   rows: Row[];
 };
 
-const CATEGORIES = [
+// Fallback when the live bucket list can't load. The server still rejects a removed bucket.
+const CATEGORIES: [string, string][] = [
   ["groceries", "Groceries"],
   ["dining-out", "Dining Out"],
   ["transport", "Gas & Transport"],
@@ -56,9 +57,13 @@ function dollars(cents: number) {
   return (Math.abs(cents) / 100).toFixed(2);
 }
 
-function ledgerLine(value: LedgerValue | null) {
+function defaultCategory(list: [string, string][]) {
+  return list.some(([slug]) => slug === "dining-out") ? "dining-out" : list[0]?.[0] || "";
+}
+
+function ledgerLine(value: LedgerValue | null, list: [string, string][]) {
   if (!value) return "";
-  const name = CATEGORIES.find(([slug]) => slug === value.category)?.[1] || "Uncategorized";
+  const name = list.find(([slug]) => slug === value.category)?.[1] || (value.category ? CATEGORIES.find(([slug]) => slug === value.category)?.[1] : "") || "Uncategorized";
   return `${name} · ${money(value.amountCents)}`;
 }
 
@@ -73,6 +78,7 @@ export function FinanceTransactions() {
   const [date, setDate] = useState("");
   const [kind, setKind] = useState("expense");
   const [category, setCategory] = useState("dining-out");
+  const [buckets, setBuckets] = useState<[string, string][]>(CATEGORIES);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState<Row | null>(null);
@@ -88,6 +94,22 @@ export function FinanceTransactions() {
     return suffix ? `?${suffix}` : "";
   }
 
+  async function loadBuckets() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const asOf = params.get("asOf");
+      const response = await fetch(`/api/finance/buckets${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ""}`, { cache: "no-store" });
+      if (!response.ok) return CATEGORIES;
+      const body = (await response.json()) as { buckets?: { slug: string; name: string }[] };
+      const list = Array.isArray(body.buckets) ? body.buckets.map((item): [string, string] => [item.slug, item.name]) : [];
+      const next = list.length ? list : CATEGORIES;
+      setBuckets(next);
+      return next;
+    } catch {
+      return CATEGORIES;
+    }
+  }
+
   async function load(nextWeek = weekRef.current) {
     const response = await fetch(`/api/finance/transactions${query(nextWeek)}`, { cache: "no-store" });
     if (!response.ok) throw new Error("transactions");
@@ -100,13 +122,13 @@ export function FinanceTransactions() {
     return body;
   }
 
-  function show(row: Row | null, today: string) {
+  function show(row: Row | null, today: string, list = buckets) {
     setEditing(row);
     setPayee(row?.payee || "");
     setAmount(row ? dollars(row.amountCents) : "");
     setDate(row?.date || today);
     setKind(row?.type || "expense");
-    setCategory(row ? row.category || "" : "dining-out");
+    setCategory(row ? row.category || "" : defaultCategory(list));
     setError("");
     idem.current = "";
     setOpen(true);
@@ -123,12 +145,12 @@ export function FinanceTransactions() {
     window.addEventListener("resize", onResize);
     window.addEventListener("offline", onOffline);
     window.addEventListener("online", onOnline);
-    void load(weekRef.current)
-      .then((body) => {
+    void Promise.all([load(weekRef.current), loadBuckets()])
+      .then(([body, list]) => {
         const edit = params.get("edit");
         const row = edit ? body.rows.find((item) => item.id === edit) : undefined;
-        if (row && navigator.onLine) show(row, body.today);
-        else if (params.get("add") === "1" && navigator.onLine) show(null, body.today);
+        if (row && navigator.onLine) show(row, body.today, list);
+        else if (params.get("add") === "1" && navigator.onLine) show(null, body.today, list);
       })
       .catch(() => setError("Finance is unavailable."));
     return () => {
@@ -219,7 +241,7 @@ export function FinanceTransactions() {
         </div>
         {kind === "expense" || kind === "refund" ? (
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map(([slug, name]) => (
+            {buckets.map(([slug, name]) => (
               <button key={slug} type="button" aria-pressed={category === slug} className={`min-h-11 min-w-11 rounded-full px-3 text-meta ${category === slug ? "bg-ink text-page" : "border border-line"}`} onClick={() => setCategory(slug)}>
                 {name}
               </button>
@@ -232,7 +254,7 @@ export function FinanceTransactions() {
         {editing?.original ? (
           <div className="rounded-2xl bg-[#2E8B6A14] px-3 py-3">
             <p className="text-meta font-medium text-[#246C53]">Original from Ledger</p>
-            <p className="text-body">{ledgerLine(editing.original)}</p>
+            <p className="text-body">{ledgerLine(editing.original, buckets)}</p>
           </div>
         ) : null}
         {error ? <p className="text-body text-[#E07A5F]">{error}</p> : null}
@@ -299,9 +321,9 @@ export function FinanceTransactions() {
                       </span>
                     </button>
                     <dl className="mt-3 space-y-2 text-body">
-                      <div className="flex justify-between gap-3"><dt className="text-muted">Original from Ledger</dt><dd>{ledgerLine(row.original)}</dd></div>
-                      <div className="flex justify-between gap-3"><dt className="text-muted">Your correction</dt><dd>{ledgerLine(row.correction)}</dd></div>
-                      <div className="flex justify-between gap-3"><dt className="text-muted">Latest Ledger import</dt><dd>{ledgerLine(row.latest)}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Original from Ledger</dt><dd>{ledgerLine(row.original, buckets)}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Your correction</dt><dd>{ledgerLine(row.correction, buckets)}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-muted">Latest Ledger import</dt><dd>{ledgerLine(row.latest, buckets)}</dd></div>
                     </dl>
                     <button type="button" className="mt-4 min-h-11 w-full rounded-xl border border-line text-body" onClick={() => setResetting(row)}>
                       Reset to Ledger…

@@ -50,6 +50,14 @@ function hiddenSlugSet(categories) {
   return set;
 }
 
+function removedSlugSet(categories) {
+  const set = new Set();
+  for (const item of Array.isArray(categories) ? categories : []) {
+    if (item && item.removed === true && item.slug) set.add(item.slug);
+  }
+  return set;
+}
+
 function countsInTotals(row, hidden) {
   return !(row && row.category && hidden.has(row.category));
 }
@@ -866,6 +874,7 @@ export function removeBucketDetail(name, spentCents) {
 
 export function bucketsSnapshot(categories = CATEGORIES, txns, now = Date.now()) {
   const spent = new Map();
+  const moved = new Map();
   if (Array.isArray(txns)) {
     for (const row of rowsInMonth(txns, detroitYmd(now))) {
       if (!row.category) continue;
@@ -873,11 +882,19 @@ export function bucketsSnapshot(categories = CATEGORIES, txns, now = Date.now())
       if (!cents) continue;
       spent.set(row.category, (spent.get(row.category) || 0) + cents);
     }
+    // Remove moves every transaction in the bucket, not just this month's.
+    for (const row of txns.map(effective)) {
+      if (!row || !row.category) continue;
+      const cents = spendCents(row);
+      if (!cents) continue;
+      moved.set(row.category, (moved.get(row.category) || 0) + cents);
+    }
   }
   return {
     buckets: pageCategories(categories, { includeHidden: true }).map((item) => ({
       ...presentBucket(item),
       spentCents: spent.get(item.slug) || 0,
+      movedCents: moved.get(item.slug) || 0,
     })),
   };
 }
@@ -1781,7 +1798,7 @@ function readDraft(body, shown = {}, categories = CATEGORIES) {
   if (category === "" || category == null) category = null;
   else {
     const resolved = resolveIn(categories, category);
-    if (!resolved) return { ok: false, detail: "Choose a category.", field: "category" };
+    if (!resolved || removedSlugSet(categories).has(resolved.slug)) return { ok: false, detail: "Choose a category.", field: "category" };
     category = resolved.slug;
   }
   const account = readAccountId(body, shown);
@@ -2223,14 +2240,14 @@ export function installMemoryFinance(store, txns = SEED_TRANSACTIONS) {
   store.financeCreateTransaction = async (body, now = Date.now(), key = "") => {
     if (key && idem.has(`create:${key}`)) return idem.get(`create:${key}`);
     seq += 1;
-    const result = createTransaction(rows, body, now, seq, undefined, knownIds());
+    const result = createTransaction(rows, body, now, seq, categoryRows, knownIds());
     if (result.status === 201) rows = result.rows;
     const stored = { status: result.status, body: result.body };
     if (key && result.status === 201) idem.set(`create:${key}`, stored);
     return stored;
   };
   store.financePatchTransaction = async (id, body, now = Date.now()) => {
-    const result = patchTransaction(rows, id, body, now, undefined, knownIds());
+    const result = patchTransaction(rows, id, body, now, categoryRows, knownIds());
     if (result.status === 200) rows = result.rows;
     return { status: result.status, body: result.body };
   };

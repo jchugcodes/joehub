@@ -861,12 +861,14 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       const state = await this.financeBundle();
       const result = removeBucket(state.categories, slug, state.transactions, state.caps);
       if (result.status !== 200) return { status: result.status, body: result.body };
-      await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(result.categories))]);
-      await command(["SET", k("joehub:finance:caps"), JSON.stringify(result.caps)]);
+      // Upstash writes are not grouped. Move the transactions first and mark the bucket
+      // removed last, so a failure partway leaves the bucket live and a retry finishes it.
       const prior = new Map(state.transactions.map((row) => [row.id, row]));
       for (const row of result.transactions) {
         if (prior.get(row.id) !== row) await command(["SET", k(`joehub:finance:txn:${row.id}`), JSON.stringify(row)]);
       }
+      await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(result.categories))]);
+      await command(["SET", k("joehub:finance:caps"), JSON.stringify(result.caps)]);
       return { status: result.status, body: result.body };
     },
     async financeAccounts(now = Date.now(), options = {}) {
