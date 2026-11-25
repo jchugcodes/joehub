@@ -448,7 +448,7 @@ export function FinanceSpending() {
       const response = await fetch(`/api/finance/transactions/${selected.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        // Send the Ledger fields only when one of them changed, so a note or tags edit
+        // Send the core fields only when one of them changed, so a note or tags edit
         // does not become a correction on an imported row.
         body: JSON.stringify({
           ...(coreChanged
