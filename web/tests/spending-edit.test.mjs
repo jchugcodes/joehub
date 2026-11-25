@@ -172,6 +172,46 @@ test("spending edit keeps Save disabled until a change, and Cancel or Escape dis
     const vendor = await evalPage(send, "document.querySelector('[data-txn=\"fin-vendor\"]')?.innerText || ''");
     assert.match(vendor, /Uncategorized/);
     assert.doesNotMatch(vendor, /Uncategorized[\s\S]*Uncategorized/);
+
+    // FN-8: rename, note and tags. A note and tags alone do not make a correction.
+    const vendorBefore = await evalPage(send, `fetch('/api/finance/transactions/fin-vendor?asOf=${clock}').then((response) => response.json()).then((body) => JSON.stringify({ corrected: body.corrected, amountCents: body.amountCents, category: body.category }))`);
+    await send("Page.navigate", { url: `${base()}/finance/spending?asOf=${clock}&txn=fin-vendor` });
+    await waitFor(send, "document.querySelector('[data-overlay=panel][data-state=open]') && document.querySelector('[data-txn-detail]') && document.body.innerText.includes('SQ *DEMO VENDOR') ? 'yes' : ''", "vendor");
+    assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
+    await waitFor(send, "document.querySelector('#txn-note') && document.querySelector('#txn-tags') && document.querySelector('#txn-name')?.value === 'SQ *DEMO VENDOR' ? 'yes' : ''", "vendor edit");
+    assert.equal(await evalPage(send, saveDisabled()), "yes");
+    await evalPage(send, `(() => {
+      const fill = (selector, proto, text) => {
+        const el = document.querySelector(selector);
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, text);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      fill('#txn-tags', window.HTMLInputElement.prototype, 'sample, #Gift, sample');
+      fill('#txn-note', window.HTMLTextAreaElement.prototype, 'Sample birthday present');
+      return 'yes';
+    })()`);
+    await waitFor(send, `${saveDisabled()} ? '' : 'enabled'`, "note enables save");
+    assert.equal(await pressLabel(send, evalPage, "Save"), "yes");
+    await waitFor(send, "!document.querySelector('[data-edit]') && document.querySelector('[data-txn-note]')?.innerText.includes('Sample birthday present') && document.querySelector('[data-txn-tags]')?.innerText.includes('Gift') ? 'yes' : ''", "noted");
+    const vendorAfter = JSON.parse(await evalPage(send, `fetch('/api/finance/transactions/fin-vendor?asOf=${clock}').then((response) => response.json()).then((body) => JSON.stringify(body))`));
+    assert.equal(vendorAfter.note, "Sample birthday present");
+    assert.deepEqual(vendorAfter.tags, ["sample", "Gift"]);
+    assert.deepEqual({ corrected: vendorAfter.corrected, amountCents: vendorAfter.amountCents, category: vendorAfter.category }, JSON.parse(vendorBefore));
+
+    assert.equal(await pressLabel(send, evalPage, "Edit"), "yes");
+    await waitFor(send, "document.querySelector('#txn-tags')?.value === 'sample, Gift' ? 'yes' : ''", "vendor edit again");
+    await evalPage(send, `(() => {
+      const el = document.querySelector('#txn-name');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, 'Sample corner shop');
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return 'yes';
+    })()`);
+    await waitFor(send, `${saveDisabled()} ? '' : 'enabled'`, "rename enables save");
+    assert.equal(await pressLabel(send, evalPage, "Save"), "yes");
+    await waitFor(send, "!document.querySelector('[data-edit]') && document.querySelector('[data-txn=\"fin-vendor\"]')?.innerText.includes('Sample corner shop') ? 'yes' : ''", "renamed");
+    const renamed = JSON.parse(await evalPage(send, `fetch('/api/finance/transactions/fin-vendor?asOf=${clock}').then((response) => response.json()).then((body) => JSON.stringify(body))`));
+    assert.equal(renamed.payee, "Sample corner shop");
+    assert.equal(renamed.note, "Sample birthday present");
     ws.close();
   } finally {
     await stopProcess(chrome);

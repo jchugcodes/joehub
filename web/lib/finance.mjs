@@ -1707,6 +1707,8 @@ export function presentTransaction(row, categories = CATEGORIES) {
     ...(shown.sourceId ? { sourceId: shown.sourceId } : {}),
     ...(shown.accountMask ? { accountMask: shown.accountMask } : {}),
     ...(typeof shown.impulse === "boolean" ? { impulse: shown.impulse } : {}),
+    note: typeof row.note === "string" && row.note ? row.note : null,
+    tags: Array.isArray(row.tags) ? row.tags : [],
   };
 }
 
@@ -1809,6 +1811,10 @@ function readDraft(body, shown = {}, categories = CATEGORIES) {
   if (!mask.ok) return mask;
   const impulse = readImpulse(body, shown);
   if (!impulse.ok) return impulse;
+  const note = readNote(body, shown);
+  if (!note.ok) return note;
+  const tags = readTags(body, shown);
+  if (!tags.ok) return tags;
   return {
     ok: true,
     draft: {
@@ -1821,6 +1827,8 @@ function readDraft(body, shown = {}, categories = CATEGORIES) {
       sourceId: source.sourceId,
       accountMask: mask.accountMask,
       impulse: impulse.impulse,
+      note: note.note,
+      tags: tags.tags,
     },
   };
 }
@@ -1860,8 +1868,56 @@ function readImpulse(body, shown) {
   return { ok: true, impulse: body.impulse };
 }
 
-function withRowMeta(row, { sourceId, accountMask, impulse }) {
+export const NOTE_MAX = 500;
+export const TAG_MAX = 30;
+export const TAGS_MAX = 10;
+
+// A note is Joe's own text on a transaction. Empty clears it.
+function readNote(body, shown) {
+  if (!(body && Object.prototype.hasOwnProperty.call(body, "note"))) {
+    return { ok: true, note: typeof shown.note === "string" && shown.note ? shown.note : null };
+  }
+  if (body.note == null) return { ok: true, note: null };
+  if (typeof body.note !== "string") return { ok: false, field: "note", detail: "Enter a note." };
+  const note = body.note.replace(/\r\n?/g, "\n").trim();
+  if (note.length > NOTE_MAX) return { ok: false, field: "note", detail: `Keep the note under ${NOTE_MAX} characters.` };
+  return { ok: true, note: note || null };
+}
+
+/** Tags come in as a list or as one comma-separated string. Case-insensitive duplicates collapse to the first. */
+export function cleanTags(value) {
+  const parts = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : null;
+  if (!parts) return { ok: false, field: "tags", detail: "Enter tags." };
+  const tags = [];
+  const seen = new Set();
+  for (const part of parts) {
+    if (typeof part !== "string") return { ok: false, field: "tags", detail: "Enter tags." };
+    const tag = part.trim().replace(/\s+/g, " ").replace(/^#+/, "");
+    if (!tag) continue;
+    if (tag.length > TAG_MAX) return { ok: false, field: "tags", detail: `Keep each tag under ${TAG_MAX} characters.` };
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  if (tags.length > TAGS_MAX) return { ok: false, field: "tags", detail: `Use up to ${TAGS_MAX} tags.` };
+  return { ok: true, tags };
+}
+
+function readTags(body, shown) {
+  if (!(body && Object.prototype.hasOwnProperty.call(body, "tags"))) {
+    return { ok: true, tags: Array.isArray(shown.tags) ? shown.tags : [] };
+  }
+  if (body.tags == null) return { ok: true, tags: [] };
+  return cleanTags(body.tags);
+}
+
+function withRowMeta(row, { sourceId, accountMask, impulse, note, tags }) {
   const next = { ...row };
+  if (note) next.note = note;
+  else delete next.note;
+  if (Array.isArray(tags) && tags.length) next.tags = tags;
+  else delete next.tags;
   if (sourceId) next.sourceId = sourceId;
   else delete next.sourceId;
   if (accountMask) next.accountMask = accountMask;
@@ -1876,7 +1932,7 @@ export function createTransaction(rows, body, now = Date.now(), seq = 1, categor
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
   const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
   if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
-  const { sourceId, accountMask, impulse, ...fields } = parsed.draft;
+  const { sourceId, accountMask, impulse, note, tags, ...fields } = parsed.draft;
   const row = withRowMeta(
     {
       id: `fin-manual-${now}-${seq}`,
@@ -1884,10 +1940,12 @@ export function createTransaction(rows, body, now = Date.now(), seq = 1, categor
       createdAt: now,
       ...fields,
     },
-    { sourceId, accountMask, impulse },
+    { sourceId, accountMask, impulse, note, tags },
   );
   return { status: 201, body: presentTransaction(row), rows: [row, ...rows] };
 }
+
+const CORE_TXN_FIELDS = ["payee", "amountCents", "date", "type", "category", "accountId"];
 
 export function patchTransaction(rows, id, body, now = Date.now(), categories = CATEGORIES, knownAccountIds = null) {
   const index = rows.findIndex((row) => row.id === id);
@@ -1897,11 +1955,15 @@ export function patchTransaction(rows, id, body, now = Date.now(), categories = 
   if (!parsed.ok) return { status: 400, body: { detail: parsed.detail, field: parsed.field }, rows };
   const linked = knownAccount(parsed.draft.accountId, knownAccountIds);
   if (!linked.ok) return { status: 400, body: { detail: linked.detail, field: linked.field }, rows };
-  const { sourceId, accountMask, impulse, accountId, ...fields } = parsed.draft;
-  const edited = current.source === "ledger"
-    ? { ...current, accountId, correction: { ...fields, updatedAt: now } }
-    : { ...current, ...fields, accountId, updatedAt: now, ...(current.source === "bill" ? { edited: true } : {}) };
-  const next = withRowMeta(edited, { sourceId, accountMask, impulse });
+  const { sourceId, accountMask, impulse, note, tags, accountId, ...fields } = parsed.draft;
+  // A note or tags edit alone is Joe's annotation, not a correction of Ledger's figures.
+  const annotationOnly = !CORE_TXN_FIELDS.some((key) => body && Object.prototype.hasOwnProperty.call(body, key));
+  const edited = annotationOnly
+    ? { ...current, updatedAt: now }
+    : current.source === "ledger"
+      ? { ...current, accountId, correction: { ...fields, updatedAt: now } }
+      : { ...current, ...fields, accountId, updatedAt: now, ...(current.source === "bill" ? { edited: true } : {}) };
+  const next = withRowMeta(edited, { sourceId, accountMask, impulse, note, tags });
   const copy = rows.slice();
   copy[index] = next;
   return { status: 200, body: presentTransaction(next), rows: copy };

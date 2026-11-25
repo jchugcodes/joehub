@@ -64,7 +64,8 @@ type Txn = {
   corrected: boolean;
   uncategorized: boolean;
   accountMask?: string;
-  note?: string;
+  note?: string | null;
+  tags?: string[];
 };
 
 type WeekPage = {
@@ -114,6 +115,21 @@ function signed(cents: number) {
   return text;
 }
 
+/** Mirrors the server: comma-separated, trimmed, a leading # dropped, case-insensitive duplicates removed. */
+function tagList(text: string) {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const part of text.split(",")) {
+    const tag = part.trim().replace(/\s+/g, " ").replace(/^#+/, "");
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    tags.push(tag);
+  }
+  return tags;
+}
+
+const FIELD = "mt-1 h-11 w-full min-w-0 rounded-xl border border-line bg-page px-3 text-base outline-none focus:border-2 focus:border-ink";
+
 function categoryUrl(slug: string) {
   return "/api/finance/categories/" + encodeURIComponent(slug);
 }
@@ -152,6 +168,9 @@ export function FinanceSpending() {
   const [editing, setEditing] = useState(false);
   const [draftCategory, setDraftCategory] = useState("");
   const [transfer, setTransfer] = useState(false);
+  const [draftPayee, setDraftPayee] = useState("");
+  const [draftNote, setDraftNote] = useState("");
+  const [draftTags, setDraftTags] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [drill, setDrill] = useState<CategoryDetail | null>(null);
@@ -388,7 +407,12 @@ export function FinanceSpending() {
   const activeName = rows.find((item) => item.slug === active)?.name || "";
   const nextType = transfer ? "transfer" : selected?.type === "refund" ? "refund" : "expense";
   const nextCategory = transfer ? null : draftCategory || null;
-  const changed = Boolean(selected) && (nextType !== selected?.type || nextCategory !== (selected?.category || null));
+  const nextPayee = draftPayee.trim().replace(/\s+/g, " ");
+  const nextNote = draftNote.trim();
+  const nextTags = tagList(draftTags);
+  const coreChanged = Boolean(selected) && (nextType !== selected?.type || nextCategory !== (selected?.category || null) || nextPayee !== selected?.payee);
+  const notesChanged = Boolean(selected) && (nextNote !== (selected?.note || "") || nextTags.join("\n") !== (selected?.tags || []).join("\n"));
+  const changed = (coreChanged || notesChanged) && Boolean(nextPayee);
   const canSave = changed && !saving && !panelOffline;
   const categoryChoices = (snapshot?.categories || []).filter((item) => item.slug !== "uncategorized");
 
@@ -402,6 +426,9 @@ export function FinanceSpending() {
     if (!selected || panelOffline) return;
     setDraftCategory(selected.category || "");
     setTransfer(selected.type === "transfer");
+    setDraftPayee(selected.payee);
+    setDraftNote(selected.note || "");
+    setDraftTags((selected.tags || []).join(", "));
     setError("");
     setEditing(true);
   }
@@ -421,12 +448,13 @@ export function FinanceSpending() {
       const response = await fetch(`/api/finance/transactions/${selected.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
+        // Send the core fields only when one of them changed, so a note or tags edit
+        // does not become a correction on an imported row.
         body: JSON.stringify({
-          payee: selected.payee,
-          amountCents: selected.amountCents,
-          date: selected.date,
-          type: nextType,
-          category: nextCategory,
+          ...(coreChanged
+            ? { payee: nextPayee, amountCents: selected.amountCents, date: selected.date, type: nextType, category: nextCategory }
+            : {}),
+          ...(notesChanged ? { note: nextNote, tags: nextTags } : {}),
         }),
       });
       const body = (await response.json().catch(() => ({}))) as { detail?: string };
@@ -748,10 +776,22 @@ export function FinanceSpending() {
             <dd className="font-medium tabular-nums">•••• {selected.accountMask}</dd>
           </div>
         ) : null}
+        {selected.tags && selected.tags.length ? (
+          <div className="flex min-h-11 items-center justify-between gap-4 px-4 py-2" data-txn-tags>
+            <dt className="shrink-0 text-muted">Tags</dt>
+            <dd className="flex min-w-0 flex-wrap justify-end gap-1.5">
+              {selected.tags.map((tag) => (
+                <span key={tag} className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta font-medium">
+                  {tag}
+                </span>
+              ))}
+            </dd>
+          </div>
+        ) : null}
         {selected.note ? (
-          <div className="flex min-h-11 items-center justify-between gap-4 px-4">
+          <div className="px-4 py-3" data-txn-note>
             <dt className="text-muted">Note</dt>
-            <dd className="font-medium">{selected.note}</dd>
+            <dd className="mt-1 whitespace-pre-wrap break-words font-medium">{selected.note}</dd>
           </div>
         ) : null}
       </dl>
@@ -765,6 +805,21 @@ export function FinanceSpending() {
       <p data-edit-context className="truncate text-meta text-muted">
         {selected.payee} · {txnMoney(selected.amountCents)}
       </p>
+      <label className="block" htmlFor="txn-name">
+        <span className="text-meta text-muted">Name</span>
+        <input
+          id="txn-name"
+          value={draftPayee}
+          maxLength={80}
+          enterKeyHint="done"
+          autoComplete="off"
+          className={FIELD}
+          onChange={(event) => {
+            setDraftPayee(event.target.value);
+            setError("");
+          }}
+        />
+      </label>
       <button
         type="button"
         data-autofocus
@@ -810,6 +865,36 @@ export function FinanceSpending() {
           </button>
         </div>
       )}
+      <label className="block" htmlFor="txn-tags">
+        <span className="text-meta text-muted">Tags</span>
+        <input
+          id="txn-tags"
+          value={draftTags}
+          placeholder="Separate with commas"
+          enterKeyHint="done"
+          autoComplete="off"
+          autoCapitalize="none"
+          className={FIELD}
+          onChange={(event) => {
+            setDraftTags(event.target.value);
+            setError("");
+          }}
+        />
+      </label>
+      <label className="block" htmlFor="txn-note">
+        <span className="text-meta text-muted">Note</span>
+        <textarea
+          id="txn-note"
+          value={draftNote}
+          rows={3}
+          maxLength={500}
+          className="mt-1 w-full min-w-0 resize-y rounded-xl border border-line bg-page px-3 py-2.5 text-base outline-none focus:border-2 focus:border-ink"
+          onChange={(event) => {
+            setDraftNote(event.target.value);
+            setError("");
+          }}
+        />
+      </label>
       {error ? (
         <p role="alert" className="text-body text-finance-dining">
           {error}
