@@ -1,6 +1,6 @@
 import { applyKeyPrefix } from "./keys.mjs";
 import { syntheticSeedEnabled } from "./seed.mjs";
-import { accountsSnapshot, applyMonthlyBudgets, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createGoal, deleteGoal, patchGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, spendingMonth, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
+import { accountsSnapshot, applyMonthlyBudgets, bucketsSnapshot, categoriesFromCaps, categoriesSnapshot, categoryView, createAccount, createBucket, createGoal, deleteGoal, patchBucket, patchGoal, createTransaction, debtById, debtsSnapshot, defaultCaps, envelopeTotal, normalizeCategories, overview, parseCaps, parseMonthlyBudgets, patchAccount, patchTransaction, presentAccount, presentTransaction, publicCategories, removeAccount, removeBucket, resetLedger, rollUpAccounts, seedSnapshots, simulateLedgerRefresh, spendingMonth, transactionsForWeek, SEED_ACCOUNT_LINKS, SEED_ACCOUNTS, SEED_TRANSACTIONS, ACCOUNTS, GOALS, PLAN_CENTS } from "./finance.mjs";
 import { SEED_BILLS, billsSnapshot, createBill, deleteBill, importLedgerTransaction, patchBill, projectBills, setBillPaid } from "./bills.mjs";
 import { readOptionalSourceId } from "./source-id.mjs";
 import { performCheck as performGroceryCheck, performClear as performGroceryClear, performCreate as performGroceryCreate, performDelete as performGroceryDelete, performPatch as performGroceryPatch, SAMPLE_GROCERY } from "./grocery.mjs";
@@ -831,6 +831,46 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (idemKey) await command(["SET", k(`joehub:finance:budget:idem:${idemKey}`), JSON.stringify(result), "EX", "86400"]);
       return result;
     },
+    async financeBuckets(now = Date.now()) {
+      const state = await this.financeBundle();
+      return bucketsSnapshot(state.categories, state.transactions, now);
+    },
+    async financeCreateCategory(body, key = "") {
+      const state = await this.financeBundle();
+      if (key) {
+        const prior = await readJson(k(`joehub:finance:category:idem:${key}`));
+        if (prior) return prior;
+      }
+      const result = createBucket(state.categories, body);
+      const stored = { status: result.status, body: result.body };
+      if (result.status === 201) {
+        await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(result.categories))]);
+        if (key) await command(["SET", k(`joehub:finance:category:idem:${key}`), JSON.stringify(stored), "EX", "86400"]);
+      }
+      return stored;
+    },
+    async financePatchCategory(slug, body) {
+      const state = await this.financeBundle();
+      const result = patchBucket(state.categories, slug, body);
+      if (result.status === 200) {
+        await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(result.categories))]);
+      }
+      return { status: result.status, body: result.body };
+    },
+    async financeDeleteCategory(slug) {
+      const state = await this.financeBundle();
+      const result = removeBucket(state.categories, slug, state.transactions, state.caps);
+      if (result.status !== 200) return { status: result.status, body: result.body };
+      // Upstash writes are not grouped. Move the transactions first and mark the bucket
+      // removed last, so a failure partway leaves the bucket live and a retry finishes it.
+      const prior = new Map(state.transactions.map((row) => [row.id, row]));
+      for (const row of result.transactions) {
+        if (prior.get(row.id) !== row) await command(["SET", k(`joehub:finance:txn:${row.id}`), JSON.stringify(row)]);
+      }
+      await command(["SET", k("joehub:finance:categories"), JSON.stringify(publicCategories(result.categories))]);
+      await command(["SET", k("joehub:finance:caps"), JSON.stringify(result.caps)]);
+      return { status: result.status, body: result.body };
+    },
     async financeAccounts(now = Date.now(), options = {}) {
       await ensureFinance();
       const manualAccounts = await listManualAccounts();
@@ -988,13 +1028,15 @@ export function createUpstashStore({ url, token, fetchImpl = fetch, prefix = "jo
       if (accountId && !(await readJson(k(`joehub:finance:account:${accountId}`)))) {
         return { status: 400, body: { detail: "Choose an account.", field: "accountId" } };
       }
-      return transactionsForWeek(await this.financeRows(), now, week, accountId);
+      const state = await this.financeBundle();
+      return transactionsForWeek(state.transactions, now, week, accountId, state.categories);
     },
     async financeTransaction(id) {
       await ensureFinance();
       if (!/^[A-Za-z0-9._:-]{1,80}$/.test(String(id || ""))) return { status: 404, body: { detail: "That transaction is not here." } };
-      const row = await readJson(k(`joehub:finance:txn:${id}`));
-      return row ? { status: 200, body: presentTransaction(row) } : { status: 404, body: { detail: "That transaction is not here." } };
+      const state = await this.financeBundle();
+      const row = state.transactions.find((item) => item.id === id);
+      return row ? { status: 200, body: presentTransaction(row, state.categories) } : { status: 404, body: { detail: "That transaction is not here." } };
     },
     async financeCreateTransaction(body, now = Date.now(), key = "") {
       await ensureFinance();

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { countsAsSpend, money, spendCents } from "../lib/finance.mjs";
+import { countsAsSpend, hiddenBucketsLabel, money, removeBucketDetail, spendCents } from "../lib/finance.mjs";
 import { showMonthBudget } from "../lib/live-pages.mjs";
 import { categoryBar } from "../lib/spending-bars.mjs";
 import { readOverlayHold } from "../lib/overlay-motion.mjs";
@@ -13,7 +13,7 @@ import { Detail as CategoryDrill, type CategoryDetail } from "./FinanceCategory"
 import { FinanceTabs } from "./FinanceTabs";
 import { Icon } from "./Icon";
 import { useOverlayHolds, useOverlays, useProductionNav, useSkeletonHolds, useSkeletons } from "./LivePages";
-import { OverlayPanel } from "./OverlayPanel";
+import { ConfirmDialog, OverlayPanel } from "./OverlayPanel";
 import { useSkeletonPhase } from "./SkeletonHold";
 import { LoadError, RefreshBar, SpendingSkeleton } from "./Skeleton";
 
@@ -42,6 +42,15 @@ type Snapshot = {
   weekStart?: string;
   budgetLabel?: string;
   categories: CategoryRow[];
+};
+
+type Bucket = {
+  slug: string;
+  name: string;
+  color?: string;
+  hidden: boolean;
+  spentCents?: number;
+  movedCents?: number;
 };
 
 type Txn = {
@@ -105,6 +114,10 @@ function signed(cents: number) {
   return text;
 }
 
+function categoryUrl(slug: string) {
+  return "/api/finance/categories/" + encodeURIComponent(slug);
+}
+
 function hrefFor(search: URLSearchParams, patch: (next: URLSearchParams) => void) {
   const next = new URLSearchParams(search.toString());
   patch(next);
@@ -150,7 +163,17 @@ export function FinanceSpending() {
   const [budgetField, setBudgetField] = useState("");
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [panelTxn, setPanelTxn] = useState("");
+  const [buckets, setBuckets] = useState<Bucket[]>([]);
+  const [bucketsOpen, setBucketsOpen] = useState(false);
+  const [bucketMode, setBucketMode] = useState<"list" | "add" | "rename">("list");
+  const [bucketSlug, setBucketSlug] = useState("");
+  const [bucketName, setBucketName] = useState("");
+  const [bucketError, setBucketError] = useState("");
+  const [bucketSaving, setBucketSaving] = useState(false);
+  const [removeSlug, setRemoveSlug] = useState("");
   const idempotency = useRef("");
+  const bucketIdem = useRef("");
+  const confirmRef = useRef<HTMLDivElement>(null);
   const pending = !snapshot && !failed && hold !== "refresh" && hold !== "empty" && hold !== "error" && hold !== "skel";
   const { phase, refreshing } = useSkeletonPhase(skeletonOn, hold, pending, Boolean(snapshot) || hold === "refresh" || hold === "empty");
   const bones = skeletonOn && (hold === "skel" || (phase === "skeleton" && !snapshot));
@@ -160,6 +183,15 @@ export function FinanceSpending() {
   const showEmptyHold = skeletonOn && hold === "empty";
 
   const load = useCallback(async () => {
+    const bucketQuery = new URLSearchParams();
+    if (asOf) bucketQuery.set("asOf", asOf);
+    const bucketResponse = await fetch(`/api/finance/buckets${bucketQuery.size ? `?${bucketQuery.toString()}` : ""}`, { cache: "no-store" });
+    if (!bucketResponse.ok) throw new Error("buckets");
+    const bucketBody = (await bucketResponse.json()) as { buckets?: Bucket[] };
+    const list = Array.isArray(bucketBody.buckets) ? bucketBody.buckets : [];
+    const hidden = new Set(list.filter((item) => item.hidden).map((item) => item.slug));
+    setBuckets(list);
+    const visibleTxn = (row: Txn) => !row.category || !hidden.has(row.category);
     if (period !== "week") {
       const params = new URLSearchParams();
       if (asOf) params.set("asOf", asOf);
@@ -174,7 +206,7 @@ export function FinanceSpending() {
         categories: body.categories,
       });
       setMonth(body.month ?? null);
-      setTxns(Array.isArray(body.transactions) ? body.transactions : []);
+      setTxns((Array.isArray(body.transactions) ? body.transactions : []).filter(visibleTxn));
       setFailed(false);
       return;
     }
@@ -212,7 +244,7 @@ export function FinanceSpending() {
     collected.sort((left, right) => (left.date < right.date ? 1 : left.date > right.date ? -1 : 0));
     setSnapshot(body);
     setMonth(monthBody);
-    setTxns(collected);
+    setTxns(collected.filter(visibleTxn));
     setFailed(false);
   }, [asOf, period]);
 
@@ -223,6 +255,34 @@ export function FinanceSpending() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    if (!removeSlug) return;
+    const node = confirmRef.current;
+    const buttons = () => [...(node?.querySelectorAll<HTMLElement>("button") ?? [])].filter((el) => !el.hasAttribute("disabled"));
+    buttons().find((el) => el.textContent?.trim() === "Cancel")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!bucketSaving) {
+          setRemoveSlug("");
+          setBucketError("");
+        }
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = buttons();
+      if (!items.length) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const index = items.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey ? (index <= 0 ? items.length - 1 : index - 1) : index < 0 || index === items.length - 1 ? 0 : index + 1;
+      items[next]?.focus();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [removeSlug, bucketSaving]);
 
   useEffect(() => {
     const onOffline = () => setTone("offline");
@@ -417,6 +477,110 @@ export function FinanceSpending() {
     setBudgetsOpen(false);
     setBudgetError("");
     setBudgetField("");
+  }
+
+  function openBuckets() {
+    if (!snapshot || panelOffline) return;
+    setBucketMode("list");
+    setBucketError("");
+    setBucketName("");
+    setBudgetsOpen(false);
+    setPanelTxn("");
+    if (selectedId || cat) {
+      go((next) => {
+        next.delete("txn");
+        next.delete("cat");
+      });
+    }
+    setBucketsOpen(true);
+  }
+
+  function closeBuckets() {
+    if (removeSlug) return;
+    setBucketsOpen(false);
+    setBucketMode("list");
+    setBucketError("");
+    setBucketName("");
+  }
+
+  function closeRemove() {
+    if (bucketSaving) return;
+    setRemoveSlug("");
+    setBucketError("");
+  }
+
+  async function setHidden(slug: string, hidden: boolean) {
+    setBucketError("");
+    try {
+      const response = await fetch(categoryUrl(slug), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hidden }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) {
+        setBucketError(body.detail || "Couldn’t save.");
+        return;
+      }
+      await load();
+    } catch {
+      setBucketError("Couldn’t save.");
+    }
+  }
+
+  async function saveBucket(event: FormEvent) {
+    event.preventDefault();
+    const name = bucketName.trim().replace(/\s+/g, " ");
+    if (!name) {
+      setBucketError("Enter a name.");
+      return;
+    }
+    setBucketSaving(true);
+    setBucketError("");
+    const creating = bucketMode === "add";
+    try {
+      const response = await fetch(creating ? "/api/finance/categories" : categoryUrl(bucketSlug), {
+        method: creating ? "POST" : "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...(creating ? { "idempotency-key": bucketIdem.current || (bucketIdem.current = crypto.randomUUID()) } : {}),
+        },
+        body: JSON.stringify({ name }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) {
+        setBucketError(body.detail || "Couldn’t save.");
+        return;
+      }
+      bucketIdem.current = "";
+      setBucketMode("list");
+      setBucketName("");
+      await load();
+    } catch {
+      setBucketError("Couldn’t save.");
+    } finally {
+      setBucketSaving(false);
+    }
+  }
+
+  async function confirmRemove() {
+    if (!removeSlug || bucketSaving) return;
+    setBucketSaving(true);
+    setBucketError("");
+    try {
+      const response = await fetch(categoryUrl(removeSlug), { method: "DELETE" });
+      const body = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) {
+        setBucketError(body.detail || "Couldn’t remove.");
+        return;
+      }
+      setRemoveSlug("");
+      await load();
+    } catch {
+      setBucketError("Couldn’t remove.");
+    } finally {
+      setBucketSaving(false);
+    }
   }
 
   async function saveBudgets(event: FormEvent) {
@@ -701,6 +865,85 @@ export function FinanceSpending() {
       </OverlayPanel>
     ) : null;
 
+  const removeTarget = buckets.find((item) => item.slug === removeSlug) || null;
+  const hiddenLabel = hiddenBucketsLabel(buckets.filter((item) => item.hidden).length);
+  const bucketTitle = bucketMode === "add" ? "Add bucket" : bucketMode === "rename" ? "Rename" : "Buckets";
+  const bucketPanel = (panelWide: boolean) => (
+    <OverlayPanel
+      wide={panelWide}
+      title={bucketTitle}
+      onClose={closeBuckets}
+      onBack={bucketMode === "list" ? undefined : () => { setBucketMode("list"); setBucketError(""); }}
+      form={bucketMode !== "list"}
+      slim={bucketMode !== "list"}
+      sheet={bucketMode !== "list"}
+      confirming={Boolean(removeSlug)}
+      action={
+        bucketMode === "list" ? (
+          <button type="button" onClick={() => { setBucketMode("add"); setBucketName(""); setBucketError(""); }} className="inline-flex h-11 items-center px-2 text-body font-medium text-finance-primary">
+            Add
+          </button>
+        ) : (
+          <button type="submit" form="bucket-form" disabled={bucketSaving || panelOffline || !bucketName.trim()} className="inline-flex h-11 min-w-11 items-center justify-center bg-transparent p-0 disabled:opacity-50">
+            <span className="inline-flex h-8 items-center justify-center rounded-xl bg-ink px-3.5 text-body font-medium text-page">{bucketSaving ? "Saving…" : "Save"}</span>
+          </button>
+        )
+      }
+    >
+      <div className="min-w-0 px-5 py-4" data-buckets={bucketMode}>
+        {bucketError ? <p role="alert" className="mb-3 text-body text-finance-dining">{bucketError}</p> : null}
+        {bucketMode === "list" ? (
+          <ul>
+            {buckets.map((item) => (
+              <li key={item.slug} data-bucket={item.slug} data-hidden={item.hidden ? "true" : "false"} className="border-b border-line py-2">
+                <div className="flex min-h-11 items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-body font-medium">{item.name}</span>
+                  {item.hidden ? <span className="shrink-0 text-meta text-muted">Hidden</span> : null}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" data-bucket-action="hide" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => void setHidden(item.slug, !item.hidden)}>
+                    {item.hidden ? "Show" : "Hide"}
+                  </button>
+                  <button type="button" data-bucket-action="rename" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => { setBucketSlug(item.slug); setBucketName(item.name); setBucketError(""); setBucketMode("rename"); }}>
+                    Rename
+                  </button>
+                  <button type="button" data-bucket-action="remove" className="inline-flex h-11 min-w-11 items-center px-2 text-body text-ink" onClick={() => { setRemoveSlug(item.slug); setBucketError(""); }}>
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <form id="bucket-form" onSubmit={saveBucket}>
+            <label className="block" htmlFor="bucket-name">
+              <span className="text-meta text-muted">Name</span>
+              <input
+                id="bucket-name"
+                value={bucketName}
+                inputMode="text"
+                enterKeyHint="done"
+                autoComplete="off"
+                autoCapitalize="words"
+                data-autofocus="true"
+                className="mt-1 h-11 w-full min-w-0 rounded-xl border border-line bg-page px-3 text-base outline-none focus:border-2 focus:border-ink"
+                onChange={(event) => {
+                  setBucketName(event.target.value);
+                  setBucketError("");
+                }}
+              />
+            </label>
+          </form>
+        )}
+        {panelOffline ? (
+          <p role="status" data-state="offline" className="mt-4 rounded-2xl bg-table-header px-4 py-3 text-left text-body text-ink dark:bg-white/10">
+            You are offline.
+          </p>
+        ) : null}
+      </div>
+    </OverlayPanel>
+  );
+
   const capsQuery = new URLSearchParams();
   if (asOf) capsQuery.set("asOf", asOf);
   if (weekParam || snapshot?.weekStart) capsQuery.set("week", weekParam || snapshot?.weekStart || "");
@@ -724,16 +967,16 @@ export function FinanceSpending() {
   return (
     <main className="finance-type min-w-0 text-ink" data-ready={snapshot && !bones ? "true" : undefined} data-spending={rows.length ? "list" : snapshot ? "empty" : "loading"} data-plan={planOn ? (month?.saved ? "plan" : "estimate") : "none"} data-layout={wide ? "panel" : "sheet"} data-period={period}>
       <header className="flex items-end justify-between gap-3 px-5 pt-2">
-        <div>
+        <div className="min-w-0">
           <p className="text-meta text-muted">joehub</p>
           <h1 className="text-title font-medium">Finance</h1>
         </div>
         {period === "month" ? (
-          <button type="button" className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={() => openBudgets()}>
+          <button type="button" className="mb-1 inline-flex min-h-11 shrink-0 items-center text-body font-medium text-finance-primary disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={() => openBudgets()}>
             Edit budgets
           </button>
         ) : (
-          <Link href={capsHref} className="mb-1 inline-flex min-h-11 items-center text-body font-medium text-finance-primary">
+          <Link href={capsHref} className="mb-1 inline-flex min-h-11 shrink-0 items-center text-body font-medium text-finance-primary">
             Edit caps
           </Link>
         )}
@@ -741,14 +984,23 @@ export function FinanceSpending() {
       <div className="mt-3">
         <FinanceTabs />
       </div>
-      <div data-period-track="true" className="mx-4 mt-4 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
+      <div className="px-5">
+        <button type="button" data-open-buckets="true" aria-label="Manage buckets" className="flex min-h-11 w-full items-center justify-between gap-3 text-body text-ink disabled:opacity-40" disabled={!snapshot || panelOffline} onClick={openBuckets}>
+          <span className="font-medium">Buckets</span>
+          <span className="inline-flex items-center gap-1 font-medium text-finance-primary">
+            Manage
+            <Icon name="chevron" size={16} className="shrink-0" />
+          </span>
+        </button>
+      </div>
+      <div data-period-track="true" className="mx-4 mt-1 grid h-11 grid-cols-2 rounded-full border border-line bg-surface p-1" role="group" aria-label="Budget period">
         {(["week", "month"] as const).map((item) => (
           <button key={item} type="button" data-period-option={item} aria-pressed={period === item} className={`rounded-full text-body font-medium ${period === item ? "bg-finance-primary text-page dark:bg-ink dark:text-page" : "text-ink"}`} onClick={() => go((next) => next.set("period", item))}>
             {item === "week" ? "Week" : "Month"}
           </button>
         ))}
       </div>
-      <div className={wide && overlayOn && (selectedId || cat || budgetsOpen) ? "flex min-w-0 items-start" : "min-w-0"}>
+      <div className={wide && overlayOn && (selectedId || cat || budgetsOpen || bucketsOpen) ? "flex min-w-0 items-start" : "min-w-0"}>
         <div className="min-w-0 flex-1">
           {skeletonOn && refreshing && snapshot ? <RefreshBar /> : null}
           {offline ? (
@@ -772,6 +1024,11 @@ export function FinanceSpending() {
                     {planOn && month?.planCents != null ? <span className="text-body font-normal text-muted"> of {money(month.planCents)} {month.saved ? "plan" : "estimate"}</span> : null}
                   </p>
                   {planOn && month?.percent != null ? <p className="mt-2 text-meta text-muted">{month.percent}% used</p> : null}
+                  {hiddenLabel ? (
+                    <button type="button" data-hidden-buckets={buckets.filter((item) => item.hidden).length} className="mt-1 inline-flex min-h-11 items-center text-meta text-muted" onClick={openBuckets}>
+                      {hiddenLabel}
+                    </button>
+                  ) : null}
                 </section>
               ) : (
                 <div className="mt-5 px-5">
@@ -872,10 +1129,26 @@ export function FinanceSpending() {
           ) : null}
         </div>
         {overlayOn && wide && selectedId ? panel(true) : null}
-        {overlayOn && wide && !selectedId && (cat || budgetsOpen) ? categoryPanel(true) : null}
+        {overlayOn && wide && !selectedId && bucketsOpen ? bucketPanel(true) : null}
+        {overlayOn && wide && !selectedId && !bucketsOpen && (cat || budgetsOpen) ? categoryPanel(true) : null}
       </div>
       {overlayOn && !wide && selectedId ? panel(false) : null}
-      {overlayOn && !wide && !selectedId && (cat || budgetsOpen) ? categoryPanel(false) : null}
+      {overlayOn && !wide && !selectedId && bucketsOpen ? bucketPanel(false) : null}
+      {overlayOn && !wide && !selectedId && !bucketsOpen && (cat || budgetsOpen) ? categoryPanel(false) : null}
+      {removeSlug ? (
+        <div ref={confirmRef} data-remove-dialog="true">
+          <ConfirmDialog
+            title="Remove"
+            detail={removeBucketDetail(removeTarget?.name || "This bucket", removeTarget?.movedCents || 0)}
+            error={bucketError}
+            confirmLabel={bucketSaving ? "Removing…" : "Remove"}
+            confirmDisabled={bucketSaving || panelOffline}
+            confirmClassName="order-2 inline-flex h-11 min-w-11 flex-1 items-center justify-center rounded-xl bg-warn text-body font-medium text-on-warn disabled:opacity-50"
+            onCancel={closeRemove}
+            onConfirm={() => void confirmRemove()}
+          />
+        </div>
+      ) : null}
     </main>
   );
 }

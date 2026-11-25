@@ -25,6 +25,7 @@ export async function startFakeUpstash() {
   const commands = [];
   const counts = { set: 0 };
   let fail = false;
+  let failSetsAt = null;
 
   function live(key) {
     const at = expires.get(key);
@@ -43,6 +44,7 @@ export async function startFakeUpstash() {
     if (op === "MGET") return args.slice(1).map((item) => (live(item) ? values.get(item) : null));
     if (op === "SET") {
       if (args.includes("NX") && live(key) && values.has(key)) return null;
+      if (failSetsAt !== null && counts.set >= failSetsAt) throw new Error("injected set failure");
       counts.set += 1;
       values.set(key, args[2]);
       const ex = args.indexOf("EX");
@@ -170,6 +172,10 @@ export async function startFakeUpstash() {
     commands,
     setFail(value) {
       fail = value;
+    },
+    // Fail every SET once this many SETs have landed in total. null turns it off.
+    failSetsAt(value) {
+      failSetsAt = value;
     },
     stop() {
       server.close();

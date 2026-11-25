@@ -57,6 +57,12 @@ test("the spending page reads this month from the finance APIs and edits through
   assert.match(ui, /data-category-detail="true"/);
   assert.match(ui, /data-period-track="true"/);
   assert.match(ui, /Edit budgets/);
+  assert.match(ui, /aria-label="Manage buckets"/);
+  assert.match(ui, /data-hidden-buckets/);
+  assert.match(ui, /hiddenBucketsLabel/);
+  assert.match(ui, /ConfirmDialog/);
+  assert.match(ui, /removeBucketDetail/);
+  assert.match(ui, /bg-warn/);
   assert.match(ui, /set\("cat"/);
   assert.match(ui, /categoryBar\(item, spent\)/);
   assert.match(ui, /data-bar=\{bar\.mode\}/);
